@@ -343,9 +343,17 @@ function configuredSource(module, source) {
 
 async function moduleSource(module) {
   if (!sourceCache.has(module.file)) {
-    const response = await fetch(`scripts/${module.file}`, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`${module.title} 코드를 불러오지 못했습니다.`);
-    sourceCache.set(module.file, await response.text());
+    const bundled = window.SCENE_SUITE_SOURCES?.[module.file];
+    if (bundled) {
+      sourceCache.set(module.file, bundled);
+    } else {
+      const response = await fetch(`scripts/${module.file}`, {
+        cache: 'no-store',
+      });
+      if (!response.ok)
+        throw new Error(`${module.title} 코드를 불러오지 못했습니다.`);
+      sourceCache.set(module.file, await response.text());
+    }
   }
   return configuredSource(module, sourceCache.get(module.file));
 }

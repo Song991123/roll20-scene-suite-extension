@@ -2,10 +2,12 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const buildSourceCatalog = require('./build-sources');
 
 const root = path.resolve(__dirname, '..');
 const publicRoot = path.join(root, 'public');
 const scriptsRoot = path.join(publicRoot, 'scripts');
+const sourcesFile = path.join(publicRoot, 'assets', 'sources.js');
 const scripts = Array.from({ length: 10 }, (_, index) =>
   fs
     .readdirSync(scriptsRoot)
@@ -36,6 +38,11 @@ const scriptText = scripts
   .map((name) => fs.readFileSync(path.join(scriptsRoot, name), 'utf8'))
   .join('\n');
 new Function(scriptText);
+assert.strictEqual(
+  fs.readFileSync(sourcesFile, 'utf8'),
+  buildSourceCatalog(),
+  '코드 원문 묶음을 다시 만들어야 합니다: node tools/build-sources.js',
+);
 
 assert(
   !publicText.includes('·'),
