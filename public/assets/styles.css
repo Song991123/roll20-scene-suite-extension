@@ -56,6 +56,16 @@ header strong {
   font-size: 17px;
 }
 
+.site-title {
+  display: grid;
+  line-height: 1.35;
+}
+
+.site-title span {
+  color: var(--gray-700);
+  font-size: 11px;
+}
+
 header a,
 footer a {
   font-size: 12px;
@@ -64,23 +74,6 @@ footer a {
 
 main {
   padding-bottom: 72px;
-}
-
-.intro {
-  padding: 62px 0 48px;
-}
-
-.intro h1 {
-  margin: 0;
-  font-size: clamp(32px, 6vw, 52px);
-  line-height: 1.2;
-  letter-spacing: -0.045em;
-}
-
-.intro p {
-  margin: 14px 0 0;
-  color: var(--gray-700);
-  font-size: 15px;
 }
 
 section {
@@ -96,6 +89,7 @@ section {
   border-bottom: 2px solid var(--black);
 }
 
+h1,
 h2 {
   margin: 0;
   font-size: 22px;
@@ -224,6 +218,13 @@ button:disabled {
   padding: 8px 10px;
 }
 
+.settings small {
+  color: var(--gray-700);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+
 #no-settings {
   display: none;
   grid-column: 1 / -1;
@@ -233,18 +234,11 @@ button:disabled {
 }
 
 .build {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 16px;
+  display: flex;
   align-items: center;
-  padding: 22px;
-  border: 2px solid var(--black);
-}
-
-.build p {
-  margin: 5px 0 0;
-  color: var(--gray-700);
-  font-size: 12px;
+  gap: 12px;
+  justify-content: flex-end;
+  padding-top: 14px;
 }
 
 .build-actions button:first-child {
@@ -258,9 +252,10 @@ button:disabled {
 
 #build-status {
   min-height: 19px;
-  grid-column: 1 / -1;
+  order: -1;
   margin: 0;
   color: var(--black);
+  font-size: 12px;
 }
 
 .setup-list {
@@ -352,10 +347,6 @@ footer {
     width: min(100% - 24px, 920px);
   }
 
-  .intro {
-    padding: 44px 0 24px;
-  }
-
   section {
     margin-top: 42px;
   }
@@ -389,8 +380,8 @@ footer {
   }
 
   .build {
-    grid-template-columns: 1fr;
-    padding: 16px;
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .build-actions {

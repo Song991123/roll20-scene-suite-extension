@@ -5,28 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Roll20 Scene Suite 확장 버전 설치 코드 만들기"
+      content="양천일염님의 Narrator와 Visual Dialogue를 확장한 Roll20 Scene Suite 설치 도구"
     />
-    <title>Scene Suite 확장 버전</title>
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='black'/%3E%3Ctext x='32' y='40' text-anchor='middle' font-family='Arial' font-size='24' font-weight='700' fill='white'%3ESS%3C/text%3E%3C/svg%3E"
-    />
+    <title>Scene Suite | Narrator와 Visual Dialogue 확장판</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="assets/styles.css" />
     <script src="assets/app.js" defer></script>
   </head>
   <body>
     <header>
-      <strong>Scene Suite 확장 버전</strong>
+      <div class="site-title">
+        <strong>Scene Suite</strong>
+        <span>양천일염님의 Narrator와 Visual Dialogue 확장판</span>
+      </div>
       <a href="https://x.com/EOOOOORK" target="_blank" rel="noreferrer"
         >@EOOOOORK</a
       >
     </header>
 
     <main>
-      <section class="intro">
-        <h1>Roll20 적용 코드 만들기</h1>
-        <p>사용할 기능을 고르면 Roll20에 붙여 넣을 코드 한 개로 묶어줍니다.</p>
+      <section aria-labelledby="setup-title">
+        <div class="section-title">
+          <h1 id="setup-title">세팅법</h1>
+        </div>
+        <div class="setup-list" id="setup-list"></div>
       </section>
 
       <section aria-labelledby="modules-title">
@@ -55,36 +57,30 @@
             />
           </label>
           <label id="dialog-image-setting">
-            <span>대사창 이미지 주소</span>
+            <span>별도 대사창 패널 이미지 주소</span>
             <input
               id="setting-dialog-image"
               type="url"
-              placeholder="05번 대사창에 쓸 이미지"
+              placeholder="https://files.d20.io/.../max.png"
               autocomplete="off"
             />
+            <small
+              >글자 뒤에 깔 패널 이미지입니다. Roll20 이미지 라이브러리의 HTTPS
+              주소를 사용하세요. PNG, JPG, JPEG, WEBP의 max 또는 med 주소는
+              자동으로 thumb 주소로 바뀝니다.</small
+            >
           </label>
           <p id="no-settings">선택한 코드에는 바꿀 설정이 없습니다.</p>
         </div>
       </section>
 
-      <section class="build" aria-labelledby="build-title">
-        <div>
-          <h2 id="build-title">통합 파일</h2>
-          <p id="build-summary"></p>
-        </div>
+      <div class="build">
         <div class="build-actions">
           <button type="button" id="copy-bundle">코드 복사</button>
           <button type="button" id="download-bundle">파일 받기</button>
         </div>
         <p id="build-status" role="status" aria-live="polite"></p>
-      </section>
-
-      <section aria-labelledby="setup-title">
-        <div class="section-title">
-          <h2 id="setup-title">세팅법</h2>
-        </div>
-        <div class="setup-list" id="setup-list"></div>
-      </section>
+      </div>
 
       <aside class="notice">
         01 Narrator, 03 Visual Dialogue, 04 Image Switcher는 양천일염님의 원본을
@@ -94,7 +90,19 @@
           target="_blank"
           rel="noreferrer"
           >재배포 정책</a
-        >에 따라 CC BY-NC 조건으로 배포합니다.
+        >에 따라 CC BY-NC 조건으로 배포합니다. <br />08 Cutin은
+        <a
+          href="https://lise1415622.tistory.com/52"
+          target="_blank"
+          rel="noreferrer"
+          >젠트의 주사위 판정 컷인</a
+        >과
+        <a
+          href="https://www.postype.com/@ttospt/post/21806654"
+          target="_blank"
+          rel="noreferrer"
+          >똣의 범용 컷인 API</a
+        >에서 연출 아이디어의 영향을 받아 별도 구현했습니다.
       </aside>
     </main>
 

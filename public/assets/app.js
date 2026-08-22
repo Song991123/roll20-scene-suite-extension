@@ -116,7 +116,6 @@ const selected = new Set(MODULES.map((module) => module.id));
 const sourceCache = new Map();
 const moduleList = document.querySelector('#module-list');
 const setupList = document.querySelector('#setup-list');
-const buildSummary = document.querySelector('#build-summary');
 const buildStatus = document.querySelector('#build-status');
 const copyButton = document.querySelector('#copy-bundle');
 const downloadButton = document.querySelector('#download-bundle');
@@ -132,7 +131,7 @@ function renderModules() {
       <span class="module-number">${module.id}</span>
       <span class="module-name"><strong>${module.title}</strong><small>${module.file}</small></span>
       <span class="module-description">${module.description}</span>
-      <span class="module-tag${module.required ? ' required' : ''}">${module.required ? '필수' : '단독 사용'}</span>
+      <span class="module-tag${module.required ? ' required' : ''}">${module.required ? '필수' : '단독 사용 가능'}</span>
     </label>
   `,
   ).join('');
@@ -170,7 +169,6 @@ function updatePage() {
   pageSetting.hidden = !usesPage;
   dialogImageSetting.hidden = !selected.has('05');
   noSettings.style.display = usesPage ? 'none' : 'block';
-  buildSummary.textContent = `필수 코드 포함 ${selected.size}개를 한 파일로 묶습니다.`;
   buildStatus.textContent = '';
 }
 

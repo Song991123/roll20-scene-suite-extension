@@ -27,6 +27,7 @@ const publicTextFiles = [
 const publicText = publicTextFiles
   .map((file) => fs.readFileSync(file, 'utf8'))
   .join('\n');
+const indexText = fs.readFileSync(path.join(publicRoot, 'index.html'), 'utf8');
 const scriptText = scripts
   .map((name) => fs.readFileSync(path.join(scriptsRoot, name), 'utf8'))
   .join('\n');
@@ -45,6 +46,22 @@ assert(
   '개인 Roll20 이미지 주소를 배포하지 않습니다.',
 );
 assert(publicText.includes('확장 버전'), '확장 버전 표기가 필요합니다.');
+assert(
+  !indexText.includes('Roll20 적용 코드 만들기'),
+  '불필요한 소개 구역을 다시 넣지 않습니다.',
+);
+assert(
+  !indexText.includes('통합 파일'),
+  '받기 버튼에 별도 통합 파일 구역을 만들지 않습니다.',
+);
+assert(
+  publicText.includes('단독 사용 가능'),
+  '단독 사용 가능 표기가 필요합니다.',
+);
+assert(
+  publicText.includes('별도 대사창 패널 이미지 주소'),
+  '패널 이미지 설정 설명이 필요합니다.',
+);
 assert(
   publicText.includes('2089133134201995610'),
   '제작 기록 링크가 필요합니다.',
@@ -71,6 +88,14 @@ assert.strictEqual(
   (scriptText.match(/원본 라이선스: CC BY-NC/g) || []).length,
   3,
   '가공한 세 코드에 CC BY-NC 표기가 필요합니다.',
+);
+assert(
+  scriptText.includes('lise1415622.tistory.com/52'),
+  '컷인 아이디어 참고 출처가 필요합니다.',
+);
+assert(
+  scriptText.includes('postype.com/@ttospt/post/21806654'),
+  '범용 컷인 아이디어 참고 출처가 필요합니다.',
 );
 
 console.log('Scene Suite release check: PASS');
