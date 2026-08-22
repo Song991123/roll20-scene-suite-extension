@@ -1,0 +1,50 @@
+name: Deploy installer to Dothome
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - public/**
+      - .github/workflows/deploy-dothome.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dothome-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: vars.DEPLOY_DOTHOME == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Check public files
+        run: node tools/check.js
+
+      - name: Upload public directory
+        env:
+          FTP_HOST: ${{ secrets.DOTHOME_FTP_HOST }}
+          FTP_USERNAME: ${{ secrets.DOTHOME_FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.DOTHOME_FTP_PASSWORD }}
+          FTP_PATH: ${{ secrets.DOTHOME_FTP_PATH }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${FTP_HOST:?DOTHOME_FTP_HOST is required}"
+          : "${FTP_USERNAME:?DOTHOME_FTP_USERNAME is required}"
+          : "${FTP_PASSWORD:?DOTHOME_FTP_PASSWORD is required}"
+          : "${FTP_PATH:?DOTHOME_FTP_PATH is required}"
+          target="${FTP_PATH#/}"
+          target="${target%/}"
+          find public -type f -print0 | while IFS= read -r -d '' file; do
+            relative="${file#public/}"
+            curl --fail --silent --show-error --ftp-create-dirs \
+              --user "$FTP_USERNAME:$FTP_PASSWORD" \
+              --upload-file "$file" \
+              "ftp://$FTP_HOST/$target/$relative"
+          done
