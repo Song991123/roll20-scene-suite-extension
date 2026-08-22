@@ -2,6 +2,8 @@
  * Scene Suite 04 - Image Switcher 확장 버전
  * 확장 및 통합: @EOOOOORK
  * 원본: 양천일염 (kibkibe) Image Switcher
+ * 원본 코드: image_switcher.js
+ * 원본 라이선스: CC BY-NC (저작자표시-비영리)
  * https://github.com/kibkibe/roll20-api-scripts/tree/master/image_switcher
  */
 

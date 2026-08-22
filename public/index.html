@@ -1,206 +1,116 @@
 <!doctype html>
 <html lang="ko">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Roll20 Scene Suite 확장 버전 모듈 선택과 통합 코드 생성">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Roll20 Scene Suite 확장 버전 설치 코드 만들기"
+    />
     <title>Scene Suite 확장 버전</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23171717'/%3E%3Ctext x='32' y='40' text-anchor='middle' font-family='Arial' font-size='24' font-weight='700' fill='white'%3ESS%3C/text%3E%3C/svg%3E">
-    <link rel="stylesheet" href="assets/styles.css">
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='black'/%3E%3Ctext x='32' y='40' text-anchor='middle' font-family='Arial' font-size='24' font-weight='700' fill='white'%3ESS%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="assets/styles.css" />
     <script src="assets/app.js" defer></script>
   </head>
   <body>
-    <a class="skip-link" href="#builder">설치 도구로 바로 가기</a>
-
-    <header class="site-header">
-      <div class="header-inner">
-        <a class="brand" href="#top" aria-label="Scene Suite 처음으로">
-          <span class="brand-mark">SS</span>
-          <span>
-            <strong>Scene Suite</strong>
-            <small>Roll20 Mod 확장 버전</small>
-          </span>
-        </a>
-        <nav aria-label="페이지 바로가기">
-          <a href="#builder">코드 만들기</a>
-          <a href="#setup">세팅 방법</a>
-          <a href="#changes">달라진 점</a>
-          <a href="https://x.com/EOOOOORK/status/2089133134201995610" target="_blank" rel="noreferrer">제작 기록</a>
-        </nav>
-      </div>
+    <header>
+      <strong>Scene Suite 확장 버전</strong>
+      <a href="https://x.com/EOOOOORK" target="_blank" rel="noreferrer"
+        >@EOOOOORK</a
+      >
     </header>
 
-    <main id="top">
-      <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">배포 자료 / API</p>
-        <h1 id="hero-title">필요한 연출만 골라<br>한 번에 가져가세요.</h1>
-        <p class="hero-copy">
-          대사와 스탠딩부터 오디오, APNG, 핸드아웃, 컷인까지 필요한 모듈만 선택하면 Roll20에 붙여 넣을 통합 코드를 만듭니다.
-          각 파일은 따로 설치해도 작동합니다.
-        </p>
-        <div class="hero-actions">
-          <a class="button primary" href="#builder">설치 코드 만들기</a>
-          <a class="button secondary" href="#setup">먼저 세팅 보기</a>
-        </div>
-        <dl class="hero-facts" aria-label="프로젝트 요약">
-          <div><dt>모듈</dt><dd>10개</dd></div>
-          <div><dt>설치 방식</dt><dd>선택형</dd></div>
-          <div><dt>관리</dt><dd>GM 명령과 핸드아웃</dd></div>
-        </dl>
+    <main>
+      <section class="intro">
+        <h1>Roll20 적용 코드 만들기</h1>
+        <p>사용할 기능을 고르면 Roll20에 붙여 넣을 코드 한 개로 묶어줍니다.</p>
       </section>
 
-      <section class="release-note" aria-label="배포 상태">
-        <strong>현재 상태</strong>
-        <span>기능과 설치 페이지는 준비됐습니다. 원본 기반 파일은 재배포 허락 확인 전까지 공개 배포를 열지 않습니다.</span>
+      <section aria-labelledby="modules-title">
+        <div class="section-title">
+          <h2 id="modules-title">적용시킬 코드</h2>
+          <div class="list-actions">
+            <button type="button" id="select-all">전체 선택</button>
+            <button type="button" id="clear-selection">선택 해제</button>
+          </div>
+        </div>
+        <div class="module-list" id="module-list"></div>
       </section>
 
-      <section class="section" id="builder" aria-labelledby="builder-title">
-        <div class="section-heading">
-          <p class="section-number">01</p>
-          <div>
-            <h2 id="builder-title">설치 코드 만들기</h2>
-            <p>추천 구성을 고르거나 필요한 모듈만 직접 선택하세요.</p>
-          </div>
+      <section aria-labelledby="settings-title">
+        <div class="section-title">
+          <h2 id="settings-title">사용자 설정</h2>
         </div>
-
-        <div class="preset-bar" aria-label="추천 구성">
-          <button type="button" data-preset="all">전체 기능</button>
-          <button type="button" data-preset="novel">비주얼 노벨</button>
-          <button type="button" data-preset="sound">오디오와 영상</button>
-          <button type="button" data-preset="handout">핸드아웃과 컷인</button>
-          <button type="button" data-preset="clear">선택 해제</button>
-        </div>
-
-        <div class="builder-layout">
-          <div>
-            <div class="module-grid" id="module-list" aria-live="polite"></div>
-
-            <details class="settings-panel" open>
-              <summary>방에 맞게 바꿀 값</summary>
-              <div class="settings-grid">
-                <label>
-                  <span>Visual Dialogue 페이지</span>
-                  <input id="setting-vd-pages" type="text" value="conversation,intro" autocomplete="off">
-                  <small>쉼표로 여러 페이지를 적습니다.</small>
-                </label>
-                <label>
-                  <span>Dialog Overlay 페이지</span>
-                  <input id="setting-overlay-page" type="text" value="Start" autocomplete="off">
-                </label>
-                <label>
-                  <span>Dialog Overlay 발화자</span>
-                  <input id="setting-overlay-speakers" type="text" value="▶" autocomplete="off">
-                  <small>쉼표로 여러 이름을 적습니다.</small>
-                </label>
-                <label>
-                  <span>Dialog Overlay 배경 이미지</span>
-                  <input id="setting-overlay-image" type="url" placeholder="https://files.d20.io/..." autocomplete="off">
-                </label>
-                <label>
-                  <span>APNG 페이지</span>
-                  <input id="setting-apng-page" type="text" value="conversation" autocomplete="off">
-                </label>
-                <label>
-                  <span>컷인 어두운 배경 이미지</span>
-                  <input id="setting-cutin-overlay" type="url" placeholder="선택 사항" autocomplete="off">
-                  <small>비워 두면 GM 레이어의 cutin_overlay 토큰을 씁니다.</small>
-                </label>
-              </div>
-            </details>
-          </div>
-
-          <aside class="build-card" aria-labelledby="build-title">
-            <p class="section-number">BUILD</p>
-            <h3 id="build-title">내 설치 파일</h3>
-            <p id="build-summary">선택한 모듈을 확인하는 중입니다.</p>
-            <ol id="selected-list" class="selected-list"></ol>
-            <div class="build-actions">
-              <button class="button primary" id="copy-bundle" type="button">통합 코드 복사</button>
-              <button class="button secondary" id="download-bundle" type="button">통합 파일 받기</button>
-            </div>
-            <p class="build-status" id="build-status" role="status" aria-live="polite"></p>
-            <p class="build-tip">통합 파일은 선택한 순서가 아니라 00부터 09까지 안전한 로드 순서로 묶입니다.</p>
-          </aside>
+        <div class="settings">
+          <label id="page-setting">
+            <span>적용시킬 페이지 이름</span>
+            <input
+              id="setting-page"
+              type="text"
+              value="conversation"
+              autocomplete="off"
+            />
+          </label>
+          <label id="dialog-image-setting">
+            <span>대사창 이미지 주소</span>
+            <input
+              id="setting-dialog-image"
+              type="url"
+              placeholder="05번 대사창에 쓸 이미지"
+              autocomplete="off"
+            />
+          </label>
+          <p id="no-settings">선택한 코드에는 바꿀 설정이 없습니다.</p>
         </div>
       </section>
 
-      <section class="section" id="setup" aria-labelledby="setup-title">
-        <div class="section-heading">
-          <p class="section-number">02</p>
-          <div>
-            <h2 id="setup-title">기능별 세팅</h2>
-            <p>코드를 넣기 전에 Roll20에서 준비할 이름과 객체만 모았습니다.</p>
-          </div>
+      <section class="build" aria-labelledby="build-title">
+        <div>
+          <h2 id="build-title">통합 파일</h2>
+          <p id="build-summary"></p>
+        </div>
+        <div class="build-actions">
+          <button type="button" id="copy-bundle">코드 복사</button>
+          <button type="button" id="download-bundle">파일 받기</button>
+        </div>
+        <p id="build-status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section aria-labelledby="setup-title">
+        <div class="section-title">
+          <h2 id="setup-title">세팅법</h2>
         </div>
         <div class="setup-list" id="setup-list"></div>
       </section>
 
-      <section class="section changes" id="changes" aria-labelledby="changes-title">
-        <div class="section-heading">
-          <p class="section-number">03</p>
-          <div>
-            <h2 id="changes-title">기존 코드와 달라진 점</h2>
-            <p>원형을 유지한 부분과 Scene Suite에서 확장한 부분을 나눴습니다.</p>
-          </div>
-        </div>
-
-        <div class="change-grid">
-          <article>
-            <span class="change-label">Narrator 확장</span>
-            <h3>대사와 연출을 한 줄에서</h3>
-            <ul>
-              <li>순차 출력, 일시정지, 취소, 줄 합치기 유지</li>
-              <li>오디오, 배경, APNG, 핸드아웃, 컷인, 표정 동시 실행</li>
-              <li>실행 전 전체 검사와 오류 시 큐 자동 취소</li>
-              <li>옵션 순서를 바꿔도 읽는 한국어 명령</li>
-            </ul>
-          </article>
-          <article>
-            <span class="change-label">Visual Dialogue 확장</span>
-            <h3>채팅 꾸밈은 남기고 본문만 표시</h3>
-            <ul>
-              <li>링크, 스타일, 마크다운을 대사창에서 제거</li>
-              <li>일반 대사, as, desc, emas 구분</li>
-              <li>타자식 출력과 채팅 출력 시간 동기화</li>
-              <li>스탠딩 비율, 표정, 글꼴, 외곽선, 화면 순서 관리</li>
-            </ul>
-          </article>
-          <article>
-            <span class="change-label">Image Switcher 확장</span>
-            <h3>기존 규칙을 그대로 큐에 연결</h3>
-            <ul>
-              <li>덱, 토큰, 카드 이름 규칙 유지</li>
-              <li>카드 변경 시 매크로 자동 갱신 유지</li>
-              <li>Narrator 줄과 같은 타이밍에 이미지 전환</li>
-              <li>다른 모듈 상태 초기화 제거</li>
-            </ul>
-          </article>
-          <article>
-            <span class="change-label">Scene Suite 신규</span>
-            <h3>모듈은 따로, 연출은 함께</h3>
-            <ul>
-              <li>쥬크박스 제목 직접 제어와 페이드</li>
-              <li>전체 또는 영역 APNG와 컷인</li>
-              <li>핸드아웃 권한과 공개 알림 관리</li>
-              <li>시트 아바타, 토큰, 스탠딩 선택 동기화</li>
-            </ul>
-          </article>
-        </div>
-      </section>
-
-      <section class="credits" aria-labelledby="credits-title">
-        <h2 id="credits-title">출처</h2>
-        <p>
-          01, 03, 04는 양천일염님의
-          <a href="https://github.com/kibkibe/roll20-api-scripts" target="_blank" rel="noreferrer">Roll20 공개 스크립트</a>를 바탕으로 만든 확장 버전입니다.
-          원 저장소에 별도 라이선스가 확인되지 않아 공개 재배포는 허락 확인 뒤 진행합니다.
-        </p>
-      </section>
+      <aside class="notice">
+        01 Narrator, 03 Visual Dialogue, 04 Image Switcher는 양천일염님의 원본을
+        수정한 확장 버전입니다.
+        <a
+          href="https://github.com/kibkibe/roll20-api-scripts/wiki/API-%EC%8A%A4%ED%81%AC%EB%A6%BD%ED%8A%B8-%EA%B0%80%EA%B3%B5-%EB%B0%8F-%EC%9E%AC%EB%B0%B0%ED%8F%AC-%EC%A0%95%EC%B1%85"
+          target="_blank"
+          rel="noreferrer"
+          >재배포 정책</a
+        >에 따라 CC BY-NC 조건으로 배포합니다.
+      </aside>
     </main>
 
     <footer>
-      <p>Scene Suite 확장 버전</p>
-      <a href="https://x.com/EOOOOORK" target="_blank" rel="noreferrer">@EOOOOORK</a>
+      <a
+        href="https://x.com/EOOOOORK/status/2089133134201995610"
+        target="_blank"
+        rel="noreferrer"
+        >제작 기록</a
+      >
+      <a
+        href="https://github.com/kibkibe/roll20-api-scripts"
+        target="_blank"
+        rel="noreferrer"
+        >원본 출처</a
+      >
     </footer>
   </body>
 </html>

@@ -172,4 +172,4 @@ GitHub 저장소에 다음 값을 등록합니다.
 
 `01_narrator_director.js`, `03_visual_dialogue_compatible.js`, `04_image_switcher_compatible.js`는 양천일염님의 공개 스크립트를 바탕으로 만든 확장 버전입니다. 자세한 주소는 [THIRD_PARTY_NOTICE.md](THIRD_PARTY_NOTICE.md)에 적었습니다.
 
-원 저장소에는 확인 시점에 별도 라이선스 파일이 없었습니다. 공개 재배포 전 원 저작자에게 수정본 재배포 허락을 확인해야 합니다.
+가공 및 재배포는 [원본 재배포 정책](https://github.com/kibkibe/roll20-api-scripts/wiki/API-%EC%8A%A4%ED%81%AC%EB%A6%BD%ED%8A%B8-%EA%B0%80%EA%B3%B5-%EB%B0%8F-%EC%9E%AC%EB%B0%B0%ED%8F%AC-%EC%A0%95%EC%B1%85)에 따라 허용되며, 원본이 포함된 확장 코드는 CC BY-NC 조건으로 배포합니다.
