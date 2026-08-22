@@ -34,6 +34,10 @@ const appText = fs.readFileSync(
   path.join(publicRoot, 'assets', 'app.js'),
   'utf8',
 );
+const cutinText = fs.readFileSync(
+  path.join(scriptsRoot, '08_cutin_director.js'),
+  'utf8',
+);
 const scriptText = scripts
   .map((name) => fs.readFileSync(path.join(scriptsRoot, name), 'utf8'))
   .join('\n');
@@ -73,6 +77,16 @@ assert(
   appText.includes("label: '패널 이미지 주소'") &&
     appText.includes('Roll20 HTTPS 이미지 주소'),
   '패널 이미지 설정 설명이 필요합니다.',
+);
+assert(
+  !/(?:sheetRules|changeSheetRules|시트추가|시트삭제|시트목록|function rollFields|function conditionMatches)/.test(
+    cutinText,
+  ),
+  '배포본 08에 시트 호환 코드를 넣지 않습니다.',
+);
+assert(
+  appText.includes('각종 여러 시트 호환은 아직 미개발. 추후 업뎃 예정'),
+  '컷인 시트 호환 예정 안내가 필요합니다.',
 );
 assert(
   !indexText.includes('id="setup-list"') &&

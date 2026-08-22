@@ -921,10 +921,6 @@ var KIBScene = KIBScene || {};
       commandRow(
         '!컷인 대사추가|컷인명|문구1,문구2',
         '정확히 같은 대사와 자동 연결',
-      ) +
-      commandRow(
-        '!컷인 시트추가|컷인명|시트출력이름|필드|값',
-        '주사위 결과 필드와 연결',
       );
     var controls =
       actionButton('컷인 관리', '!컷인 관리', '#287a4b') +

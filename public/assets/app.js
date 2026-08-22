@@ -138,7 +138,7 @@ const MODULES = [
     id: '08',
     file: '08_cutin_director.js',
     title: '컷인',
-    description: '카드 이미지와 핸드아웃 표지 출력',
+    description: '이미지와 핸드아웃 표지를 화면 위에 표시(각종 여러 시트 호환은 아직 미개발. 추후 업뎃 예정)',
     setup: ['cutin 덱에 이미지 카드 등록', '채팅 명령어 !컷인 관리', '영역 사용 시 GM 레이어에 cutin_area 배치', '배경 사용 시 GM 레이어에 cutin_overlay 배치'],
     settings: [
       { id: 'command', group: '기본', label: '명령어', type: 'text', value: '!컷인', codeKey: 'command' },

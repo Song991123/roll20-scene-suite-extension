@@ -223,9 +223,6 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (action === '대사추가') return changeTextRules(parts, false);
     if (action === '대사삭제') return changeTextRules(parts, true);
     if (action === '대사목록') return whisper(ruleStatus(parts[0]));
-    if (action === '시트추가') return changeSheetRules(parts, false);
-    if (action === '시트삭제') return changeSheetRules(parts, true);
-    if (action === '시트목록') return whisper(ruleStatus(parts[0]));
     if (action === '연결') return bindAudio(parts);
     if (action === '연결해제') return unbindAudio(parts);
     if (action === '연결목록') return whisper(linkStatus());
@@ -1352,98 +1349,12 @@ KIBScene.adapters = KIBScene.adapters || {};
     );
   }
 
-  function changeSheetRules(args, removing) {
-    initState();
-    var values = (args || []).map(trim);
-    var source = resolveRuleSource(values.shift());
-    if (!source.ok) return whisper(source.error);
-    var template = values.shift();
-    var field = values.shift();
-    var conditions = splitList(values.join('|'));
-    if (!template || !field || !conditions.length) {
-      return whisper(
-        '사용법: <code>!컷인 시트' +
-          (removing ? '삭제' : '추가') +
-          '|컷인명|시트출력이름|필드명|값1,값2</code>',
-      );
-    }
-    var rules = state.KIBSceneCutin.sheetRules[source.key] || [];
-    var before = rules.reduce(function (count, item) {
-      return count + item.conditions.length;
-    }, 0);
-    var rule = rules.filter(function (item) {
-      return (
-        normalizeText(item.template) === normalizeText(template) &&
-        normalizeText(item.field) === normalizeText(field)
-      );
-    })[0];
-    if (!rule && !removing) {
-      rule = { template: template, field: field, conditions: [] };
-      rules.push(rule);
-    }
-    if (rule) {
-      if (removing) {
-        var removed = conditions.map(normalizeText);
-        rule.conditions = rule.conditions.filter(function (condition) {
-          return removed.indexOf(normalizeText(condition)) < 0;
-        });
-        rules = rules.filter(function (item) {
-          return item.conditions.length > 0;
-        });
-      } else
-        conditions.forEach(function (condition) {
-          if (
-            !rule.conditions.some(function (saved) {
-              return normalizeText(saved) === normalizeText(condition);
-            })
-          )
-            rule.conditions.push(condition);
-        });
-    }
-    var after = rules.reduce(function (count, item) {
-      return count + item.conditions.length;
-    }, 0);
-    if (removing && after === before)
-      return whisper('삭제할 시트 연결을 찾지 못했습니다.');
-    if (rules.length) state.KIBSceneCutin.sheetRules[source.key] = rules;
-    else delete state.KIBSceneCutin.sheetRules[source.key];
-    scheduleManager();
-    refreshHelp();
-    whisper(
-      '<b>' +
-        escapeHtml(sourceLabel(source)) +
-        '</b> 시트 연결을 ' +
-        (removing ? '삭제' : '저장') +
-        '했습니다.<br>' +
-        ruleStatusBySource(source),
-    );
-  }
-
   function handleAutomaticTrigger(msg) {
     initState();
     if (msg.type === 'whisper' || msg.playerid === 'API') return;
+    if (msg.rolltemplate) return;
     var keys = [];
-    if (msg.rolltemplate) {
-      var fields = rollFields(msg);
-      Object.keys(state.KIBSceneCutin.sheetRules).forEach(function (key) {
-        if (
-          (state.KIBSceneCutin.sheetRules[key] || []).some(function (rule) {
-            if (
-              normalizeText(rule.template) !== normalizeText(msg.rolltemplate)
-            )
-              return false;
-            var value = fields[normalizeText(rule.field)];
-            return (
-              value !== undefined &&
-              rule.conditions.some(function (condition) {
-                return conditionMatches(value, condition);
-              })
-            );
-          })
-        )
-          keys.push(key);
-      });
-    } else if (/^(?:general|emote|desc)$/i.test(String(msg.type || ''))) {
+    if (/^(?:general|emote|desc)$/i.test(String(msg.type || ''))) {
       var text = normalizeDialogueText(msg.content);
       Object.keys(state.KIBSceneCutin.textRules).forEach(function (key) {
         if (
@@ -1514,41 +1425,6 @@ KIBScene.adapters = KIBScene.adapters || {};
     };
   }
 
-  function rollFields(msg) {
-    var fields = {};
-    var content = String(msg.content || '').replace(
-      /\$\[\[(\d+)\]\]/g,
-      function (all, index) {
-        var roll = msg.inlinerolls && msg.inlinerolls[Number(index)];
-        return roll && roll.results && roll.results.total !== undefined
-          ? String(roll.results.total)
-          : all;
-      },
-    );
-    var pattern = /{{\s*([^}=]+?)\s*=\s*([\s\S]*?)}}/g;
-    var match;
-    while ((match = pattern.exec(content)))
-      fields[normalizeText(match[1])] = normalizeText(match[2]);
-    return fields;
-  }
-
-  function conditionMatches(value, condition) {
-    var match = trim(condition).match(/^(>=|<=|>|<|=)\s*(-?\d+(?:\.\d+)?)$/);
-    if (!match) return normalizeText(value) === normalizeText(condition);
-    var actual = Number(String(value).replace(/,/g, ''));
-    var expected = Number(match[2]);
-    if (isNaN(actual)) return false;
-    return match[1] === '>='
-      ? actual >= expected
-      : match[1] === '<='
-        ? actual <= expected
-        : match[1] === '>'
-          ? actual > expected
-          : match[1] === '<'
-            ? actual < expected
-            : actual === expected;
-  }
-
   function resolveRuleSource(reference) {
     var ref = trim(reference);
     var match = ref.match(/^(핸드아웃|handout|card|카드)\s*:(.+)$/i);
@@ -1617,11 +1493,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       var source = resolveRuleSource(reference);
       return source.ok ? ruleStatusBySource(source) : source.error;
     }
-    var keys = Object.keys(state.KIBSceneCutin.textRules)
-      .concat(Object.keys(state.KIBSceneCutin.sheetRules))
-      .filter(function (key, index, list) {
-        return list.indexOf(key) === index;
-      });
+    var keys = Object.keys(state.KIBSceneCutin.textRules);
     return keys.length
       ? keys
           .map(function (key) {
@@ -1640,25 +1512,9 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function ruleStatusBySource(source) {
     var textRules = state.KIBSceneCutin.textRules[source.key] || [];
-    var sheetRules = state.KIBSceneCutin.sheetRules[source.key] || [];
-    var text = textRules.length
+    return textRules.length
       ? '대사: ' + textRules.map(escapeHtml).join(', ')
       : '대사: 없음';
-    var sheet = sheetRules.length
-      ? '시트: ' +
-        sheetRules
-          .map(function (rule) {
-            return escapeHtml(
-              rule.template +
-                '.' +
-                rule.field +
-                ' = ' +
-                rule.conditions.join(', '),
-            );
-          })
-          .join(' / ')
-      : '시트: 없음';
-    return text + '<br>' + sheet;
   }
 
   function splitList(value) {
@@ -1938,7 +1794,6 @@ KIBScene.adapters = KIBScene.adapters || {};
     var key = source.key;
     var target = safeQuery(sourceLabel(source));
     var textRules = state.KIBSceneCutin.textRules[key] || [];
-    var sheetRules = state.KIBSceneCutin.sheetRules[key] || [];
     var play = source.handout
       ? SETTING.command + ' 재생|핸드아웃|' + target + '|4초'
       : SETTING.command + ' 재생|' + target + '|4초';
@@ -1952,15 +1807,6 @@ KIBScene.adapters = KIBScene.adapters || {};
           target +
           '|?{자동 재생할 대사(여러 개는 쉼표)}',
         '#237a8b',
-      ) +
-      ' ' +
-      button(
-        '시트 +',
-        SETTING.command +
-          ' 시트추가|' +
-          target +
-          '|?{시트 출력 이름(rolltemplate)}|?{출력 필드 이름}|?{값 또는 조건(쉼표 구분)}',
-        '#7654a8',
       );
     if (source.card) {
       controls +=
@@ -1994,45 +1840,16 @@ KIBScene.adapters = KIBScene.adapters || {};
             optionQuery('삭제할 대사', textRules),
           '#8b3940',
         );
-    if (sheetRules.length) {
-      var options = [];
-      sheetRules.forEach(function (rule) {
-        rule.conditions.forEach(function (condition) {
-          options.push({
-            label: rule.template + '.' + rule.field + '=' + condition,
-            value: rule.template + '|' + rule.field + '|' + condition,
-          });
-        });
-      });
-      controls +=
-        ' ' +
-        button(
-          '시트 -',
-          SETTING.command +
-            ' 시트삭제|' +
-            target +
-            '|' +
-            optionQueryObjects('삭제할 시트 연결', options),
-          '#8b3940',
-        );
-    }
     return controls;
   }
 
   function compactRuleStatus(source) {
     var textCount = (state.KIBSceneCutin.textRules[source.key] || []).length;
-    var sheetCount = (state.KIBSceneCutin.sheetRules[source.key] || []).reduce(
-      function (count, rule) {
-        return count + rule.conditions.length;
-      },
-      0,
-    );
     var trackId = source.card && state.KIBSceneCutin.audioLinks[source.card.id];
     var track = trackId ? getObj('jukeboxtrack', trackId) : null;
-    var automatic =
-      textCount || sheetCount
-        ? '자동 연결: 대사 ' + textCount + '개 · 시트 ' + sheetCount + '개'
-        : '자동 연결: 없음';
+    var automatic = textCount
+      ? '자동 연결: 대사 ' + textCount + '개'
+      : '자동 연결: 없음';
     return (
       automatic +
       '<br>효과음: ' +
@@ -2094,10 +1911,8 @@ KIBScene.adapters = KIBScene.adapters || {};
       if (match && !getObj(match[1], match[2]))
         delete state.KIBSceneCutin.sourceRatios[key];
     });
-    ['textRules', 'sheetRules'].forEach(function (name) {
-      Object.keys(state.KIBSceneCutin[name]).forEach(function (key) {
-        if (!sourceByKey(key)) delete state.KIBSceneCutin[name][key];
-      });
+    Object.keys(state.KIBSceneCutin.textRules).forEach(function (key) {
+      if (!sourceByKey(key)) delete state.KIBSceneCutin.textRules[key];
     });
   }
 
@@ -2116,7 +1931,6 @@ KIBScene.adapters = KIBScene.adapters || {};
       '<code>!컷인 자막위치|0</code> 화면 높이 82% 기준 세로 위치 조정(아래 + / 위 -)<br>' +
       '<code>!컷인 대사추가|컷인명|문구1,문구2</code> 같은 대사가 올라오면 자동 재생<br>' +
       '<code>!컷인 대사삭제|컷인명|문구1</code> 해당 문구만 삭제<br>' +
-      '<code>!컷인 시트추가|컷인명|시트출력이름|필드|값,&gt;=20</code> 시트 출력과 연결<br>' +
       '<code>!컷인 연결|카드명|효과음 제목</code> 카드와 효과음 연결<br>' +
       '<code>!... 대사 @컷인 카드명|3초</code> Narrator 줄과 동시에 표시<br>' +
       '<code>!... 대사 @컷인 카드명|줄=3</code> 현재 줄부터 Narrator 3줄 동안 표시<br>' +
@@ -2242,7 +2056,6 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (state.KIBSceneHandout) delete state.KIBSceneHandout.handoutMeta;
     delete state.KIBSceneCutin.handoutMeta;
     state.KIBSceneCutin.textRules = state.KIBSceneCutin.textRules || {};
-    state.KIBSceneCutin.sheetRules = state.KIBSceneCutin.sheetRules || {};
     state.KIBSceneCutin.managerId = state.KIBSceneCutin.managerId || '';
     delete state.KIBSceneCutin.folderSelected;
     delete state.KIBSceneCutin.activeFolderId;
@@ -2353,25 +2166,6 @@ KIBScene.adapters = KIBScene.adapters || {};
       values
         .map(function (value) {
           return '|' + safeQuery(value) + ',' + safeQuery(value);
-        })
-        .join('') +
-      '}'
-    );
-  }
-  function optionQueryObjects(label, values) {
-    if (values.length === 1)
-      return String(values[0].value).replace(/[{}?]/g, ' ');
-    return (
-      '?{' +
-      label +
-      values
-        .map(function (item) {
-          return (
-            '|' +
-            safeQuery(item.label) +
-            ',' +
-            macroEscape(String(item.value).replace(/[{}?]/g, ' '))
-          );
         })
         .join('') +
       '}'
