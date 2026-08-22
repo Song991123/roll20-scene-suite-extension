@@ -28,6 +28,10 @@ const publicText = publicTextFiles
   .map((file) => fs.readFileSync(file, 'utf8'))
   .join('\n');
 const indexText = fs.readFileSync(path.join(publicRoot, 'index.html'), 'utf8');
+const appText = fs.readFileSync(
+  path.join(publicRoot, 'assets', 'app.js'),
+  'utf8',
+);
 const scriptText = scripts
   .map((name) => fs.readFileSync(path.join(scriptsRoot, name), 'utf8'))
   .join('\n');
@@ -59,8 +63,25 @@ assert(
   '단독 사용 가능 표기가 필요합니다.',
 );
 assert(
-  publicText.includes('별도 대사창 패널 이미지 주소'),
+  appText.includes("label: '패널 이미지 주소'") &&
+    appText.includes('Roll20 HTTPS 이미지 주소'),
   '패널 이미지 설정 설명이 필요합니다.',
+);
+assert(
+  !indexText.includes('id="setup-list"') &&
+    !indexText.includes('id="settings-title"'),
+  '세팅법과 사용자 설정은 코드 목록 안에 둡니다.',
+);
+assert(
+  appText.includes('class="module-item') &&
+    appText.includes('<h2>세팅법</h2>') &&
+    appText.includes('<summary>코드 보기</summary>') &&
+    appText.includes('data-setting-key'),
+  '각 코드 안에 세팅법, 설정, 코드 보기가 필요합니다.',
+);
+assert(
+  !/(?:define:|\/define:|on\.ready|\/on\.|✅|option:)/.test(scriptText),
+  '예전 설명형 주석 표기를 남기지 않습니다.',
 );
 assert(
   publicText.includes('2089133134201995610'),

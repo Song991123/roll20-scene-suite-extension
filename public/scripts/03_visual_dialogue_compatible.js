@@ -10,6 +10,8 @@
 var KIBScene = KIBScene || {};
 KIBScene.handlers = KIBScene.handlers || {};
 KIBScene.adapters = KIBScene.adapters || {};
+
+// ===== 공통 상태 =====
 var vd_compat_setting = {
   enabled: true,
 };
@@ -20,18 +22,15 @@ var vd_dialogue_box_names = ['vd_dialogue_box', 'vd_deco'];
 var vd_cutin_suppressed = {};
 var vd_cutin_hidden_texts = {};
 
-// define: global constant
+// ===== 공통 태그 =====
 state.api_tag = '<a href="#vd-permitted-api-chat"></a>';
 state.vd_explicit_as_tag = '<a href="#vd-explicit-as"></a>';
 state.vd_divider = 'ℍ';
 state.last_displayed_time = 0;
-// /define: global constant
 
-/* ===== VD 외부 주입용 함수 (채팅창 안 거치고 패널만 갱신) =====
- *  - type: 'desc' | 'general' | 'emote'
- *  - require_as=true일 때는 who가 필요하며, 명시적 익명 desc/emote만 allowNoAs로 허용
- *  - 채팅 이벤트를 거치지 않고 대기열에 직접 넣음
- */
+// ===== 외부 대사 입력 =====
+// 채팅 이벤트 없이 패널 대기열에 추가
+// type: desc, general, emote
 state.VD_INJECT = function (text, type, who, options) {
   var t = type === 'general' || type === 'emote' ? type : 'desc';
   var speaker = String(who || '').trim();
@@ -121,7 +120,7 @@ function vdInitState() {
       entry.decoPosition = 'front';
     if (entry.textPosition !== 'front' && entry.textPosition !== 'behind')
       entry.textPosition = 'front';
-    // 글자를 맵시트 뒤에 둘 때도 강조창·대사창보다 위에 오도록 모순된 옛 설정을 정리합니다.
+    // 예전 화면 순서 설정 정리
     if (entry.textPosition == 'behind') {
       entry.panelPosition = 'behind';
       entry.decoPosition = 'behind';
@@ -178,14 +177,14 @@ function vdShouldCollectMessage(msg) {
     return false;
   var content = String(msg.content || '');
   if (msg.playerid == 'API' && content.indexOf(state.api_tag) < 0) return false;
-  // GM /desc는 AS가 없는 내레이션이므로 require_as와 별개로 패널에 표시합니다.
+  // GM /desc는 발화자 없이 표시
   if (msg.type == 'desc')
     return msg.playerid == 'API' || playerIsGM(msg.playerid);
   var speaker = String(msg.who || '')
     .replace(/ \(GM\)$/, '')
     .trim();
   if (vdIsExcludedAs(speaker)) return false;
-  // /emas " "는 이름을 숨긴 명시적 GM 감정표현입니다. 빈 AS라도 패널 본문은 표시합니다.
+  // /emas " "는 이름 없이 표시
   if (
     msg.type == 'emote' &&
     !speaker &&
@@ -335,68 +334,50 @@ function vdEscapeHtml(value) {
     .replace(/"/g, '&quot;');
 }
 
-// define: option
+// ===== 사용자 설정 =====
 const vd_setting = {
-  // option: 한 화면에 표시할 수 있는 스탠딩 이미지의 최대 개수를 설정합니다.
-  // 이 숫자를 넘어가면 엑스트라, 혹은 채팅기록이 가장 오래된 캐릭터의 스탠딩이 삭제되고 그 위치에 새 스탠딩이 추가됩니다.
+  // 스탠딩
   max_number: 5,
-  // option: 표시할 스탠딩 이미지들의 가로 사이즈입니다.
   width: 415,
-  // option: 표시할 스탠딩 이미지들의 세로 사이즈입니다.
   height: 623,
-  // contain-top: 등록된 원본 비율을 유지하고 상단을 맞춤. stretch: 기존처럼 고정 가로/세로로 늘림.
+  // contain-top: 비율 유지, 상단 맞춤 / stretch: 지정 크기로 늘이기
   standing_fit: 'contain-top',
-  // option: 스탠딩 이미지의 가로 너비 중 화면 밖으로 빠져나가지 않도록 보장할 가로 사이즈입니다.
   fit_width: 200,
-  // option: 캐릭터들이 여러 감정표현을 사용할지(true) 대표 스탠딩 하나만 사용할지(false) 설정합니다.
-  // false일 경우 deck_name에 설정한 카드 덱에서 모든 캐릭터의 스탠딩 이미지를 가져옵니다.
   use_emotion: true,
-  // option: /as를 이용해 저널에 없는 캐릭터로 채팅할 경우 엑스트라 전용 스탠딩을 표시할지 (true) 스탠딩을 생략할지(false) 설정합니다.
-  // true일 경우 extra_name에 설정한 이름에 따라 엑스트라용 스탠딩을 가져옵니다.
   show_extra_standing: false,
-  // true면 일반 대사는 Speaking As 캐릭터 또는 Narrator의 명시적 /as, /emas만 표시합니다. GM /desc는 예외입니다.
+
+  // 출력 대상
   require_as: true,
-  // Visual Dialogue의 이름·대사·스탠딩을 모두 표시하지 않을 AS 초기 목록입니다. 쉼표로 구분합니다.
-  // 실행 중에는 !비주얼 제외 명령으로 state에 안전하게 저장합니다.
   excluded_as_list: '',
-  // option: use_emotion가 false일 경우에 캐릭터의 스탠딩 이미지를 가져올 카드덱의 이름을 설정합니다.
   deck_name: 'standings',
-  // option: use_emotion이 true일 경우에 엑스트라용 스탠딩 이미지를 가져올 카드덱의 이름을 설정합니다.
   extra_name: 'extra',
-  // option: show_extra_standing 옵션과 별개로 스탠딩을 표시하지 않을 캐릭터의 이름을 기입합니다. 여러개일 경우 콤마(,)로 구분합니다.
+  // 스탠딩 제외 이름, 쉼표 구분
   ignore_list:
     'GM,마을사람1, 마을사람2, 마을사람3, 마을사람, 마을사람4, 마을사람5, 마을사람6, 마을사람7, 마을사람8, 남자, 미래, 이해묵, 연민우, 선우재, 진미재, 유태경, 남다름, 이도형, 이경섭',
-  // option: 스크립트를 사용할 페이지의 이름을 지정합니다. 여러개일 경우 콤마(,)로 구분합니다.
-  // 페이지가 여럿일 경우 Player 북마크가 설정된 페이지에 우선적으로 대사가 표시됩니다.
+
+  // 페이지와 배경
   page_list: 'conversation,intro',
-  // option: background 덱에서 자동 생성할 GM 장면 매크로 이름입니다.
   background_macro_name: '📹장면',
-  // Roll20 Mod API Text 객체가 공식 지원하는 글꼴 중 하나를 사용합니다.
+
+  // 글자
   font_family: 'Arial',
-  // option: 캐릭터의 이름이 표시되는 텍스트 박스의 폰트 사이즈를 설정합니다.
   name_font_size: 20,
-  // option: 캐릭터 이름의 글씨색을 설정합니다.
   name_font_color: '#c0c0c0',
-  // option: 대사 내용이 표시되는 텍스트 박스의 폰트 사이즈를 설정합니다.
   dialogue_font_size: 18,
-  // option: 대사 내용의 글씨색을 설정합니다.
   dialogue_font_color: 'rgb(255, 255, 255)',
-  // option: /desc나 /em으로 표시되는 강조된 텍스트 박스의 폰트 사이즈를 설정합니다.
   desc_font_size: 22,
-  // option: /desc, /em의 글씨색을 설정합니다.
   desc_font_color: '#c0c0c0',
-  // option: 모든 이름·대사·강조 글자의 외곽선 표시 여부와 색상입니다.
   stroke_enabled: false,
   stroke_color: '#000000',
-  // option: 강조문을 vd_panel 중심에서 세로로 이동합니다. 양수는 아래, 음수는 위입니다.
+  // 양수는 아래, 음수는 위
   desc_offset_y: 0,
-  // option: 한번에 여러 채팅이 몰려서 순차적으로 표시해야 할 경우 채팅당 최소 노출시간을 설정합니다. (1000=1초)
+
+  // 출력 시간(ms)
   min_showtime: 400,
-  // option: 채팅 1글자당 표시 시간. 숫자가 커질수록 글자수 대비 대사의 표시시간이 길어집니다.
   showtime_ratio: 10,
-  // option: (고급설정) 각 열이 간격이 font_size 대비 얼마만큼의 픽셀을 차지하는지의 비율을 지정합니다.
+
+  // 글자 배치 비율
   line_height: 2.0,
-  // option: (고급설정) 각 글자가 font_size 대비 얼마만큼의 픽셀을 차지하는지의 비율을 지정합니다.
   letter_spacing: 0.9,
 };
 const vd_config_defaults = {
@@ -424,7 +405,6 @@ const vd_supported_fonts = [
   'Shadows Into Light',
   'Candal',
 ];
-// /define: option
 
 function vdHandleConfigCommand(content) {
   vdInitState();
@@ -1224,7 +1204,7 @@ function vdTrimStandingCount() {
 }
 
 on('ready', function () {
-  // on.ready
+  // ===== 초기화 =====
   state.vd_stock = [];
   vdInitState();
   (
@@ -1298,11 +1278,10 @@ on('ready', function () {
     }
   }
 
-  // ✅ 추가: 기본 상태에서 panel을 숨김(= GM 레이어로 숨김/1x1)
+  // 강조창 기본 숨김
   showHideDecorations('vd_panel', false);
   vdScheduleExpressionHandouts();
 
-  // /on.ready
   on('add:card', function (obj) {
     vdUpdateMacroSafe(obj);
     vdScheduleExpressionHandouts();
@@ -1318,19 +1297,15 @@ on('destroy:deck', function (obj) {
 });
 
 on('change:card', function (obj, prev) {
-  // on.change:card
   vdUpdateMacroSafe(obj);
   vdScheduleExpressionHandouts();
   vdRefreshHandout();
-  // /on.change:card
 });
 
 on('destroy:card', function (obj) {
-  // on.destroy:card
   vdUpdateMacroSafe(obj);
   vdScheduleExpressionHandouts();
   vdRefreshHandout();
-  // /on.destroy:card
 });
 
 on('add:character', vdScheduleExpressionHandouts);
@@ -1339,13 +1314,12 @@ on('change:character:name', vdScheduleExpressionHandouts);
 on('change:character:controlledby', vdScheduleExpressionHandouts);
 
 on('destroy:graphic', function (obj) {
-  // on.destroy:graphic
   if (obj.get('name') == 'vd_standing') {
     arrangeStandings(false);
   }
-  // /on.destroy:graphic
 });
 
+// ===== 채팅 처리 =====
 on('chat:message', function (msg) {
   try {
     if (vdHandleHiddenExpressionChat(msg)) return;
@@ -1396,7 +1370,6 @@ on('chat:message', function (msg) {
       vdHandleExpressionCommand(msg);
       return;
     }
-    // on.chat:message
     if (vdShouldCollectMessage(msg)) {
       if (msg.content.length > 0) {
         msg.content = msg.content
@@ -1414,9 +1387,6 @@ on('chat:message', function (msg) {
         }
       }
     }
-    // /on.chat:message
-
-    // on.chat:message:api
     if (msg.type == 'api' && msg.content.indexOf('!@') === 0) {
       if (msg.content == '!@장면없음') {
         if (playerIsGM(msg.playerid) || msg.playerid == 'API')
@@ -1724,7 +1694,6 @@ on('chat:message', function (msg) {
         }
       }
     }
-    // /on.chat:message:api
   } catch (err) {
     vdWhisperProblem(
       'Visual Dialogue 명령을 처리하지 못했습니다.',
@@ -1734,7 +1703,7 @@ on('chat:message', function (msg) {
   }
 });
 
-// define: global function
+// ===== 화면 출력 =====
 function vdValidateCue(args, context) {
   var command = vdResolveCueCommand(args, context).replace(/^!@/, '');
   if (command == '__display__') {
@@ -2100,48 +2069,41 @@ const showDialogue = function () {
     vdRestoreCutinText(text_dialogue, current_page_id);
   }
 
-  // 예외처리할 텍스트 제외
+  // 롤꾸 제거
   let name = msg.who + '\n' + blank_name;
   let filtered = msg.content;
 
-  /* 1) ✅ 이미지/버튼용 블록을 먼저 통째로 제거 (가장 먼저 해야 함)
-       예: [[<a href=](https://...png)](#"style="...")  */
+  // 이미지와 버튼 블록
   filtered = filtered.replace(
     /\[\[\s*<a\s*href=\s*\]\([^)]+\)\]\(\s*#"(?:[^"]*)"(?:[^)]*)\)/gi,
     '',
   );
 
-  /* 2) ✅ 스타일 링크: [텍스트](#"style="...") → 텍스트만 남김
-       (헤더, ••• 같은 건 여기서 살려야 함) */
+  // 스타일 링크
   filtered = filtered.replace(
     /\[([^\]]+)\]\(\s*#"(?:[^"]*)"(?:[^)]*)\)/g,
     '$1',
   );
 
-  /* 3) ✅ (보험) 남아버린 '<a href=' 텍스트 찌꺼기 제거 */
+  // 남은 태그 조각
   filtered = filtered.replace(/<a\s*href=/gi, '');
 
-  // ✅ (3.5) 닫히지 않은 <div style=" ...  또는 <span style=" ... 같은 찌꺼기 제거
   filtered = filtered.replace(/<\s*div\s+style\s*=\s*"/gi, '');
   filtered = filtered.replace(/<\s*span\s+style\s*=\s*"/gi, '');
 
-  /* 4) ✅ 일반 마크다운 링크: [텍스트](https://...) → 텍스트만 남김
-       예: /desc [ ](https://i.imgur.com/...) 는 ''가 되어 URL이 안 남음 */
+  // 일반 링크
   filtered = filtered.replace(/\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, '$1');
 
-  /* 5) ✅ desc/emote에서만 남은 [텍스트] 껍데기 제거 */
+  // desc, emote 대괄호
   if (msg.type === 'desc' || msg.type === 'emote') {
     filtered = filtered.replace(/\[([^\]]+)\]/g, '$1');
   }
 
-  // ✅ api_tag가 반쯤 잘려 남는 잔재만 제거 (다른 필터에 영향 최소)
+  // 내부 태그 조각
   filtered = filtered.replace(/"#vd-permitted-api-chat">\s*/g, '');
   filtered = filtered.replace(/#vd-permitted-api-chat">\s*/g, '');
   filtered = filtered.replace(/"#sd-direct-type">\s*/g, '');
   filtered = filtered.replace(/#sd-direct-type">\s*/g, '');
-
-  // /* 6) ✅ 공백 정리(선택) */
-  // filtered = filtered.replace(/\s{2,}/g, ' ').trim();
 
   let filter_word = [
     { regex: /\*.+\*/g, replace: /\*/g }, // *, **, ***
@@ -2151,7 +2113,6 @@ const showDialogue = function () {
       replace: /\[[^\(\)\[\]]*\]\(http[^\(\)\[\]]+\)/g,
     }, // [](http...)
     { regex: /<[^>]*>/g, replace: /<[^>]*>/g }, // <html>
-    // 		{regex:/\(.{1}\" style=\"[^\)]+\)/g,replace:/\((?:[^)(]+|\((?:[^)(]+|\([^)(]*\))*\))*\)/g}, // [](#" style="...)
     { regex: /\$\[\[.+\]\]/g, replace: /\$\[\[.+\]\]/g }, // [[]]
   ];
   for (let i = 0; i < filter_word.length; i++) {
@@ -2328,7 +2289,7 @@ const showDialogue = function () {
   }
 
   setTimeout(() => {
-    // ✅ 변경: desc/emote일 때만 panel 표시, 그 외(일반 대사)는 panel 숨김
+    // 강조창과 대사창 전환
     const isPanelMode = msg.type === 'desc' || msg.type === 'emote';
 
     showHideDecorations('vd_panel', isPanelMode);
@@ -2389,7 +2350,7 @@ const showDialogue = function () {
               _deckid: rt[0].get('_id'),
               name: vd_setting.extra_name,
             }) || [])[0];
-        // 등록된 카드가 없으면 덱 뒷면을 대신 쓰거나 슬롯을 밀지 않고 스탠딩만 생략합니다.
+        // 등록 카드가 없으면 스탠딩 생략
         if (!standing_card) {
           current_token = null;
         } else {
@@ -2951,8 +2912,7 @@ const showNextDialogue = function () {
   }
 };
 
-/* Dialog Overlay가 강제 타자식 출력에 사용할 롤꾸 제거기.
- * Visual Dialogue 본문의 기존 정규식은 변경하지 않고 그대로 보존합니다. */
+// ===== 외부 출력용 롤꾸 제거 =====
 state.VD_SANITIZE = function (content, type) {
   let filtered = String(content || '');
   filtered = filtered.replace(
@@ -3213,4 +3173,3 @@ const arrangeStandings = function (addNew) {
     return addNew ? left + space * (rand == Infinity ? 0 : rand) : false;
   }
 };
-// /define: global function

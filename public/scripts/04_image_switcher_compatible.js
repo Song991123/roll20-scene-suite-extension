@@ -14,17 +14,16 @@ var is_compat_setting = {
   enabled: true,
 };
 
-// define: option
+// ===== 사용자 설정 =====
 const is_setting = {
-  // option: 스크립트와 연동할 카드덱/토큰의 키워드를 지정합니다. 이름이 이 글자로 시작하는 카드덱과 토큰만 스크립트의 사용대상이 됩니다. (띄어쓰기를 사용하지 마세요)
+  // 덱과 토큰 이름 앞글자
   keyword: 'image',
-  // option: 이미지 변경에 사용할 매크로의 이름을 지정합니다. (띄어쓰기를 사용하지 마세요)
+  // 이미지 매크로 이름
   macro_name: '이미지변경',
 };
-// /define: option
 
+// ===== Roll20 이벤트 =====
 on('ready', function () {
-  // on.ready
   if (is_compat_setting.enabled) {
     var imageCue = function (args) {
       var validation = validateImageCue(args);
@@ -54,30 +53,22 @@ on('ready', function () {
   on('add:card', function (obj) {
     isUpdateMacroSafe(obj);
   });
-  // /on.ready
 });
 on('destroy:deck', function (obj) {
-  // on.destroy:deck
   setTimeout(function () {
     isUpdateMacroSafe();
   }, 100);
-  // /on.destroy:deck
 });
 on('change:card', function (obj, prev) {
-  // on.change:card
   isUpdateMacroSafe(obj);
-  // /on.change:card
 });
 on('destroy:card', function (obj) {
-  // on.destroy:card
   isUpdateMacroSafe(obj);
-  // /on.destroy:card
 });
 
 on('chat:message', function (msg) {
   if (msg.type == 'api') {
     try {
-      // on.chat:message:api
       if (
         /^!이미지(?:\s+(?:help|도움말))?$/i.test(String(msg.content || '')) &&
         playerIsGM(msg.playerid)
@@ -183,7 +174,6 @@ on('chat:message', function (msg) {
         err,
       );
     }
-    // /on.chat:message:api
   }
 });
 
@@ -244,7 +234,7 @@ function validateImageCue(args) {
   return { ok: true };
 }
 
-// define: global function
+// ===== 매크로 갱신 =====
 const updateImageMacro = function () {
   let background_deck = filterObjs(function (obj) {
     return (
@@ -325,7 +315,6 @@ const updateImageMacro = function () {
     }
   }
 };
-// /define: global function
 
 function isUpdateMacroSafe(obj) {
   try {

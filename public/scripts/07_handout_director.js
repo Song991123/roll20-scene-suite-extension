@@ -8,6 +8,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 (function () {
   'use strict';
 
+  // ===== 사용자 설정 =====
   var SETTING = {
     enabled: true,
     command: '!핸드아웃',
@@ -18,6 +19,8 @@ KIBScene.adapters = KIBScene.adapters || {};
     rootFolderId: '__root__',
     speaker: 'Handout Director',
   };
+
+  // ===== 실행 상태 =====
   var refreshTimer = null;
   var macroRefreshTimer = null;
 
@@ -566,7 +569,7 @@ KIBScene.adapters = KIBScene.adapters || {};
               cutin && typeof cutin.handoutControls === 'function'
                 ? cutin.handoutControls(handout)
                 : '';
-            // Roll20 removes href when an API button's first argument contains "id:".
+            // id: 인수의 링크 제거 방지
             var id = handout.id;
             var playerButtons =
               button(

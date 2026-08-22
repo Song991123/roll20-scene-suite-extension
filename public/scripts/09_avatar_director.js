@@ -7,6 +7,7 @@ var KIBScene = KIBScene || {};
 KIBScene.handlers = KIBScene.handlers || {};
 KIBScene.adapters = KIBScene.adapters || {};
 
+// ===== 사용자 설정 =====
 var avatar_setting = {
   enabled: true,
   deck_name: 'avatars',
@@ -16,6 +17,8 @@ var avatar_setting = {
   update_map_tokens: false,
   update_visual_dialogue: true,
 };
+
+// ===== 실행 상태 =====
 var avatar_refresh_timer = null;
 
 function avInitState() {

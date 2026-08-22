@@ -6,6 +6,7 @@ var KIBScene = KIBScene || {};
 (function () {
   'use strict';
 
+  // ===== 기본 설정 =====
   var DEFAULTS = {
     version: '3.4.0',
     command: '!sd',
@@ -35,6 +36,7 @@ var KIBScene = KIBScene || {};
     },
   };
 
+  // ===== 모듈 연결 =====
   KIBScene.handlers = KIBScene.handlers || {};
   KIBScene.adapters = KIBScene.adapters || {};
   KIBScene.refreshHandout = scheduleHandoutRefresh;

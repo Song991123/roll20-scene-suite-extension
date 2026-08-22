@@ -11,18 +11,17 @@ var KIBScene = KIBScene || {};
 KIBScene.handlers = KIBScene.handlers || {};
 KIBScene.adapters = KIBScene.adapters || {};
 
-// define: global constant
+// ===== 공통 태그 =====
 state.nt_linebreaker = 'Uk3jmApq-*QzfkMA';
 state.api_tag = '<a href="#vd-permitted-api-chat"></a>';
 state.vd_explicit_as_tag = '<a href="#vd-explicit-as"></a>';
-// /define: global constant
 
-// define: option
+// ===== 사용자 설정 =====
 const nt_setting = {
-  // option: 대화를 표시하는 시간 간격을 조절합니다. 밀리초 단위로서 1000 = 1초입니다.
+  // 대화 간격(ms)
   interval: 2800,
 
-  // 설치한 호환 스크립트만 true로 둡니다.
+  // 설치한 호환 모듈
   use_audio: true,
   use_visual_dialogue: true,
   use_image_switcher: true,
@@ -33,13 +32,12 @@ const nt_setting = {
   use_avatar: true,
   use_page_change: false,
 
-  // true면 모든 Narrator 출력에 @타자를 자동 적용합니다.
+  // 모든 줄 타자 출력
   type_all_lines: true,
 };
-// /define: option
 
+// ===== Roll20 이벤트 =====
 on('ready', function () {
-  // on.ready
   if (!state.narration) {
     state.narration = [];
   }
@@ -47,7 +45,7 @@ on('ready', function () {
     state.is_narrating = 1; //0: 초기화 이전 1: 정지상태 2: 낭독중 3: 일시정지
   }
   if (state.narration_error === undefined) state.narration_error = null;
-  // 이전 버전의 오류 일시정지 상태가 state에 남아 있어도 새 버전은 즉시 복구합니다.
+  // 이전 오류 상태 정리
   if (state.is_narrating === 3) {
     state.narration = [];
     state.is_narrating = 1;
@@ -66,12 +64,10 @@ on('ready', function () {
   if (typeof KIBScene.register === 'function')
     KIBScene.register('narrator', adapter);
   else KIBScene.adapters.narrator = adapter;
-  // /on.ready
 });
 
 on('chat:message', function (msg) {
   if (msg.type == 'api') {
-    // on.chat:message:api
     if (
       /^!나레이터(?:\s+(?:help|도움말))?$/i.test(String(msg.content || '')) &&
       playerIsGM(msg.playerid)
@@ -102,7 +98,7 @@ on('chat:message', function (msg) {
           }, {});
         }
         if (msg.content == '!,') {
-          //일시정지/재시작
+          // 일시정지, 재시작
           if (state.is_narrating == 2) {
             state.is_narrating = 1;
           } else {
@@ -110,13 +106,13 @@ on('chat:message', function (msg) {
             narrate();
           }
         } else if (msg.content == '!/') {
-          //취소
+          // 전체 취소
 
           state.narration = [];
           state.is_narrating = 1;
           state.narration_error = null;
         } else if (msg.content.indexOf('!... ') == 0) {
-          //명령어를 변경하실 수 있습니다.
+          // 새 대사
           var str = msg.content.replace('!... ', '');
           var as_who;
           var explicit_as = false;
@@ -208,11 +204,10 @@ on('chat:message', function (msg) {
         ntWhisperProblem('Narrator 명령을 처리하지 못했습니다.', err);
       }
     }
-    // /on.chat:message:api
   }
 });
 
-// define: global function
+// ===== 대사 처리 =====
 function narrate() {
   try {
     if (state.is_narrating == 2 && state.narration.length > 0) {
@@ -367,8 +362,8 @@ function ntInjectVisualDialogue(item, current) {
   );
 }
 
-/* 줄 끝의 @기능|동작|대상을 큐로 분리합니다. 이전 {{@...}} 형식도 저장된 매크로 호환용으로만 읽습니다.
- * Roll template의 {{name=value}}와 롤꾸 문자열은 그대로 둡니다. */
+// 줄 끝 연출 분리, 예전 {{@...}} 형식도 읽기
+// Roll template과 채팅 꾸미기 문자열은 유지
 function ntExtractCues(source) {
   const cues = [];
   let directType = false;
@@ -758,4 +753,3 @@ function ntCueEnabled(type) {
       : ntHasPlugin(type),
   );
 }
-// /define: global function

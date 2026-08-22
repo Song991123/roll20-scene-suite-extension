@@ -24,54 +24,15 @@
     </header>
 
     <main>
-      <section aria-labelledby="setup-title">
-        <div class="section-title">
-          <h1 id="setup-title">세팅법</h1>
-        </div>
-        <div class="setup-list" id="setup-list"></div>
-      </section>
-
       <section aria-labelledby="modules-title">
         <div class="section-title">
-          <h2 id="modules-title">적용시킬 코드</h2>
+          <h1 id="modules-title">적용시킬 코드</h1>
           <div class="list-actions">
             <button type="button" id="select-all">전체 선택</button>
             <button type="button" id="clear-selection">선택 해제</button>
           </div>
         </div>
         <div class="module-list" id="module-list"></div>
-      </section>
-
-      <section aria-labelledby="settings-title">
-        <div class="section-title">
-          <h2 id="settings-title">사용자 설정</h2>
-        </div>
-        <div class="settings">
-          <label id="page-setting">
-            <span>적용시킬 페이지 이름</span>
-            <input
-              id="setting-page"
-              type="text"
-              value="conversation"
-              autocomplete="off"
-            />
-          </label>
-          <label id="dialog-image-setting">
-            <span>별도 대사창 패널 이미지 주소</span>
-            <input
-              id="setting-dialog-image"
-              type="url"
-              placeholder="https://files.d20.io/.../max.png"
-              autocomplete="off"
-            />
-            <small
-              >글자 뒤에 깔 패널 이미지입니다. Roll20 이미지 라이브러리의 HTTPS
-              주소를 사용하세요. PNG, JPG, JPEG, WEBP의 max 또는 med 주소는
-              자동으로 thumb 주소로 바뀝니다.</small
-            >
-          </label>
-          <p id="no-settings">선택한 코드에는 바꿀 설정이 없습니다.</p>
-        </div>
       </section>
 
       <div class="build">

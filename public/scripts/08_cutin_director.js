@@ -4,7 +4,7 @@
  * 연출 아이디어 참고: 젠트의 주사위 판정 컷인, 똣의 범용 컷인 API
  * https://lise1415622.tistory.com/52
  * https://www.postype.com/@ttospt/post/21806654
- * 현재 코드는 카드덱, 핸드아웃, Narrator 연동 구조로 별도 구현했습니다.
+ * 카드덱, 핸드아웃, Narrator 연동 별도 구현
  */
 var KIBScene = KIBScene || {};
 KIBScene.handlers = KIBScene.handlers || {};
@@ -12,6 +12,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 (function () {
   'use strict';
 
+  // ===== 사용자 설정 =====
   var SETTING = {
     enabled: true,
     command: '!컷인',
@@ -27,6 +28,8 @@ KIBScene.adapters = KIBScene.adapters || {};
     defaultDuration: 4000,
     speaker: 'Cutin Director',
   };
+
+  // ===== 실행 상태 =====
   var activeTimer = null;
   var activeNarratorLines = 0;
   var activeFinalLineDuration = SETTING.defaultDuration;

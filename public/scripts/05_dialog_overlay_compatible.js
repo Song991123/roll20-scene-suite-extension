@@ -10,25 +10,23 @@ KIBScene.adapters = KIBScene.adapters || {};
 (function () {
   'use strict';
 
-  // ======================= 사용자 설정 =======================
+  // ===== 사용자 설정 =====
   var SETTING = {
     ENABLED: true,
     SCENE_DIRECTOR_ENABLED: true,
     GM_ONLY: true,
 
-    // "As" 발화자 이름입니다. 지금 설정이면 Speaking As가 정확히 "▶"일 때만 자동 표시됩니다.
+    // 자동 출력할 Speaking As 이름
     ALLOWED_NAMES: ['▶'],
 
-    // 테스트/수동 표시 명령입니다. GM이 !dialog-test 대사내용 을 치면 조건을 무시하고 표시합니다.
+    // 명령어
     TEST_COMMAND: '!dialog-test',
     CLEAN_COMMAND: '!dialog-clean',
     STATUS_COMMAND: '!dialog-status',
     HELP_COMMAND: '!dialog-help',
     PAGE_COMMAND: '!dialog-page',
 
-    // 'name' = PAGE_NAME, 'ribbon' = 노란 플레이어 리본 페이지,
-    // 'id' = PAGE_ID, 'stored' = !dialog-page 로 저장한 페이지.
-    // 지금 캠페인은 Start에 띄우는 흐름이라 기본값을 Start로 둡니다.
+    // 페이지: name, ribbon, id, stored
     PAGE_MODE: 'name',
     PAGE_NAME: 'Start',
     PAGE_ID: '',
@@ -46,7 +44,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     TEXT_COLOR: '#ffffff',
     FONT_FAMILY: 'Arial',
 
-    // 구 Roll20 호환성은 objects가 제일 안전합니다. Jumpgate foreground가 필요하면 'foreground'로 바꾸세요.
+    // objects 또는 foreground
     LAYER: 'objects',
 
     REGISTER_ICECANDY_HELP: true,
@@ -81,8 +79,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     },
     DEBUG_TO_GM: false,
   };
-  // ============================================================
-
+  // ===== 실행 상태 =====
   var API = 'DialogOverlay';
   var VERSION = '1.4.1';
   var activeObjects = [];
@@ -93,7 +90,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     initState();
     if (SETTING.SCENE_DIRECTOR_ENABLED) {
       var typeCue = function (args, context) {
-        // Narrator가 검증한 Visual Dialogue 줄은 03번의 vd_dialogue 텍스트가 직접 타자식으로 표시합니다.
+        // Visual Dialogue가 처리한 줄은 중복 출력 제외
         if (context && context.visualDialogue === true)
           return { ok: true, delegated: true };
         var source = String((context && context.text) || '');

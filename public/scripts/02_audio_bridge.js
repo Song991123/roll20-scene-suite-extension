@@ -8,15 +8,15 @@ KIBScene.adapters = KIBScene.adapters || {};
 (function () {
   'use strict';
 
+  // ===== 사용자 설정 =====
   var SETTING = {
     AUDIO_ENABLED: true,
     SCENE_DIRECTOR_ENABLED: true,
 
-    // native: Roll20 Jukebox 객체 직접 제어. roll20am: 기존 Roll20AM 명령 전달.
+    // native: 쥬크박스 직접 제어, roll20am: Roll20AM 사용
     AUDIO_DRIVER: 'native',
     ROLL20AM_ACCEPT_API_AS_GM: true,
-    // Transition 스크립트가 확인한 안전 경계입니다. 500ms 미만은 재생이 늦게 시작될 수 있습니다.
-    // 페이드아웃은 실방에서 정상 동작한 촘촘한 간격을 유지합니다.
+    // 페이드 갱신 간격(ms)
     FADE_IN_STEP_MS: 500,
     FADE_OUT_STEP_MS: 100,
     RESTART_DELAY_MS: 50,
@@ -27,6 +27,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     MACRO_REFRESH_MS: 100,
   };
 
+  // ===== 실행 상태 =====
   var bridge = KIBScene;
   var fades = {};
   var macroRefreshTimer = null;
@@ -255,7 +256,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 
     if (action == 'play') {
       state.KIBSceneAudio.volumes[track.id] = volume;
-      // playing=true로 고착된 Roll20 트랙에도 새 재생 이벤트를 보내기 위해 항상 짧게 재시작합니다.
+      // 재생 중으로 남은 트랙도 짧게 재시작
       track.set({
         playing: false,
         softstop: false,
@@ -810,7 +811,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     return Math.max(min, Math.min(max, number));
   }
 
-  // Jukebox Plus와 같은 Roll20 슬라이더 제곱 곡선으로 보간합니다.
+  // Roll20 볼륨 슬라이더 곡선
   function interpolateRoll20Volume(from, to, ratio) {
     var fromSlider = Math.sqrt(clamp(from, 0) / 100) * 100;
     var toSlider = Math.sqrt(clamp(to, 0) / 100) * 100;

@@ -9,6 +9,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 (function () {
   'use strict';
 
+  // ===== 사용자 설정 =====
   var SETTING = {
     ENABLED: true,
     SCENE_DIRECTOR_ENABLED: true,
@@ -21,6 +22,8 @@ KIBScene.adapters = KIBScene.adapters || {};
     AREA_LAYER: 'map',
     FULL_LAYER: 'objects',
   };
+
+  // ===== 실행 상태 =====
   var API = 'APNGDirector';
   var macroTimer = null;
   var hideTimers = {};
