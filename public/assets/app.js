@@ -3,17 +3,17 @@ const MODULES = [
     id: '00',
     file: '00_scene_director.js',
     title: 'Scene Director',
-    description: '설치한 기능 연결, 출력 시간과 도움말 관리',
+    description: '설치된 기능 연결, 출력 시간과 도움말 관리',
     required: true,
-    setup: ['다른 코드와 함께 설치', '채팅 명령어 !sd help'],
+    setup: ['선택한 기능 코드와 함께 설치합니다.', '채팅에 !sd help를 입력합니다.'],
     settings: [
       { id: 'firstDelay', group: '출력 시간', label: '첫 줄 대기(ms)', note: '명령 입력 후 첫 출력까지', type: 'number', value: 500, min: 0, codeKey: 'firstDelay' },
-      { id: 'lineInterval', shared: 'lineInterval', group: '출력 시간', label: '대사 간격(ms)', note: 'Narrator와 공통', type: 'number', value: 2800, min: 0, codeKey: 'lineInterval' },
+      { id: 'lineInterval', shared: 'lineInterval', group: '출력 시간', label: '대사 간격(ms)', note: '나레이터와 공통', type: 'number', value: 2800, min: 0, codeKey: 'lineInterval' },
       { id: 'visualMinShow', group: '출력 시간', label: '비주얼 최소 표시(ms)', type: 'number', value: 400, min: 0, codeKey: 'visualMinShow' },
       { id: 'visualCharRatio', group: '출력 시간', label: '글자당 추가 시간(ms)', type: 'number', value: 10, min: 0, codeKey: 'visualCharRatio' },
-      { id: 'typeSpeed', group: '타자 출력', label: '글자 간격(ms)', type: 'number', value: 45, min: 1, codeKey: 'typeSpeed' },
-      { id: 'typeHold', group: '타자 출력', label: '출력 유지(ms)', type: 'number', value: 2800, min: 0, codeKey: 'typeHold' },
-      { id: 'typeAllLines', shared: 'typeAllLines', group: '타자 출력', label: '모든 Narrator 줄에 적용', type: 'checkbox', value: true, codeKey: 'typeAllLines' },
+      { id: 'typeSpeed', group: '스크립트', label: '글자 간격(ms)', type: 'number', value: 45, min: 1, codeKey: 'typeSpeed' },
+      { id: 'typeHold', group: '스크립트', label: '표시 유지(ms)', type: 'number', value: 2800, min: 0, codeKey: 'typeHold' },
+      { id: 'typeAllLines', shared: 'typeAllLines', group: '스크립트', label: '모든 나레이터 줄에 적용', type: 'checkbox', value: true, codeKey: 'typeAllLines' },
       { id: 'createHandout', group: '도움말', label: '사용법 핸드아웃 생성', type: 'checkbox', value: true, codeKey: 'createHandout' },
       { id: 'handoutName', group: '도움말', label: '사용법 핸드아웃 이름', type: 'text', value: '[GM] SceneDirector 사용법', codeKey: 'handoutName' },
     ],
@@ -21,12 +21,12 @@ const MODULES = [
   {
     id: '01',
     file: '01_narrator_director.js',
-    title: 'Narrator',
+    title: '나레이터',
     description: '대사 순차 출력, 줄 끝 연출 명령 실행',
-    setup: ['캐릭터 대사용 Roll20 캐릭터 생성', '/as, /emas 이름과 캐릭터 이름 통일', '채팅 명령어 !... 대사'],
+    setup: ['캐릭터 대사를 쓸 때 Roll20 캐릭터를 만듭니다.', '/as와 /emas 이름을 캐릭터 이름에 맞춥니다.', '채팅에 !... 대사를 입력합니다.'],
     settings: [
       { id: 'lineInterval', shared: 'lineInterval', group: '출력', label: '대사 간격(ms)', note: 'Scene Director와 공통', type: 'number', value: 2800, min: 0, codeKey: 'interval' },
-      { id: 'typeAllLines', shared: 'typeAllLines', group: '출력', label: '모든 줄 타자 출력', type: 'checkbox', value: true, codeKey: 'type_all_lines' },
+      { id: 'typeAllLines', shared: 'typeAllLines', group: '출력', label: '모든 줄에 스크립트 적용', type: 'checkbox', value: true, codeKey: 'type_all_lines' },
     ],
   },
   {
@@ -34,7 +34,7 @@ const MODULES = [
     file: '02_audio_bridge.js',
     title: '오디오',
     description: '쥬크박스 재생, 중지, 반복, 볼륨, 페이드',
-    setup: ['Roll20 쥬크박스에 음원 추가', '음원마다 다른 제목 사용', '자동 생성 매크로 🎵오디오, 🪇효과음'],
+    setup: ['Roll20 쥬크박스에 음원을 추가합니다.', '음원마다 다른 제목을 붙입니다.', '자동 생성된 🎵오디오와 🪇효과음 매크로를 사용합니다.'],
     settings: [
       { id: 'driver', group: '기본', label: '오디오 처리 방식', type: 'select', value: 'native', options: [['native', 'Roll20 쥬크박스'], ['roll20am', 'Roll20AM']], codeKey: 'AUDIO_DRIVER' },
       { id: 'command', group: '기본', label: '한국어 명령어', type: 'text', value: '!오디오', codeKey: 'KOREAN_AUDIO_COMMAND' },
@@ -49,7 +49,7 @@ const MODULES = [
     file: '03_visual_dialogue_compatible.js',
     title: '비주얼 노벨',
     description: '대사창, 이름, 스탠딩, 표정, 배경 표시',
-    setup: ['GM 레이어: vd_area, vd_name, vd_dialogue', '오브젝트 레이어: vd_panel', 'standings 덱: 캐릭터명, 캐릭터명-표정명', '배경 사용 시 background 덱, vd_background 토큰'],
+    setup: ['적용 페이지의 GM 레이어에 vd_area, vd_name, vd_dialogue를 놓습니다.', '오브젝트 레이어에 vd_panel을 놓습니다.', 'standings 덱을 만들고 캐릭터명, 캐릭터명-표정명 카드를 넣습니다.', '배경을 쓸 때 background 덱과 vd_background 토큰을 준비합니다.'],
     settings: [
       { id: 'page', shared: 'page', group: '기본', label: '적용할 페이지', note: '쉼표로 여러 페이지 지정, 05와 06 공통', type: 'text', value: 'conversation', codeKey: 'page_list' },
       { id: 'deck', group: '기본', label: '스탠딩 덱 이름', type: 'text', value: 'standings', codeKey: 'deck_name' },
@@ -79,7 +79,7 @@ const MODULES = [
     file: '04_image_switcher_compatible.js',
     title: '이미지 전환',
     description: '카드 이미지로 같은 이름의 토큰 교체',
-    setup: ['지정 키워드로 시작하는 덱 생성', '덱과 같은 이름의 토큰 배치', '전환 이미지를 카드로 등록'],
+    setup: ['지정한 키워드로 시작하는 덱을 만듭니다.', '덱과 같은 이름의 토큰을 놓습니다.', '바꿀 이미지를 카드 앞면에 넣습니다.'],
     settings: [
       { id: 'keyword', group: '기본', label: '덱과 토큰 이름 키워드', type: 'text', value: 'image', codeKey: 'keyword' },
       { id: 'macro', group: '기본', label: '매크로 이름', type: 'text', value: '이미지변경', codeKey: 'macro_name' },
@@ -90,7 +90,7 @@ const MODULES = [
     file: '05_dialog_overlay_compatible.js',
     title: '별도 대사창',
     description: '별도 패널에 글자를 한 글자씩 출력',
-    setup: ['적용 페이지와 패널 이미지 주소 입력', '채팅 명령어 !dialog-test 대사'],
+    setup: ['적용 페이지와 패널 이미지 주소를 입력합니다.', '채팅에 !dialog-test 대사를 입력해 확인합니다.'],
     settings: [
       { id: 'page', shared: 'page', group: '기본', label: '적용할 페이지', note: '03과 06 공통, 첫 페이지 사용', type: 'text', value: 'conversation', codeKey: 'PAGE_NAME', firstOnly: true },
       { id: 'panelImage', group: '대사창', label: '패널 이미지 주소', note: 'Roll20 HTTPS 이미지 주소, max 또는 med 사용 가능', type: 'url', value: '', placeholder: 'https://files.d20.io/.../max.png', codeKey: 'BOX_IMAGE_URL' },
@@ -112,7 +112,7 @@ const MODULES = [
     file: '06_apng_director.js',
     title: 'APNG',
     description: '애니메이션 전체 화면 또는 지정 영역 출력',
-    setup: ['apng 덱에 애니메이션 카드 등록', '영역 사용 시 GM 레이어에 apng_area 배치', '자동 생성 매크로 📽️apng'],
+    setup: ['apng 덱을 만들고 카드 앞면에 애니메이션을 넣습니다.', '지정 영역을 쓸 때 GM 레이어에 apng_area를 놓습니다.', '자동 생성된 📽️apng 매크로를 사용합니다.'],
     settings: [
       { id: 'page', shared: 'page', group: '기본', label: '적용할 페이지', note: '03과 05 공통, 첫 페이지 사용', type: 'text', value: 'conversation', codeKey: 'PAGE_NAME', firstOnly: true },
       { id: 'deck', group: '기본', label: '덱 이름', type: 'text', value: 'apng', codeKey: 'DECK_NAME' },
@@ -127,7 +127,7 @@ const MODULES = [
     file: '07_handout_director.js',
     title: '핸드아웃',
     description: '보기 권한 관리, 공개 알림 출력',
-    setup: ['채팅 명령어 !핸드아웃 관리', '관리 폴더 선택', '자료와 공개 대상 선택'],
+    setup: ['채팅에 !핸드아웃 관리를 입력합니다.', '관리할 폴더를 선택합니다.', '핸드아웃별 공개 대상을 선택합니다.'],
     settings: [
       { id: 'command', group: '기본', label: '명령어', type: 'text', value: '!핸드아웃', codeKey: 'command' },
       { id: 'manager', group: '기본', label: '관리 핸드아웃 이름', type: 'text', value: '[GM] 핸드아웃 관리', codeKey: 'managerName' },
@@ -139,7 +139,7 @@ const MODULES = [
     file: '08_cutin_director.js',
     title: '컷인',
     description: '이미지와 핸드아웃 표지를 화면 위에 표시(각종 여러 시트 호환은 아직 미개발. 추후 업뎃 예정)',
-    setup: ['cutin 덱에 이미지 카드 등록', '채팅 명령어 !컷인 관리', '영역 사용 시 GM 레이어에 cutin_area 배치', '배경 사용 시 GM 레이어에 cutin_overlay 배치'],
+    setup: ['cutin 덱을 만들고 카드 앞면에 컷인 이미지를 넣습니다.', '채팅에 !컷인 관리를 입력합니다.', '지정 영역을 쓸 때 GM 레이어에 cutin_area를 놓습니다.', '어두운 배경을 쓸 때 GM 레이어에 cutin_overlay를 놓습니다. 이미지를 저장한 토큰은 자동으로 사라집니다.'],
     settings: [
       { id: 'command', group: '기본', label: '명령어', type: 'text', value: '!컷인', codeKey: 'command' },
       { id: 'deck', group: '기본', label: '덱 이름', type: 'text', value: 'cutin', codeKey: 'deckName' },
@@ -147,10 +147,10 @@ const MODULES = [
       { id: 'manager', group: '기본', label: '관리 핸드아웃 이름', type: 'text', value: '[GM] 컷인 관리', codeKey: 'managerName' },
       { id: 'area', group: '배치', label: '영역 토큰 이름', type: 'text', value: 'cutin_area', codeKey: 'areaName' },
       { id: 'overlay', group: '배치', label: '배경 토큰 이름', type: 'text', value: 'cutin_overlay', codeKey: 'overlayName' },
-      { id: 'overlayImage', group: '배치', label: '기본 배경 이미지 주소', note: '비워두면 반투명 검정 배경', type: 'url', value: '', placeholder: 'https://files.d20.io/.../max.png', codeKey: 'overlayImageUrl' },
+      { id: 'overlayImage', group: '배치', label: '배경 이미지 주소', note: 'cutin_overlay 토큰을 쓰지 않을 때 입력', type: 'url', value: '', placeholder: 'https://files.d20.io/.../max.png', codeKey: 'overlayImageUrl' },
       { id: 'width', group: '크기', label: '기본 가로', type: 'number', value: 700, min: 1, codeKey: 'defaultWidth' },
       { id: 'height', group: '크기', label: '기본 세로', type: 'number', value: 280, min: 1, codeKey: 'defaultHeight' },
-      { id: 'duration', group: '크기', label: '기본 표시 시간(ms)', type: 'number', value: 4000, min: 0, codeKey: 'defaultDuration' },
+      { id: 'duration', group: '시간', label: '기본 표시 시간(ms)', type: 'number', value: 4000, min: 0, codeKey: 'defaultDuration' },
     ],
   },
   {
@@ -158,11 +158,11 @@ const MODULES = [
     file: '09_avatar_director.js',
     title: '캐릭터 이미지',
     description: '표정에 맞춰 캐릭터 이미지와 맵 토큰 교체',
-    setup: ['avatars 덱: 캐릭터명, 캐릭터명-표정명', '채팅 명령어 !아바타 관리', '자동 변경 제외 캐릭터 등록'],
+    setup: ['avatars 덱을 만들고 캐릭터명, 캐릭터명-표정명 카드를 넣습니다.', '채팅에 !아바타 관리를 입력합니다.', '필요한 캐릭터만 자동 변경에서 제외합니다.'],
     settings: [
       { id: 'deck', group: '기본', label: '덱 이름', type: 'text', value: 'avatars', codeKey: 'deck_name' },
-      { id: 'manager', group: '기본', label: '관리 핸드아웃 이름', type: 'text', value: '[GM] 아바타 관리', codeKey: 'management_handout_name' },
-      { id: 'handoutPrefix', group: '기본', label: '표정 핸드아웃 앞글자', type: 'text', value: '🎭 아바타｜', codeKey: 'expression_handout_prefix' },
+      { id: 'manager', group: '기본', label: '관리 핸드아웃 이름', type: 'text', value: '[GM] 캐릭터 이미지 관리', codeKey: 'management_handout_name' },
+      { id: 'handoutPrefix', group: '기본', label: '표정 핸드아웃 앞글자', type: 'text', value: '🎭 캐릭터 이미지 | ', codeKey: 'expression_handout_prefix' },
       { id: 'character', group: '변경 대상', label: '캐릭터 시트 이미지', type: 'checkbox', value: true, codeKey: 'update_character_avatar' },
       { id: 'token', group: '변경 대상', label: '맵 토큰 이미지', type: 'checkbox', value: false, codeKey: 'update_map_tokens' },
       { id: 'vd', group: '변경 대상', label: '비주얼 노벨 표정', type: 'checkbox', value: true, codeKey: 'update_visual_dialogue' },
@@ -312,6 +312,7 @@ function codeValue(setting, value) {
     const number = Number(value);
     return Number.isFinite(number) ? String(number) : String(setting.value);
   }
+  if (setting.id === 'handoutPrefix') return JSON.stringify(String(value || ''));
   return jsString(value);
 }
 

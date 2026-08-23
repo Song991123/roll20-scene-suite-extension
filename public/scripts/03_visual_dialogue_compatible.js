@@ -221,30 +221,30 @@ function vdHandleExcludeCommand(content) {
     return vdWhisperExclude(
       '<b>' +
         vdEscapeHtml(name) +
-        '</b> AS를 Visual Dialogue에서 제외했습니다.',
+        '</b> 화자를 비주얼 노벨에서 제외했습니다.',
     );
   }
   if (action == '삭제' && name) {
     if (index < 0)
       return vdWhisperExclude(
-        '<b>' + vdEscapeHtml(name) + '</b> AS는 제외 목록에 없습니다.',
+        '<b>' + vdEscapeHtml(name) + '</b>은 제외 목록에 없습니다.',
       );
     list.splice(index, 1);
     return vdWhisperExclude(
-      '<b>' + vdEscapeHtml(name) + '</b> AS 제외를 해제했습니다.',
+      '<b>' + vdEscapeHtml(name) + '</b> 화자를 다시 표시합니다.',
     );
   }
   if (action == '목록') {
     return vdWhisperExclude(
       list.length
-        ? '<b>출력 제외 AS:</b> ' + list.map(vdEscapeHtml).join(', ')
-        : '출력 제외 AS가 없습니다.',
+        ? '<b>숨긴 화자:</b> ' + list.map(vdEscapeHtml).join(', ')
+        : '숨긴 화자가 없습니다.',
     );
   }
   if (action == '초기화') {
     state.KIBSceneVD.excludedAs = vdParseNames(vd_setting.excluded_as_list);
     return vdWhisperExclude(
-      '출력 제외 AS를 코드의 초기 설정으로 되돌렸습니다.',
+      '숨긴 화자 목록을 초기화했습니다.',
     );
   }
   vdWhisperExclude(
@@ -253,7 +253,7 @@ function vdHandleExcludeCommand(content) {
 }
 
 function vdWhisperExclude(text) {
-  sendChat('Visual Dialogue', '/w gm ' + text, null, { noarchive: true });
+  sendChat('비주얼 노벨', '/w gm ' + text, null, { noarchive: true });
 }
 
 function vdWhisperProblem(problem, fix, err) {
@@ -261,9 +261,9 @@ function vdWhisperProblem(problem, fix, err) {
   if (fix) html += '<br>' + fix;
   if (err)
     html +=
-      '<br><span style="font-size:11px;color:#687386">상세: ' +
+      '<br>오류: ' +
       vdEscapeHtml(err && err.message ? err.message : err) +
-      '</span>';
+      '';
   vdWhisperExclude(html);
 }
 
@@ -274,8 +274,8 @@ function vdShowDialogueSafe() {
     vdClearTypewriter();
     state.vd_stock = [];
     vdWhisperProblem(
-      '비주얼 대사를 표시하지 못했습니다.',
-      '<code>vd_area</code>·<code>vd_panel</code>·<code>vd_name</code>·<code>vd_dialogue</code> 토큰을 확인한 뒤 다시 시도해 주세요.',
+      '비주얼 노벨을 표시하지 못했습니다.',
+      '<code>vd_area</code>, <code>vd_panel</code>, <code>vd_name</code>, <code>vd_dialogue</code> 토큰을 확인하세요.',
       err,
     );
   }
@@ -287,7 +287,7 @@ function vdUpdateMacroSafe(obj) {
   } catch (err) {
     vdWhisperProblem(
       '장면 매크로를 갱신하지 못했습니다.',
-      '<code>background</code> 덱과 GM 계정을 확인해 주세요.',
+      '<code>background</code> 덱을 확인해 주세요.',
       err,
     );
   }
@@ -312,11 +312,11 @@ function vdPluginStatus() {
     layerOrder =
       '<b>맵시트:</b> ' +
       vdEscapeHtml(sheet ? sheet.get('name') || '이름 없음' : '삭제됨') +
-      ' · 강조창 ' +
+      '<br><b>강조창:</b> ' +
       (entry.panelPosition == 'front' ? '앞' : '뒤') +
-      ' · 대사창 ' +
+      '<br><b>대사창:</b> ' +
       (entry.decoPosition == 'front' ? '앞' : '뒤') +
-      ' · 글자 ' +
+      '<br><b>글자:</b> ' +
       (entry.textPosition == 'front' ? '앞' : '뒤');
   }
   return {
@@ -420,7 +420,7 @@ function vdHandleConfigCommand(content) {
     vdInitState();
     vdApplyStandingLayout();
     vdRefreshHandout();
-    return vdWhisperExclude('비주얼 표시 설정을 기본값으로 복구했습니다.');
+    return vdWhisperExclude('비주얼 노벨 설정을 초기화했습니다.');
   }
   var keyMap = {
     글꼴: 'font_family',
@@ -503,7 +503,7 @@ function vdHandleConfigCommand(content) {
             : '';
       if (!value)
         return vdWhisperExclude(
-          '스탠딩 맞춤은 <b>상단비율</b> 또는 <b>늘이기</b>만 사용할 수 있습니다.',
+          '스탠딩 맞춤은 <b>상단비율</b>(비율 유지) 또는 <b>늘이기</b>(지정 크기)로 입력하세요.',
         );
     }
     state.KIBSceneVD.config[key] = value;
@@ -513,11 +513,20 @@ function vdHandleConfigCommand(content) {
   vdApplyTextStyle();
   vdApplyStandingLayout();
   vdRefreshHandout();
+  var shownValue =
+    action == '스탠딩크기'
+      ? state.KIBSceneVD.config.width + '×' + state.KIBSceneVD.config.height
+      : key == 'stroke_enabled'
+        ? value
+          ? '켜기'
+          : '끄기'
+        : key == 'standing_fit'
+          ? value == 'contain-top'
+            ? '비율 유지'
+            : '지정 크기로 늘이기'
+          : String(value);
   vdWhisperExclude(
-    '<b>' +
-      vdEscapeHtml(action) +
-      '</b> 설정을 변경했습니다.<br>' +
-      vdConfigStatus(),
+    '<b>' + vdEscapeHtml(action) + ':</b> ' + vdEscapeHtml(shownValue),
   );
 }
 
@@ -554,7 +563,7 @@ function vdHandleRatioCommand(content, msg) {
     vdApplyStandingLayout();
     vdRefreshHandout();
     return vdWhisperExclude(
-      count + '개 스탠딩 카드의 비율을 선택 토큰에서 등록했습니다.',
+      count + '개 스탠딩 비율을 등록했습니다.',
     );
   } else if (action == '삭제') {
     var removeCards = vdStandingCardsByReference(parts[2]);
@@ -571,7 +580,7 @@ function vdHandleRatioCommand(content, msg) {
     state.KIBSceneVD.standingRatios = {};
     vdApplyStandingLayout();
     vdRefreshHandout();
-    return vdWhisperExclude('카드별 스탠딩 비율을 모두 초기화했습니다.');
+    return vdWhisperExclude('스탠딩 비율을 모두 초기화했습니다.');
   } else if (action == '목록') {
     var rows = Object.keys(ratios).map(function (id) {
       var card = getObj('card', id);
@@ -609,7 +618,7 @@ function vdHandleRatioCommand(content, msg) {
 function vdConfigStatus() {
   var c = state.KIBSceneVD.config;
   return (
-    '<b>비주얼 표시 설정</b><br>글꼴=' +
+    '<b>비주얼 노벨 설정</b><br>글꼴=' +
     vdEscapeHtml(c.font_family) +
     '<br>이름=' +
     c.name_font_size +
@@ -632,7 +641,7 @@ function vdConfigStatus() {
     ' / 동시 표시=' +
     c.max_number +
     '명 / 맞춤=' +
-    (c.standing_fit == 'contain-top' ? '상단비율' : '늘이기')
+    (c.standing_fit == 'contain-top' ? '비율 유지' : '지정 크기로 늘이기')
   );
 }
 
@@ -839,7 +848,7 @@ function vdWhisperPlayer(msg, text) {
     ? player.get('_displayname')
     : String(msg.who || '').replace(/ \(GM\)$/, '');
   sendChat(
-    'Visual Dialogue',
+    '비주얼 노벨',
     '/w "' + String(who || 'gm').replace(/"/g, '') + '" ' + text,
     null,
     { noarchive: true },
@@ -911,7 +920,7 @@ function vdValidateExternalExpression(payload) {
     getObj('character', payload.characterId) ||
     findCharacterWithName(payload.characterName);
   if (!character)
-    return { ok: false, error: '표정을 바꿀 캐릭터 저널을 찾지 못했습니다.' };
+    return { ok: false, error: '표정을 바꿀 캐릭터를 찾지 못했습니다.' };
   var card = vdExpressionCard(character, payload.expression);
   return card
     ? { ok: true, cardId: card.id }
@@ -1010,7 +1019,7 @@ function vdHandleHiddenExpressionChat(msg) {
   if (!character) {
     vdWhisperPlayer(
       msg,
-      '<code>!대사</code>는 캐릭터 Speaking As 상태에서 사용하세요.',
+      '<code>!대사</code>는 채팅 화자를 캐릭터로 선택한 뒤 사용하세요.',
     );
     return true;
   }
@@ -1045,7 +1054,7 @@ function vdHandleExpressionCommand(msg) {
   ) {
     return vdWhisperPlayer(
       msg,
-      '표정 카드 또는 캐릭터를 찾지 못했습니다. 핸드아웃을 갱신해 주세요.',
+      '표정 카드 또는 캐릭터가 없습니다.',
     );
   }
   if (!vdCanControlCharacter(character, msg.playerid))
@@ -1055,10 +1064,8 @@ function vdHandleExpressionCommand(msg) {
     msg,
     '<b>' +
       vdEscapeHtml(character.get('name')) +
-      '</b>의 기본 표정을 <b>' +
-      vdEscapeHtml(vdExpressionName(card, character.get('name'))) +
-      '</b>(으)로 변경했습니다.' +
-      (token ? '' : '<br>현재 무대에 없으므로 다음 등장부터 적용합니다.'),
+      ' 기본 표정:</b> ' +
+      vdEscapeHtml(vdExpressionName(card, character.get('name'))),
   );
 }
 
@@ -1101,7 +1108,7 @@ function vdUpdateExpressionHandouts() {
         var label =
           selected && selected.id == card.id ? '✓ ' + expression : expression;
         return (
-          '<div style="display:inline-block;width:150px;vertical-align:top;text-align:center;margin:4px;padding:6px;border:1px solid #bbb;border-radius:4px">' +
+          '<div style="display:inline-block;width:150px;vertical-align:top;text-align:center;margin:4px;padding:6px;border:1px solid #111;background:#fff;color:#111">' +
           '<img src="' +
           image +
           '" style="max-width:138px;max-height:180px"><br>' +
@@ -1109,7 +1116,7 @@ function vdUpdateExpressionHandouts() {
           character.id +
           '|' +
           card.id +
-          '" style="display:inline-block;margin-top:5px;padding:4px 8px;background:#4d617a;color:#fff;text-decoration:none;border-radius:3px">' +
+          '" style="display:inline-block;margin-top:5px;padding:4px 8px;background:#4d617a;color:#fff;text-decoration:none">' +
           vdEscapeHtml(label) +
           '</a></div>'
         );
@@ -1122,9 +1129,9 @@ function vdUpdateExpressionHandouts() {
       controlledby: '',
       archived: false,
       notes:
-        '<div style="font-family:Arial,sans-serif"><h3>' +
+        '<div style="font-family:Arial,sans-serif;background:#fff;color:#111"><h3 style="padding-bottom:7px;border-bottom:1px solid #111">' +
         vdEscapeHtml(character.get('name')) +
-        ' 표정</h3><p>버튼은 기본 표정을 저장합니다. 현재 무대에 있으면 위치·순서·스포트라이트를 바꾸지 않고 이미지만 교체합니다.</p>' +
+        ' 표정</h3>' +
         cells +
         '</div>',
     });
@@ -1240,7 +1247,7 @@ on('ready', function () {
     var adapter = {
       meta: {
         code: '03_visual_dialogue_compatible.js',
-        title: 'Visual Dialogue',
+        title: '비주얼 노벨',
       },
       aliases: { 비주얼: '', vd: '' },
       cue: vdCue,
@@ -1330,7 +1337,7 @@ on('chat:message', function (msg) {
     ) {
       if (playerIsGM(msg.playerid))
         vdWhisperExclude(
-          '<b>Visual Dialogue 도움말</b><br><code>!@배경 장면명</code> 배경 전환<br><code>!@표정명</code> Speaking As 캐릭터 표정 변경<br><code>!대사 본문 @표정명</code> 명령 글자를 숨기고 대사와 표정 변경<br><code>!비주얼 설정|항목|값</code> 글꼴·크기·색·스탠딩 설정<br><code>!비주얼 순서|상태</code> 화면 앞뒤 순서 확인<br><code>!비주얼 비율|등록|카드명|가로|세로</code> 스탠딩 비율 등록<br><code>!비주얼 제외|추가|AS 이름</code> 특정 AS 숨김',
+          '<b>비주얼 노벨 도움말</b><br><code>!@배경 장면명</code> 배경 전환<br><code>!@표정명</code> 현재 화자의 표정 변경<br><code>!대사 본문 @표정명</code> 명령 글자를 숨기고 대사와 표정 변경<br><code>!비주얼 설정|항목|값</code> 글꼴, 크기, 색, 스탠딩 설정<br><code>!비주얼 순서|상태</code> 화면 앞뒤 순서 확인<br><code>!비주얼 비율|등록|카드명|가로|세로</code> 스탠딩 비율 등록<br><code>!비주얼 제외|추가|화자명</code> 특정 화자 숨김',
         );
       return;
     }
@@ -1486,7 +1493,7 @@ on('chat:message', function (msg) {
       ) {
         vdClearTypewriter();
         state.vd_stock = [];
-        vdWhisperExclude('대사 대기열을 비웠습니다.');
+        vdWhisperExclude('대사 대기열을 초기화했습니다.');
       } else if (
         (playerIsGM(msg.playerid) || msg.playerid == 'API') &&
         (msg.content == '!@강제진행' || msg.content == '!@force-progress')
@@ -1530,7 +1537,7 @@ on('chat:message', function (msg) {
           ) {
             vdWhisperProblem(
               '배경 이미지를 변경하지 못했습니다.',
-              '주소를 확인하거나 <code>!@배경 https://이미지주소</code>로 다시 시도해 주세요.',
+              '이미지 주소를 확인하세요.',
             );
           }
         } else {
@@ -1549,7 +1556,7 @@ on('chat:message', function (msg) {
             if (bg_cards.length == 0) {
               vdWhisperProblem(
                 'background 덱에 ' + new_bg + ' 카드가 없습니다.',
-                '카드 이름을 정확히 확인해 주세요.',
+                '카드 이름을 확인하세요.',
               );
               return;
             } else {
@@ -1560,7 +1567,7 @@ on('chat:message', function (msg) {
               if (!bg_background)
                 vdWhisperProblem(
                   '배경 그림을 만들지 못했습니다.',
-                  '배경 카드 앞면 이미지를 확인한 뒤 다시 시도해 주세요.',
+                  '배경 카드 앞면 이미지를 확인하세요.',
                 );
             }
           }
@@ -1654,7 +1661,7 @@ on('chat:message', function (msg) {
                   ' 덱에 ' +
                   search_opt.name +
                   ' 표정 카드가 없습니다.',
-                '카드 이름을 <code>캐릭터명-표정명</code>으로 확인해 주세요.',
+                '카드 이름은 <code>캐릭터명-표정명</code>으로 씁니다.',
               );
               return;
             }
@@ -1677,7 +1684,7 @@ on('chat:message', function (msg) {
                 ' 덱에 ' +
                 cardName +
                 ' 표정 카드가 없습니다.',
-              '카드 이름을 확인해 주세요.',
+              '',
             );
           else {
             state.KIBSceneVD.defaultExpressions[chat_cha.id] = cards[0].id;
@@ -1689,15 +1696,15 @@ on('chat:message', function (msg) {
             msg,
             '<b>' +
               vdEscapeHtml(cha_name) +
-              '</b> 캐릭터 저널을 찾지 못했습니다. 화자 이름과 저널 이름을 같게 맞춰 주세요.',
+              '</b> 캐릭터가 없습니다. 캐릭터 이름을 확인하세요.',
           );
         }
       }
     }
   } catch (err) {
     vdWhisperProblem(
-      'Visual Dialogue 명령을 처리하지 못했습니다.',
-      '<code>!비주얼 help</code>로 설정과 명령을 확인해 주세요.',
+      '비주얼 노벨 명령을 처리하지 못했습니다.',
+      '<code>!비주얼 help</code>에서 사용법을 확인하세요.',
       err,
     );
   }
@@ -1745,7 +1752,7 @@ function vdValidateCue(args, context) {
   if (/^(?:배경|background)\s+/.test(command)) {
     var backgroundName = command.replace(/^(?:배경|background)\s+/, '').trim();
     if (!backgroundName)
-      return { ok: false, error: 'Visual Dialogue 배경 이름이 없습니다.' };
+      return { ok: false, error: '배경 이름이 없습니다.' };
     if (
       !(
         findObjs({
@@ -1797,7 +1804,7 @@ function vdValidateCue(args, context) {
     var characterName = command.substring(0, divider).trim();
     var emotionName = command.substring(divider + 1).trim();
     if (!characterName)
-      return { ok: false, error: '감정 큐에 캐릭터명이 없습니다.' };
+      return { ok: false, error: '표정 명령에 캐릭터명이 없습니다.' };
     if (
       !findCharacterWithName(characterName) &&
       !vd_setting.show_extra_standing
@@ -1826,7 +1833,7 @@ function vdValidateCue(args, context) {
     return {
       ok: false,
       error:
-        '짧은 표정 큐는 !... /as "캐릭터명" 대사 @표정 형식으로 사용하세요.',
+        '표정 명령은 !... /as "캐릭터명" 대사 @표정 형식으로 입력하세요.',
     };
   return { ok: true };
 }
@@ -1863,7 +1870,7 @@ function vdPageForValidation() {
     ? { ok: true, pageId: pages[0].get('_id') }
     : {
         ok: false,
-        error: 'page_list의 첫 페이지를 찾지 못했습니다: ' + names[0],
+        error: '설정한 페이지를 찾지 못했습니다: ' + names[0],
       };
 }
 
@@ -1885,7 +1892,7 @@ const vdGetCurrentPage = function () {
     } else {
       vdWhisperProblem(
         page_list[0] + ' 페이지가 없습니다.',
-        '코드 상단 <code>page_list</code>의 이름과 Roll20 페이지 이름을 맞춰 주세요.',
+        '설정한 페이지 이름과 Roll20 페이지 이름을 맞춰 주세요.',
       );
     }
   }
@@ -2470,8 +2477,8 @@ const updateMacro = function (obj) {
   if (background_deck.length == 0 || typeof createObj !== 'function') return;
   if (background_deck.length > 1) {
     vdWhisperProblem(
-      'background 덱이 ' + background_deck.length + '개입니다.',
-      '장면 오류를 막으려면 하나만 남겨 주세요. 현재는 첫 번째 덱으로 매크로를 만듭니다.',
+      'background 덱이 여러 개입니다.',
+      '하나만 남겨 주세요.',
     );
   }
   let bg_images = findObjs({ _type: 'card', _deckid: background_deck[0].id });
@@ -2814,12 +2821,9 @@ function vdHandleLayerOrderCommand(msg) {
     vdApplyLayerOrder(pageId);
     vdRefreshHandout();
     return vdWhisperExclude(
-      '강조창을 맵시트 <b>' +
+      '<b>강조창:</b> 맵시트 ' +
         (entry.panelPosition == 'front' ? '앞' : '뒤') +
-        '</b>로 배치했습니다.' +
-        (entry.panelPosition == 'front'
-          ? '<br>글자는 강조창보다 앞에 있도록 함께 맵시트 앞으로 이동했습니다.'
-          : ''),
+        (entry.panelPosition == 'front' ? '<br><b>글자:</b> 맵시트 앞' : ''),
     );
   }
   if (
@@ -2834,12 +2838,9 @@ function vdHandleLayerOrderCommand(msg) {
     vdApplyLayerOrder(pageId);
     vdRefreshHandout();
     return vdWhisperExclude(
-      '대사창을 맵시트 <b>' +
+      '<b>대사창:</b> 맵시트 ' +
         (entry.decoPosition == 'front' ? '앞' : '뒤') +
-        '</b>로 배치했습니다.' +
-        (entry.decoPosition == 'front'
-          ? '<br>글자는 대사창보다 앞에 있도록 함께 맵시트 앞으로 이동했습니다.'
-          : ''),
+        (entry.decoPosition == 'front' ? '<br><b>글자:</b> 맵시트 앞' : ''),
     );
   }
   if (action == '글자뒤' || action == '글자앞') {
@@ -2851,13 +2852,12 @@ function vdHandleLayerOrderCommand(msg) {
     vdApplyLayerOrder(pageId);
     vdRefreshHandout();
     return vdWhisperExclude(
-      '이름·대사·강조 글자를 맵시트 <b>' +
+      '<b>글자:</b> 맵시트 ' +
         (entry.textPosition == 'front' ? '앞' : '뒤') +
-        '</b>로 배치했습니다.' +
-        (entry.textPosition == 'behind'
-          ? '<br>글자가 가려지지 않도록 강조창과 대사창도 함께 맵시트 뒤에 두었습니다.'
-          : '') +
-        '<br>글자는 항상 강조창·대사창보다 앞에 표시됩니다.',
+        '<br><b>강조창:</b> 맵시트 ' +
+        (entry.panelPosition == 'front' ? '앞' : '뒤') +
+        '<br><b>대사창:</b> 맵시트 ' +
+        (entry.decoPosition == 'front' ? '앞' : '뒤'),
     );
   }
   var sheet = getObj('graphic', entry.sheetId);
@@ -2870,7 +2870,7 @@ function vdHandleLayerOrderCommand(msg) {
       (entry.decoPosition == 'behind' ? '뒤' : '앞') +
       '<br><b>글자:</b> 맵시트 ' +
       (entry.textPosition == 'behind' ? '뒤' : '앞') +
-      '<br><b>글자 보호:</b> 강조창·대사창보다 항상 앞',
+      '<br><b>표시 순서:</b> 글자는 강조창과 대사창 앞',
   );
 }
 
@@ -3035,10 +3035,10 @@ function vdWarnMissingRatio(card) {
   vd_ratio_warned[card.id] = true;
   var name = String(card.get('name') || '카드').replace(/[|}]/g, '');
   sendChat(
-    'Visual Dialogue',
+    '비주얼 노벨',
     '/w gm <b>' +
       vdEscapeHtml(name) +
-      '</b>의 원본 비율이 등록되지 않아 스탠딩을 띄우지 않았습니다.<br><a href="!비주얼 비율|등록|' +
+      '</b> 스탠딩 비율이 없어 표시하지 않았습니다.<br><a href="!비주얼 비율|등록|' +
       name +
       '|?{원본 가로 픽셀}|?{원본 세로 픽셀}">원본 비율 등록</a>',
     null,

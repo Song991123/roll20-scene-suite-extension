@@ -17,7 +17,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     defaultMacroTemplate:
       '/desc [✎ ?{누구}에게 ?{핸드아웃}을/를 공개합니다.](#" style="font-weight: normal; text-decoration:none; font-style:normal; color: #535353; background-color:#FFFCDE; text-align: left; display:block; line-height:1.3; padding:9px 25px; margin: -9px -30px -7px; cursor: default; border-bottom: 2px solid #F4C35B;)',
     rootFolderId: '__root__',
-    speaker: 'Handout Director',
+    speaker: '핸드아웃',
   };
 
   // ===== 실행 상태 =====
@@ -41,7 +41,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       handleCommand(source || '관리');
     } catch (err) {
       gm(
-        '<b>핸드아웃 명령을 처리하지 못했습니다.</b><br><code>!핸드아웃 help</code>에서 형식을 확인해 주세요.<br><span style="font-size:11px;color:#687386">상세: ' +
+        '<b>핸드아웃 명령 오류</b><br><code>!핸드아웃 help</code>에서 형식을 확인해 주세요.<br><span style="font-size:11px">오류: ' +
           escapeHtml(err && err.message ? err.message : err) +
           '</span>',
       );
@@ -131,9 +131,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       refreshAll();
       var manager = getManager();
       return gm(
-        manager
-          ? managerOpenHtml(manager)
-          : '관리 핸드아웃을 만들지 못했습니다.',
+        manager ? managerOpenHtml(manager) : '관리 핸드아웃 생성 오류',
       );
     }
     if (action === '폴더') {
@@ -590,33 +588,32 @@ KIBScene.adapters = KIBScene.adapters || {};
                 '#9b6b20',
               );
             return (
-              '<div style="padding:10px;margin-top:8px;background:#fff;border:1px solid #d8dee8;border-radius:6px">' +
+              '<div style="padding:10px;margin-top:8px;background:#fff;color:#111;border:1px solid #111">' +
               '<div style="font-size:15px;font-weight:bold">' +
               escapeHtml(handout.get('name') || '(이름 없음)') +
               '</div>' +
-              '<div style="font-size:12px;color:#596579;margin:4px 0">볼 수 있는 사람: ' +
+              '<div style="font-size:12px;color:#111;margin:4px 0">볼 수 있는 사람: ' +
               escapeHtml(view) +
               '<br>편집할 수 있는 사람: ' +
               escapeHtml(edit) +
               '</div>' +
               (cutinControls ||
-                '<div style="padding:6px;margin:5px 0;background:#f5f7fa;border-left:3px solid #8994a5;font-size:11px">표지 이미지: ' +
+                '<div style="padding:6px;margin:5px 0;background:#fff;border:1px solid #111;font-size:11px">표지 이미지: ' +
                   (hasImage ? '있음' : '없음') +
                   '</div>') +
-              openLink(handout, 'GM이 직접 열기') +
+              openLink(handout, '핸드아웃 열기') +
               ' ' +
               playerButtons +
               '</div>'
             );
           })
           .join('')
-      : '<div style="padding:16px;text-align:center;color:#687386;background:#fff;border:1px dashed #b8c1cf">이 폴더에 핸드아웃이 없습니다.</div>';
+      : '<div style="padding:16px;text-align:center;color:#111;background:#fff;border:1px solid #111">이 폴더에 핸드아웃이 없습니다.</div>';
 
     return (
-      '<div style="font-family:Arial,sans-serif;color:#2d3340;line-height:1.45">' +
-      '<div style="padding:14px;background:#172235;color:#fff;border-radius:7px"><div style="font-size:20px;font-weight:bold">📚 핸드아웃 관리</div>' +
-      '<div style="font-size:12px;color:#d9e3f0">폴더와 보기 권한을 관리합니다.</div></div>' +
-      '<div style="padding:10px;margin-top:10px;background:#fff8e8;border:1px solid #ead49e;border-radius:6px"><b>현재 폴더: ' +
+      '<div style="font-family:Arial,sans-serif;color:#111;background:#fff;line-height:1.45">' +
+      '<div style="padding:12px;background:#fff;color:#111;border:1px solid #111;font-size:20px;font-weight:bold">📚 핸드아웃 관리</div>' +
+      '<div style="padding:10px;margin-top:8px;background:#fff;border:1px solid #111"><b>관리할 폴더: ' +
       escapeHtml(active.path) +
       '</b><br>' +
       button('폴더 선택', SETTING.command + ' 폴더|' + folderQuery, '#237a8b') +
@@ -624,10 +621,9 @@ KIBScene.adapters = KIBScene.adapters || {};
       button('새로고침', SETTING.command + ' 갱신', '#53657d') +
       '</div>' +
       rows +
-      '<div style="padding:8px;margin-top:10px;background:#eef5fa;border-left:4px solid #237a8b">' +
-      button('핸드아웃 명령', SETTING.command + ' help', '#53657d') +
-      '</div>' +
-      '<div style="font-size:11px;color:#6b7482;margin-top:10px">편집 권한은 바꾸지 않습니다.</div></div>'
+      '<div style="margin-top:8px">' +
+      button('명령어 보기', SETTING.command + ' help', '#53657d') +
+      '</div></div>'
     );
   }
 
@@ -673,7 +669,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   function validateMacroTemplate(value) {
     var template = String(value || '');
     if (!/^\s*\/desc\b/i.test(template))
-      return '<code>🖊️핸드아웃</code> 디자인은 <code>/desc</code>로 시작해야 합니다. 디자인을 고친 뒤 매크로를 저장하면 자동으로 다시 읽습니다.';
+      return '<code>🖊️핸드아웃</code> 매크로는 <code>/desc</code>로 시작해야 합니다.';
     if (
       !/\?\{누구(?:\||\})/.test(template) ||
       !/\?\{핸드아웃(?:\||\})/.test(template)
@@ -706,7 +702,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       else refreshManager();
     } catch (err) {
       gm(
-        '<b>핸드아웃 관리 화면을 갱신하지 못했습니다.</b><br>저널 폴더와 핸드아웃 이름을 확인해 주세요.<br><span style="font-size:11px;color:#687386">상세: ' +
+        '<b>핸드아웃 관리 갱신 오류</b><br>관리할 폴더와 핸드아웃 이름을 확인해 주세요.<br><span style="font-size:11px">오류: ' +
           escapeHtml(err && err.message ? err.message : err) +
           '</span>',
       );
@@ -829,7 +825,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   function openLink(handout, label, style) {
     style =
       style ||
-      'display:inline-block;padding:4px 7px;background:#53657d;color:#fff;text-decoration:none;border-radius:4px';
+      'display:inline-block;padding:4px 7px;background:#53657d;color:#fff;text-decoration:none;border-radius:0';
     return (
       '<a href="http://journal.roll20.net/handout/' +
       encodeURIComponent(handout.id) +
@@ -843,11 +839,11 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function managerOpenHtml(handout) {
     return (
-      '<div style="padding:8px;background:#eef5fa;border-left:4px solid #237a8b;border-radius:5px;color:#2d3340"><b>📚 핸드아웃 관리</b><br>' +
+      '<div style="padding:8px;background:#fff;border:1px solid #111;color:#111"><b>📚 핸드아웃 관리</b><br>' +
       openLink(
         handout,
         '관리 핸드아웃 열기',
-        'display:inline-block;margin-top:5px;padding:5px 8px;background:#237a8b;color:#fff;text-decoration:none;border-radius:4px;font-weight:bold;font-size:12px',
+        'display:inline-block;margin-top:5px;padding:5px 8px;background:#237a8b;color:#fff;text-decoration:none;border-radius:0;font-weight:bold;font-size:12px',
       ) +
       '</div>'
     );
@@ -855,15 +851,15 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function helpHtml() {
     return (
-      '<b>핸드아웃 관리 도움말</b><br>' +
+      '<b>핸드아웃 명령어</b><br>' +
       '<code>!핸드아웃 관리</code> 관리 화면 열기<br>' +
-      '<code>🖊️핸드아웃</code> 공개 알림 디자인 원본이며 스크립트는 매크로 내용을 바꾸지 않음<br>' +
+      '<code>🖊️핸드아웃</code> 공개 알림 디자인<br>' +
       '<code>!핸드아웃 보내기|자료명|캐릭터명 또는 전원</code> 보기 권한과 공개 알림<br>' +
       '<code>!핸드아웃 권한추가|자료명|캐릭터명 또는 전원</code> 보기 권한만 주기<br>' +
       '<code>!핸드아웃 권한삭제|자료명|캐릭터명 또는 전원</code> 보기 권한 회수<br>' +
       '<code>!핸드아웃 크기|자료명|800*600</code> 표지 원본 크기 저장<br>' +
-      '<code>!... 대사 @핸드아웃 보내기|자료명|캐릭터명</code> Narrator 줄과 동시에 공개<br>' +
-      '디자인을 바꾸려면 <code>🖊️핸드아웃</code> 매크로의 <code>/desc</code> 디자인과 <code>?{누구}</code>·<code>?{핸드아웃}</code>을 수정해 저장하세요. 관리 버튼과 명령이 그 디자인을 사용합니다.'
+      '<code>!... 대사 @핸드아웃 보내기|자료명|캐릭터명</code> 나레이터 줄과 동시에 공개<br>' +
+      '공개 알림 디자인은 <code>🖊️핸드아웃</code> 매크로에서 수정합니다.'
     );
   }
 
@@ -873,7 +869,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       escapeHtml(command) +
       '" style="display:inline-block;padding:4px 7px;margin:2px 0;background:' +
       color +
-      ';color:#fff;text-decoration:none;border-radius:4px;font-size:12px">' +
+      ';color:#fff;text-decoration:none;border-radius:0;font-size:12px">' +
       escapeHtml(label) +
       '</a>'
     );

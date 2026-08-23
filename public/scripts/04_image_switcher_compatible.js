@@ -41,7 +41,7 @@ on('ready', function () {
       aliases: { 이미지: '', image: '' },
       cue: imageCue,
       validate: validateImageCue,
-      help: ['<code>@이미지 덱/토큰명|카드명</code>'],
+      help: ['<code>@이미지 덱과 토큰 이름|카드 이름</code>'],
     };
     if (typeof KIBScene.register === 'function')
       KIBScene.register('image', adapter);
@@ -74,8 +74,8 @@ on('chat:message', function (msg) {
         playerIsGM(msg.playerid)
       ) {
         sendChat(
-          'Image Switcher',
-          '/w gm <b>이미지 전환 도움말</b><br><code>!#image덱이름 카드이름</code> 같은 이름의 토큰 이미지를 카드로 변경<br><code>!#image덱이름 https://이미지주소</code> 주소로 직접 변경<br><code>!... 대사 @이미지 image덱이름|카드이름</code> Narrator 줄과 동시에 변경<br>덱과 토큰 이름은 같아야 하며 <code>image</code>로 시작해야 합니다.',
+          '이미지 전환',
+          '/w gm <b>이미지 전환</b><br><code>!#image이름 카드 이름</code> 카드 이미지로 변경<br><code>!#image이름 이미지 주소</code> 주소 이미지로 변경<br><code>!... 대사 @이미지 image이름|카드 이름</code> 나레이터 스크립트와 동시에 변경<br>덱과 토큰은 같은 이름으로 만들고 이름 앞에 <code>image</code>를 붙여 주세요.',
           null,
           { noarchive: true },
         );
@@ -170,7 +170,7 @@ on('chat:message', function (msg) {
     } catch (err) {
       isProblem(
         '이미지 변경 명령을 처리하지 못했습니다.',
-        '<code>!이미지 help</code>로 설정을 확인해 주세요.',
+        '<code>!이미지 도움말</code>에서 사용법을 확인해 주세요.',
         err,
       );
     }
@@ -183,20 +183,20 @@ function validateImageCue(args) {
   if (!deckName || !imageName)
     return {
       ok: false,
-      error: '이미지 큐는 덱/토큰 이름과 카드 이름이 모두 필요합니다.',
+      error: '덱과 토큰 이름, 카드 이름을 입력해 주세요.',
     };
   if (deckName.indexOf(' ') > -1)
     return {
       ok: false,
-      error: '덱·토큰 이름에는 띄어쓰기를 사용할 수 없습니다: ' + deckName,
+      error: '덱과 토큰 이름에는 띄어쓰기를 사용할 수 없습니다: ' + deckName,
     };
   if (deckName.indexOf(is_setting.keyword) !== 0)
     return {
       ok: false,
       error:
-        '덱·토큰 이름은 ' +
+        '덱과 토큰 이름 앞에 ' +
         is_setting.keyword +
-        '로 시작해야 합니다: ' +
+        '를 붙여 주세요: ' +
         deckName,
     };
   if (!(findObjs({ _type: 'graphic', name: deckName }) || []).length)
@@ -322,7 +322,7 @@ function isUpdateMacroSafe(obj) {
   } catch (err) {
     isProblem(
       '이미지 변경 매크로를 갱신하지 못했습니다.',
-      '<code>image</code>로 시작하는 덱과 GM 계정을 확인해 주세요.',
+      '<code>image</code>로 시작하는 덱을 확인해 주세요.',
       err,
     );
   }
@@ -332,10 +332,10 @@ function isProblem(problem, fix, err) {
   var html = '<b>' + problem + '</b>' + (fix ? '<br>' + fix : '');
   if (err)
     html +=
-      '<br><span style="font-size:11px;color:#687386">상세: ' +
+      '<br><span style="font-size:11px;color:#687386">오류 내용: ' +
       isEscape(err && err.message ? err.message : err) +
       '</span>';
-  sendChat('Image Switcher', '/w gm ' + html, null, { noarchive: true });
+  sendChat('이미지 전환', '/w gm ' + html, null, { noarchive: true });
 }
 
 function isEscape(value) {

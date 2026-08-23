@@ -80,7 +80,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     DEBUG_TO_GM: false,
   };
   // ===== 실행 상태 =====
-  var API = 'DialogOverlay';
+  var API = '별도 대사창';
   var VERSION = '1.4.1';
   var activeObjects = [];
   var activeTimer = null;
@@ -90,7 +90,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     initState();
     if (SETTING.SCENE_DIRECTOR_ENABLED) {
       var typeCue = function (args, context) {
-        // Visual Dialogue가 처리한 줄은 중복 출력 제외
+        // 비주얼 노벨이 처리한 줄은 중복 출력 제외
         if (context && context.visualDialogue === true)
           return { ok: true, delegated: true };
         var source = String((context && context.text) || '');
@@ -109,8 +109,8 @@ KIBScene.adapters = KIBScene.adapters || {};
         if (source.trim()) showDialogBox(source);
       };
       var adapter = {
-        meta: { code: '05_dialog_overlay_compatible.js', title: '타자식 출력' },
-        aliases: { 타자: '', type: '' },
+        meta: { code: '05_dialog_overlay_compatible.js', title: '별도 대사창' },
+        aliases: { 스크립트: '', 타자: '', type: '' },
         cue: typeCue,
         validate: function (args, context) {
           var source = String((context && context.text) || '').replace(
@@ -122,19 +122,19 @@ KIBScene.adapters = KIBScene.adapters || {};
           if (!pageId || !getObj('page', pageId))
             return {
               ok: false,
-              error: '타자식 대사창을 표시할 페이지를 찾지 못했습니다.',
+              error: '별도 대사창을 표시할 페이지를 찾지 못했습니다.',
             };
           if (!/^https:\/\//i.test(String(SETTING.BOX_IMAGE_URL || '')))
             return {
               ok: false,
               error:
-                '대사창 배경 이미지 주소가 올바르지 않습니다. 코드 상단의 BOX_IMAGE_URL을 HTTPS 주소로 설정해 주세요.',
+                '대사창 이미지 주소를 HTTPS 주소로 설정해 주세요.',
             };
           return { ok: true };
         },
         help: [
-          '<code>@타자</code> 특정 줄',
-          '<code>!sd set|timing.typeAllLines|true</code> 전체 줄',
+          '<code>@스크립트</code> 이 줄을 별도 대사창에 표시',
+          '<code>!sd set|timing.typeAllLines|true</code> 모든 나레이터 스크립트',
         ],
       };
       if (typeof KIBScene.register === 'function')
@@ -166,7 +166,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       showDialogBox(dialogText);
     } catch (err) {
       whisperGm(
-        '<b>타자식 대사창을 처리하지 못했습니다.</b><br><code>!대사창 help</code>에서 설정을 확인해 주세요.<br><span style="font-size:11px;color:#687386">상세: ' +
+        '<b>별도 대사창을 표시하지 못했습니다.</b><br><code>!대사창 도움말</code>에서 설정을 확인해 주세요.<br><span style="font-size:11px;color:#687386">오류 내용: ' +
           escapeHtml(String(err && err.message ? err.message : err)) +
           '</span>',
       );
@@ -180,7 +180,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (content === SETTING.CLEAN_COMMAND) {
       if (!isGm(msg)) return false;
       cleanupDialog();
-      whisperGm('대사창을 정리했습니다.');
+      whisperGm('별도 대사창을 닫았습니다.');
       return true;
     }
 
@@ -212,10 +212,9 @@ KIBScene.adapters = KIBScene.adapters || {};
       if (!isGm(msg)) return false;
       var text =
         content.substring(SETTING.TEST_COMMAND.length).trim() ||
-        '대사창 테스트입니다.';
+        '스크립트 미리보기';
       playSfxForText(stripMarkdown(text));
       showDialogBox(stripMarkdown(text));
-      whisperGm('테스트 대사창을 표시했습니다.');
       return true;
     }
 
@@ -305,7 +304,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     } catch (err) {
       if (SETTING.SFX_DEBUG_TO_GM)
         whisperGm(
-          '<b>효과음을 재생하지 못했습니다.</b><br><span style="font-size:11px;color:#687386">상세: ' +
+          '<b>효과음을 재생하지 못했습니다.</b><br><span style="font-size:11px;color:#687386">오류 내용: ' +
             escapeHtml(String(err && err.message ? err.message : err)) +
             '</span>',
         );
@@ -413,7 +412,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 
     if (!page) {
       whisperGm(
-        '대사창을 띄울 페이지를 찾지 못했습니다. <code>!dialog-page status</code>로 현재 설정을 확인하세요.',
+        '별도 대사창 적용 페이지를 찾지 못했습니다. <code>!dialog-page status</code>로 설정을 확인해 주세요.',
       );
       return null;
     }
@@ -461,7 +460,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       var selectedPageId = selectedPageIdFromMessage(msg);
       if (!selectedPageId) {
         whisperGm(
-          '먼저 목표 페이지에 있는 토큰/오브젝트 하나를 선택하고 <code>!dialog-page here</code>를 실행하세요.',
+          '적용할 페이지의 토큰 하나를 선택한 뒤 <code>!dialog-page here</code>를 실행해 주세요.',
         );
         return;
       }
@@ -469,7 +468,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       config.pageId = selectedPageId;
       config.pageName = pageName(selectedPageId);
       whisperGm(
-        '대사창 페이지를 저장했습니다: <b>' +
+        '별도 대사창 적용 페이지: <b>' +
           escapeHtml(pageName(selectedPageId)) +
           '</b>',
       );
@@ -480,7 +479,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       config.pageMode = 'ribbon';
       config.pageId = '';
       config.pageName = '';
-      whisperGm('대사창 페이지를 노란 플레이어 리본 페이지로 되돌렸습니다.');
+      whisperGm('별도 대사창 적용 페이지: 플레이어 리본이 있는 페이지');
       return;
     }
 
@@ -489,7 +488,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       config.pageName = SETTING.PAGE_NAME || '';
       config.pageId = SETTING.PAGE_ID || '';
       whisperGm(
-        '대사창 페이지 설정을 스크립트 상단 기본값으로 되돌렸습니다: <b>' +
+        '별도 대사창 적용 페이지를 처음 설정으로 되돌렸습니다: <b>' +
           escapeHtml(pageName(resolveTargetPageId())) +
           '</b>',
       );
@@ -501,7 +500,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       var id = idMatch[1].trim();
       if (!getObj('page', id)) {
         whisperGm(
-          '입력한 페이지를 찾지 못했습니다. 사용할 페이지를 연 뒤 <code>!dialog-page here</code>를 입력해 주세요.',
+          '입력한 페이지를 찾지 못했습니다. 적용할 페이지의 토큰을 선택한 뒤 <code>!dialog-page here</code>를 입력해 주세요.',
         );
         return;
       }
@@ -509,7 +508,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       config.pageId = id;
       config.pageName = pageName(id);
       whisperGm(
-        '대사창 페이지를 저장했습니다: <b>' +
+        '별도 대사창 적용 페이지: <b>' +
           escapeHtml(config.pageName) +
           '</b>',
       );
@@ -532,7 +531,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       config.pageId = page.id;
       config.pageName = page.get('name');
       whisperGm(
-        '대사창 페이지를 저장했습니다: <b>' +
+        '별도 대사창 적용 페이지: <b>' +
           escapeHtml(page.get('name')) +
           '</b>',
       );
@@ -540,7 +539,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     }
 
     whisperGm(
-      '<code>!dialog-page status</code> / <code>!dialog-page Start</code> / <code>!dialog-page here</code> / <code>!dialog-page name 새 페이지 1</code> / <code>!dialog-page ribbon</code>',
+      '페이지 설정을 확인해 주세요. <code>!dialog-page status</code>',
     );
   }
 
@@ -661,74 +660,36 @@ KIBScene.adapters = KIBScene.adapters || {};
   }
 
   function statusHtml() {
-    var config = pageConfig();
     return (
       '<div style="border:1px solid #111;background:#fff;padding:8px">' +
-      '<b>DialogOverlay v' +
-      escapeHtml(VERSION) +
-      '</b><br>' +
-      'ENABLED: <b>' +
-      SETTING.ENABLED +
-      '</b><br>' +
-      'GM_ONLY: <b>' +
-      SETTING.GM_ONLY +
-      '</b><br>' +
-      'ALLOWED_NAMES: <b>' +
+      '<b>별도 대사창 설정</b><br>' +
+      '표시 화자: <b>' +
       escapeHtml(SETTING.ALLOWED_NAMES.join(', ')) +
       '</b><br>' +
-      'PAGE_MODE: <b>' +
-      escapeHtml(config.pageMode) +
-      '</b><br>' +
-      'TARGET_PAGE: <b>' +
+      '적용 페이지: <b>' +
       escapeHtml(pageName(resolveTargetPageId())) +
       '</b><br>' +
-      'LAYER: <b>' +
-      escapeHtml(SETTING.LAYER) +
-      '</b><br>' +
-      'SFX: <b>' +
-      SETTING.SFX_ENABLED +
-      '</b> / ' +
-      escapeHtml(SETTING.SFX.ROUND.TRACK) +
-      ', ' +
-      escapeHtml(SETTING.SFX.JUDGE.TRACK) +
-      ', ' +
-      escapeHtml(SETTING.SFX.HANDOUT.TRACK) +
-      '<br>' +
-      'TEST: <code>' +
+      '효과음: <b>' +
+      (SETTING.SFX_ENABLED ? '사용' : '사용 안 함') +
+      '</b><br><code>' +
       escapeHtml(SETTING.TEST_COMMAND) +
-      ' 대사내용</code>' +
+      ' 스크립트</code> 미리보기' +
       '</div>'
     );
   }
 
   function pageStatusHtml() {
-    var config = pageConfig();
-    var campaign = Campaign && Campaign();
-    var ribbonPageId =
-      campaign && campaign.get ? campaign.get('playerpageid') : '';
     return (
       '<div style="border:1px solid #111;background:#fff;padding:8px">' +
-      '<b>대사창 페이지 설정</b><br>' +
-      'PAGE_MODE: <b>' +
-      escapeHtml(config.pageMode) +
-      '</b><br>' +
-      '노란 리본 페이지: <b>' +
-      escapeHtml(pageName(ribbonPageId)) +
-      '</b><br>' +
-      '저장된 페이지: <b>' +
-      escapeHtml(pageName(config.pageId)) +
-      '</b><br>' +
-      '저장된 페이지 이름: <b>' +
-      escapeHtml(config.pageName || '') +
-      '</b><br>' +
-      '현재 목표 페이지: <b>' +
+      '<b>별도 대사창 적용 페이지</b><br>' +
+      '현재: <b>' +
       escapeHtml(pageName(resolveTargetPageId())) +
       '</b><br>' +
-      '<div style="margin-top:6px"><code>!dialog-page here</code>: 선택한 토큰/오브젝트의 페이지로 저장</div>' +
-      '<div><code>!dialog-page Start</code>: Start 페이지로 저장</div>' +
-      '<div><code>!dialog-page name 새 페이지 1</code>: 이름으로 저장</div>' +
-      '<div><code>!dialog-page ribbon</code>: 노란 리본 페이지 사용</div>' +
-      '<div><code>!dialog-page reset</code>: 스크립트 상단 기본값으로 복구</div>' +
+      '<div style="margin-top:6px"><code>!dialog-page here</code> 선택한 토큰이 있는 페이지</div>' +
+      '<div><code>!dialog-page Start</code> Start 페이지</div>' +
+      '<div><code>!dialog-page name 새 페이지 1</code> 이름으로 선택</div>' +
+      '<div><code>!dialog-page ribbon</code> 플레이어 리본이 있는 페이지</div>' +
+      '<div><code>!dialog-page reset</code> 처음 설정으로 복구</div>' +
       '</div>'
     );
   }
@@ -740,35 +701,35 @@ KIBScene.adapters = KIBScene.adapters || {};
       id: 'dialog-overlay',
       group: '연출',
       order: 90,
-      name: '대사 오버레이',
-      description: '특정 발화자의 일반 채팅을 맵 위 대사창으로 표시합니다.',
+      name: '별도 대사창',
+      description: '설정한 화자의 채팅을 별도 대사창에 표시',
       commands: [
         {
           command: SETTING.TEST_COMMAND + ' <대사>',
-          description: '조건을 무시하고 테스트 대사창을 띄웁니다.',
+          description: '별도 대사창 미리보기',
           gmOnly: true,
         },
         {
           command: SETTING.CLEAN_COMMAND,
-          description: '현재 대사창을 지웁니다.',
+          description: '별도 대사창 닫기',
           gmOnly: true,
         },
         {
           command: SETTING.STATUS_COMMAND,
-          description: '대사창 설정 상태를 확인합니다.',
+          description: '현재 설정 확인',
           gmOnly: true,
         },
         {
           command: SETTING.PAGE_COMMAND + ' Start|here|name <페이지>|ribbon',
-          description: '대사창을 띄울 페이지를 지정합니다.',
+          description: '적용 페이지 변경',
           gmOnly: true,
         },
       ],
       details: [
-        '자동 표시는 일반 채팅/이모트만 처리합니다.',
-        '기본 설정은 GM이 Speaking As를 ▶로 두고 말할 때만 Start 페이지에 표시합니다.',
-        '라운드, 판정, 핸드아웃 공개 문구에는 설정된 쥬크박스 효과음을 재생합니다.',
-        '다른 API 스크립트와 이름 충돌하지 않도록 내부 스코프로 감쌌습니다.',
+        '일반 채팅과 /em 대사를 자동 표시',
+        '화자: ' + escapeHtml(SETTING.ALLOWED_NAMES.join(', ')),
+        '적용 페이지: ' + escapeHtml(SETTING.PAGE_NAME),
+        '라운드, 판정, 핸드아웃 공개 문구에 설정된 효과음 재생',
       ],
     };
   }
@@ -776,9 +737,9 @@ KIBScene.adapters = KIBScene.adapters || {};
   function debugReject(reason, msg) {
     if (SETTING.DEBUG_TO_GM)
       whisperGm(
-        '대사창 무시: ' +
+        '별도 대사창 제외: ' +
           escapeHtml(reason) +
-          ' / who=' +
+          ' / 화자: ' +
           escapeHtml(msg && msg.who),
       );
     return false;

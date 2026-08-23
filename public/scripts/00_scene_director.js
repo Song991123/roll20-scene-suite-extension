@@ -83,7 +83,7 @@ var KIBScene = KIBScene || {};
             plugin: names[i],
             error: String(
               value.error ||
-                featureName(names[i]) + ' 연동 처리를 완료하지 못했습니다.',
+                featureName(names[i]) + '을 실행하지 못했습니다.',
             ),
           };
         if (value !== undefined)
@@ -204,7 +204,7 @@ var KIBScene = KIBScene || {};
         typeEnabled &&
         (typeAll ||
           (parsedLine && parsedLine.directType) ||
-          /(?:\{\{@type(?:\|[^{}]*)?\}\}|(?:^|\s)@(?:타자|type)(?=\s|$))/.test(
+          /(?:\{\{@type(?:\|[^{}]*)?\}\}|(?:^|\s)@(?:스크립트|타자|type)(?=\s|$))/.test(
             lines[i],
           ))
       ) {
@@ -247,9 +247,9 @@ var KIBScene = KIBScene || {};
       );
     } catch (err) {
       whisper(
-        '<b>SceneDirector 명령을 처리하지 못했습니다.</b><br>명령을 확인한 뒤 <code>!sd help</code>를 참고해 주세요.<br><span style="font-size:11px;color:#687386">상세: ' +
+        '<b>명령을 처리하지 못했습니다.</b><br>오류: ' +
           escapeHtml(errorText(err)) +
-          '</span>',
+          '<br><code>!sd help</code>에서 사용법을 확인하세요.',
       );
     }
   });
@@ -274,7 +274,7 @@ var KIBScene = KIBScene || {};
     if (command === 'config') return whisper(configHtml());
     if (command === 'handout') {
       refreshHandout();
-      return whisper('GM 전용 도움말 핸드아웃을 갱신했습니다.');
+      return whisper('사용법 핸드아웃을 갱신했습니다.');
     }
     if (command === 'estimate') return showEstimate(parts);
     if (command === 'set') return setConfig(parts[0], parts.slice(1).join('|'));
@@ -298,20 +298,22 @@ var KIBScene = KIBScene || {};
     var invalid = validateValue(path, value);
     if (invalid) return whisper(invalid);
     setPath(config(), path, value);
-    whisper('<b>' + escapeHtml(path) + '</b> = ' + escapeHtml(String(value)));
+    whisper(
+      '<b>' + escapeHtml(settingName(path)) + ':</b> ' + escapeHtml(String(value)),
+    );
     scheduleHandoutRefresh();
   }
 
   function resetConfig(path) {
     if (!path || path === 'all') {
       state.KIBSceneDirector.config = clone(DEFAULTS);
-      whisper('중앙 설정 전체를 기본값으로 복구했습니다.');
+      whisper('전체 설정을 초기화했습니다.');
     } else {
       var defaultValue = getPath(DEFAULTS, path);
       if (defaultValue === undefined)
         return whisper('기본값이 없는 설정입니다: ' + escapeHtml(path));
       setPath(config(), path, clone(defaultValue));
-      whisper('<b>' + escapeHtml(path) + '</b>을 기본값으로 복구했습니다.');
+      whisper('<b>' + escapeHtml(settingName(path)) + '</b>을 초기화했습니다.');
     }
     scheduleHandoutRefresh();
   }
@@ -319,17 +321,19 @@ var KIBScene = KIBScene || {};
   function setFeature(name, value) {
     name = normalize(name);
     if (!Object.prototype.hasOwnProperty.call(DEFAULTS.features, name))
-      return whisper('알 수 없는 기능: ' + escapeHtml(name));
+      return whisper('설치되지 않은 기능입니다: ' + escapeHtml(name));
     if (
       !/^(?:on|off|true|false|1|0|켜기|끄기|사용|미사용)$/i.test(
         String(value || ''),
       )
     ) {
-      return whisper('기능 값은 on 또는 off로 입력하세요.');
+      return whisper('켜기 또는 끄기로 입력하세요.');
     }
     var enabled = /^(?:on|true|1|켜기|사용)$/i.test(String(value || ''));
     setPath(config(), 'features.' + name, enabled);
-    whisper(name + ' = <b>' + (enabled ? 'ON' : 'OFF') + '</b>');
+    whisper(
+      escapeHtml(featureName(name)) + ': <b>' + (enabled ? '켜짐' : '꺼짐') + '</b>',
+    );
     scheduleHandoutRefresh();
   }
 
@@ -345,10 +349,10 @@ var KIBScene = KIBScene || {};
         '마지막 줄 시작: ' +
         seconds(result.lastLineStartsAt) +
         '<br>' +
-        '타자식 종료: ' +
+        '스크립트 종료: ' +
         seconds(result.typewriterEndsAt) +
         '<br>' +
-        'Visual Dialogue 종료: ' +
+        '비주얼 노벨 종료: ' +
         seconds(result.visualDialogueEndsAt) +
         '<br>' +
         '전체 예상: <b>' +
@@ -366,13 +370,13 @@ var KIBScene = KIBScene || {};
       '<b>SceneDirector ' +
       DEFAULTS.version +
       '</b><br>' +
-      '사용 가능한 기능: ' +
+      '설치된 기능: ' +
       escapeHtml(adapters.map(featureName).join(', ') || '(없음)') +
       '<br>' +
-      'Narrator: ' +
+      '나레이터: ' +
       narratorState +
       (state.last_narration_error
-        ? ' / 마지막 문제: ' +
+        ? ' / 최근 오류: ' +
           escapeHtml(state.last_narration_error.error || '')
         : '') +
       '<br>' +
@@ -385,7 +389,7 @@ var KIBScene = KIBScene || {};
   function configHtml() {
     var firstFeature = Object.keys(DEFAULTS.features).filter(hasPlugin)[0];
     return (
-      '<b>중앙 설정</b><br>' +
+      '<b>전체 설정</b><br>' +
       featureRows() +
       '<br>' +
       timingRows() +
@@ -431,7 +435,7 @@ var KIBScene = KIBScene || {};
       );
     if (hasPlugin('type'))
       rows.push(
-        '타자식=글자당 ' +
+        '스크립트=글자당 ' +
           timing.typeSpeed +
           'ms + 유지 ' +
           timing.typeHold +
@@ -445,11 +449,11 @@ var KIBScene = KIBScene || {};
     if (full) return fullHelpHtml();
     var rows = [
       '<b>SceneDirector ' + DEFAULTS.version + '</b>',
-      '<code>!sd status</code> — 연결된 기능 상태',
-      '<code>!sd config</code> — 중앙 시간·기능 설정',
-      '<code>!sd set|timing.lineInterval|3000</code> — 설정 변경',
-      '<code>!sd estimate|첫 줄|둘째 줄</code> — 예상 출력시간',
-      '<code>!sd handout</code> — 사용법 핸드아웃 갱신',
+      '<code>!sd status</code>: 연결된 기능 상태',
+      '<code>!sd config</code>: 전체 시간과 기능 설정',
+      '<code>!sd set|timing.lineInterval|3000</code>: 설정 변경',
+      '<code>!sd estimate|첫 줄|둘째 줄</code>: 예상 출력 시간',
+      '<code>!sd handout</code>: 사용법 핸드아웃 갱신',
     ];
     var names = Object.keys(KIBScene.adapters).sort();
     for (var i = 0; i < names.length; i++) {
@@ -459,7 +463,7 @@ var KIBScene = KIBScene || {};
         rows.push(
           '<b>' +
             escapeHtml(meta.code || names[i]) +
-            ' · ' +
+            ' - ' +
             escapeHtml(meta.title || names[i]) +
             '</b><br>' +
             adapter.help.join('<br>'),
@@ -472,13 +476,13 @@ var KIBScene = KIBScene || {};
     var names = Object.keys(KIBScene.adapters).sort();
     var featureLabels = {
       audio: '오디오',
-      vd: '대사창',
+      vd: '비주얼 노벨',
       image: '이미지 전환',
-      type: '타자식',
+      type: '스크립트',
       apng: 'APNG',
       handout: '핸드아웃',
       cutin: '컷인',
-      avatar: '아바타',
+      avatar: '캐릭터 이미지',
     };
     var featureButtons = names
       .filter(function (name) {
@@ -502,7 +506,7 @@ var KIBScene = KIBScene || {};
           .map(function (name) {
             return tableRow(
               escapeHtml(featureLabels[name] || name),
-              '<span style="color:#287a4b;font-weight:bold">사용 가능</span>',
+                '<span style="color:#111;font-weight:bold">사용 가능</span>',
             );
           })
           .join('')
@@ -526,14 +530,14 @@ var KIBScene = KIBScene || {};
         ? actionButton('컷인 관리', '!컷인 관리', '#7654a8') + ' '
         : '') +
       (hasPlugin('avatar')
-        ? actionButton('아바타 관리', '!아바타 관리', '#7654a8') + ' '
+        ? actionButton('캐릭터 이미지', '!아바타 관리', '#7654a8') + ' '
         : '') +
       actionButton('도움말 갱신', '!sd handout', '#9b6b20');
     var sections = [];
     sections.push(
       helpSection(
-        '00 · SceneDirector 중앙 관리',
-        '<div>설치된 코드만 아래에 표시됩니다. 각 기능은 해당 파일만 따로 설치해도 사용할 수 있습니다.</div>' +
+        '00 SceneDirector 설정',
+        '<div>설치된 기능만 표시합니다.</div>' +
           (featureButtons
             ? '<div style="margin-top:8px"><b>기능 켜기 / 끄기</b><br>' +
               featureButtons +
@@ -565,7 +569,7 @@ var KIBScene = KIBScene || {};
     if (hasPlugin('avatar')) sections.push(avatarHelpSection());
     sections.push(
       helpSection(
-        '설치 상태',
+        '설치된 기능',
         '<table style="width:100%;border-collapse:collapse">' +
           adapterRows +
           '</table>',
@@ -573,20 +577,17 @@ var KIBScene = KIBScene || {};
     );
 
     return (
-      '<div style="font-family:Arial,sans-serif;color:#2d3340;line-height:1.45">' +
-      '<div style="background:#172235;color:#fff;padding:14px;border:1px solid #0e1726;border-radius:6px">' +
-      '<div style="font-size:20px;font-weight:bold">SceneDirector <span style="font-size:12px;color:#8ed8f8">v' +
+      '<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;background:#fff">' +
+      '<div style="background:#fff;color:#111;padding:14px;border:1px solid #111">' +
+      '<div style="font-size:20px;font-weight:bold">SceneDirector <span style="font-size:12px;color:#111">v' +
       DEFAULTS.version +
       '</span></div>' +
-      '<div style="margin-top:3px;color:#d9e3f0">현재 설치된 기능을 한곳에서 설정합니다.</div>' +
+      '<div style="margin-top:3px">현재 설치된 기능 관리</div>' +
       '<div style="margin-top:10px">' +
       headerButtons +
       '</div>' +
       '</div>' +
       sections.join('') +
-      '<div style="margin-top:12px;color:#667085;font-size:11px;text-align:center">GM 전용 · ' +
-      inlineCode('!sd handout') +
-      '으로 언제든 갱신</div>' +
       '</div>'
     );
   }
@@ -600,7 +601,7 @@ var KIBScene = KIBScene || {};
     var meta = adapter.meta || {};
     return helpSection(
       escapeHtml(meta.code || '') +
-        (meta.code ? ' · ' : '') +
+        (meta.code ? ' - ' : '') +
         escapeHtml(meta.title || fallbackTitle),
       body,
     );
@@ -615,17 +616,16 @@ var KIBScene = KIBScene || {};
       commandRow('!... /desc 설명', '강조 설명 출력') +
       commandRow('!... /emas "홍길동" 행동', '캐릭터 행동 출력');
     var setup = setupSteps([
-      '맵·덱 설정은 필요 없습니다. 캐릭터 대사를 쓸 경우 저널에 캐릭터를 만듭니다.',
-      '<code>/as</code>와 <code>/emas</code> 이름을 캐릭터 저널 이름과 같게 쓰세요.',
-      '같이 실행할 기능 파일만 추가한 뒤 줄 끝에 <code>@오디오</code>·<code>@APNG</code> 등을 붙입니다.',
+      '캐릭터 대사는 <code>/as</code> 또는 <code>/emas</code>의 이름을 캐릭터 저널 이름과 같게 씁니다.',
+      '줄 끝에 <code>@오디오</code>, <code>@APNG</code> 같은 명령을 붙입니다.',
     ]);
     return moduleHelpSection(
       'narrator',
-      '01 Narrator',
+      '01 나레이터',
       setup +
         '<table style="width:100%;border-collapse:collapse">' +
         rows +
-        '</table><div style="margin-top:7px">줄 끝의 <code>@기능</code>은 같은 순간에 실행되며, 실패하면 남은 큐를 자동 취소합니다.</div>',
+        '</table><div style="margin-top:7px">줄 끝의 <code>@명령</code>은 대사와 함께 실행됩니다. 실패하면 남은 줄을 취소합니다.</div>',
     );
   }
 
@@ -657,7 +657,7 @@ var KIBScene = KIBScene || {};
     var setup = setupSteps([
       'Roll20 쥬크박스의 <b>오디오 관리</b>에서 음원을 추가하고, 제목은 서로 다르게 짓습니다.',
       'BGM은 제목 앞에 이모지를 붙이고, 효과음은 이모지 없이 두면 자동 분류됩니다.',
-      '자동 생성된 <code>🎵오디오</code>·<code>🪇효과음</code> 매크로를 바에서 쓰려면 각 매크로의 <b>Show in Macro Bar</b>를 켭니다.',
+      '자동 생성된 <code>🎵오디오</code>와 <code>🪇효과음</code> 매크로를 바에서 쓰려면 각 매크로의 <b>Show in Macro Bar</b>를 켭니다.',
     ]);
     return moduleHelpSection(
       'audio',
@@ -686,7 +686,7 @@ var KIBScene = KIBScene || {};
       tableRow('맵 레이어', '<code>vd_background</code> 선택') +
       tableRow(
         '스탠딩',
-        '<code>standings</code> 덱에 <code>캐릭터명</code>, <code>캐릭터명-감정명</code> 카드',
+        '<code>standings</code> 덱에 <code>캐릭터명</code>, <code>캐릭터명-표정명</code> 카드',
       );
     var controls =
       actionButton(
@@ -743,19 +743,19 @@ var KIBScene = KIBScene || {};
     var rows =
       commandRow('!@웃음', '현재 캐릭터 표정 변경') +
       commandRow('!@', '기본 표정으로 변경') +
-      commandRow('!비주얼 제외|추가|AS 이름', '해당 AS 숨김') +
+      commandRow('!비주얼 제외|추가|화자명', '해당 화자 숨김') +
       commandRow(
         '!비주얼 순서|맵시트등록',
         '선택한 고정 맵시트의 앞뒤 순서 저장',
       );
     var firstSetup = setupSteps([
       '코드 상단 <code>page_list</code>에 쓸 페이지 이름을 적고, 그 페이지에 아래 가이드 토큰을 배치합니다.',
-      '<code>standings</code> 덱을 만들고 <code>캐릭터명</code>·<code>캐릭터명-표정명</code> 카드를 넣습니다. 캐릭터 저널 이름도 같아야 합니다.',
+      '<code>standings</code> 덱을 만들고 <code>캐릭터명</code>, <code>캐릭터명-표정명</code> 카드를 넣습니다. 캐릭터 저널 이름도 같아야 합니다.',
       '고정 맵시트를 쓰면 토큰을 선택하고 <b>맵시트 등록</b>을 한 번 누릅니다.',
     ]);
     return moduleHelpSection(
       'vd',
-      '03 Visual Dialogue',
+      '03 비주얼 노벨',
       firstSetup +
         '<b>화면 꾸미기</b><table style="width:100%;border-collapse:collapse">' +
         setup +
@@ -773,7 +773,7 @@ var KIBScene = KIBScene || {};
     var setup = setupSteps([
       '<code>image</code>로 시작하는 덱을 만듭니다. 예: <code>image_scene</code>.',
       '변경할 그림을 그 덱의 카드 앞면에 넣습니다.',
-      '페이지에 덱과 이름이 완전히 같은 토큰 <code>image_scene</code>을 두고, 자동 생성된 <code>이미지변경</code> 매크로를 쓸니다.',
+      '페이지에 덱과 이름이 완전히 같은 토큰 <code>image_scene</code>을 두고, 자동 생성된 <code>이미지변경</code> 매크로를 씁니다.',
     ]);
     return moduleHelpSection(
       'image',
@@ -786,7 +786,7 @@ var KIBScene = KIBScene || {};
         ) +
         commandRow(
           '!... 대사 @이미지 image_scene|카드명',
-          'Narrator 줄과 동시에 변경',
+          '나레이터 줄과 함께 변경',
         ) +
         '</table>',
     );
@@ -794,17 +794,17 @@ var KIBScene = KIBScene || {};
 
   function typeHelpSection() {
     var setup = setupSteps([
-      '<b>03 Visual Dialogue의 대사창 타자 출력만 쓰면 05는 설치하지 않아도 됩니다.</b>',
-      '별도 타자창을 쓸 때만 코드 상단의 <code>PAGE_NAME</code>, <code>BOX_IMAGE_URL</code>, <code>ALLOWED_NAMES</code>를 방에 맞게 바꾸세요.',
+      '<b>03 비주얼 노벨의 스크립트 출력만 쓰면 05는 설치하지 않아도 됩니다.</b>',
+      '별도 스크립트를 쓸 때만 코드 상단의 <code>PAGE_NAME</code>, <code>BOX_IMAGE_URL</code>, <code>ALLOWED_NAMES</code>를 방에 맞게 바꾸세요.',
       '표시 페이지에서 <code>!dialog-page here</code>를 한 번 실행하면 그 페이지를 쓸 수 있습니다.',
     ]);
     return moduleHelpSection(
       'type',
-      '05 타자식 출력',
+      '05 스크립트',
       setup +
         '<div style="margin-top:7px">' +
         actionButton(
-          '타자 속도',
+          '스크립트 속도',
           '!sd set|timing.typeSpeed|?{글자당 시간(ms)|' +
             KIBScene.get('timing.typeSpeed', 45) +
             '}',
@@ -813,14 +813,14 @@ var KIBScene = KIBScene || {};
         ' ' +
         actionButton(
           KIBScene.get('timing.typeAllLines', true)
-            ? '전체 타자 끄기'
-            : '전체 타자 켜기',
+            ? '전체 스크립트 끄기'
+            : '전체 스크립트 켜기',
           '!sd set|timing.typeAllLines|' +
             (KIBScene.get('timing.typeAllLines', true) ? 'false' : 'true'),
           '#287a4b',
         ) +
         '</div><table style="width:100%;border-collapse:collapse">' +
-        commandRow('!... 대사 @타자', '이 줄만 타자식으로 표시') +
+        commandRow('!... 대사 @스크립트', '이 줄만 스크립트로 표시') +
         '</table>',
     );
   }
@@ -837,9 +837,9 @@ var KIBScene = KIBScene || {};
       commandRow('!APNG 연결|카드명|효과음 제목', 'APNG와 음원을 서로 연결');
     var setup = setupSteps([
       '이름이 <code>conversation</code>인 페이지와 <code>apng</code> 덱을 만들고, 덱 카드 앞면에 애니메이션을 넣습니다.',
-      '<code>전체</code>는 등록 맵시트 전체에 틉니다. 맵시트가 없으면 페이지 전체를 쓸니다.',
+      '<code>전체</code>는 등록 맵시트 전체에 틉니다. 맵시트가 없으면 페이지 전체를 씁니다.',
       '지정한 위치에도 틀 경우만 GM 레이어에 <code>apng_area</code> 토큰을 하나 둡니다. 토큰이 있어도 <code>영역</code>을 고른 재생에만 적용됩니다.',
-      '자동 생성된 <code>📽️apng</code> 매크로에서 카드·전체/지정 영역·1회/반복을 고릅니다.',
+      '자동 생성된 <code>📽️apng</code> 매크로에서 카드, 표시 위치, 재생 방식을 고릅니다.',
     ]);
     return moduleHelpSection(
       'apng',
@@ -854,7 +854,7 @@ var KIBScene = KIBScene || {};
 
   function handoutHelpSection() {
     var rows =
-      commandRow('!핸드아웃 관리', '관리 핸드아웃 생성·갱신') +
+      commandRow('!핸드아웃 관리', '관리 핸드아웃 갱신') +
       commandRow(
         '!핸드아웃 보내기|자료명|캐릭터명 또는 전원',
         '보기 권한을 주고 공개문 표시',
@@ -869,11 +869,11 @@ var KIBScene = KIBScene || {};
       ) +
       commandRow(
         '!... 대사 @핸드아웃 보내기|자료명|캐릭터명',
-        'Narrator 줄과 동시에 공개',
+        '나레이터 줄과 함께 공개',
       );
     var setup = setupSteps([
       '공개할 핸드아웃을 저널에 만들고 관리할 폴더에 넣습니다.',
-      '받을 사람은 캐릭터 저널의 <b>Controlled By</b>에 먼저 지정합니다. 명령에는 플레이어명이 아니라 캐릭터명을 쓸니다.',
+      '받을 캐릭터의 편집 권한에 플레이어를 지정합니다. 명령에는 캐릭터명을 씁니다.',
       '<code>!핸드아웃 관리</code>를 열어 폴더를 선택합니다. <code>🖊️핸드아웃</code> 매크로가 있으면 그 <code>/desc</code> 디자인만 읽고 내용은 바꾸지 않습니다.',
     ]);
     return moduleHelpSection(
@@ -890,21 +890,21 @@ var KIBScene = KIBScene || {};
 
   function avatarHelpSection() {
     var setup = setupSteps([
-      '<code>avatars</code> 덱을 만들고 시트·토큰용으로 미리 자른 이미지를 카드 앞면에 넣습니다.',
-      '카드 이름은 <code>캐릭터명</code>·<code>캐릭터명-표정명</code>으로 만들고 캐릭터 저널 이름도 같게 맞춥니다.',
-      '<code>!아바타 관리</code>에서 기본 또는 캐릭터별로 시트·토큰·비주얼 변경 대상을 선택합니다.',
+      '<code>avatars</code> 덱을 만들고 캐릭터와 맵 토큰용 이미지를 카드 앞면에 넣습니다.',
+      '카드 이름은 <code>캐릭터명</code>, <code>캐릭터명-표정명</code>으로 만들고 캐릭터 저널 이름도 같게 맞춥니다.',
+      '<code>!아바타 관리</code>에서 캐릭터 이미지, 맵 토큰, 비주얼 노벨 중 변경할 대상을 선택합니다.',
     ]);
     var rows =
-      commandRow('!@웃음', '현재 Speaking As 캐릭터의 설정된 대상 변경') +
-      commandRow('!... /as "홍길동" 대사 @웃음', 'Narrator 줄과 동시에 변경') +
+      commandRow('!@웃음', '현재 화자의 설정된 대상 변경') +
+      commandRow('!... /as "홍길동" 대사 @웃음', '나레이터 줄과 함께 변경') +
       commandRow('!아바타 대상|홍길동|시트|켜기', '캐릭터별 변경 대상 설정') +
-      commandRow('!아바타 제외|추가|홍길동', '시트·토큰 자동 변경 제외');
+      commandRow('!아바타 제외|추가|홍길동', '캐릭터 이미지와 맵 토큰 자동 변경 제외');
     return moduleHelpSection(
       'avatar',
-      '09 아바타 표정',
+      '09 캐릭터 이미지',
       setup +
         '<div style="margin:7px 0">' +
-        actionButton('아바타 관리', '!아바타 관리', '#7654a8') +
+        actionButton('캐릭터 이미지', '!아바타 관리', '#7654a8') +
         '</div><table style="width:100%;border-collapse:collapse">' +
         rows +
         '</table>',
@@ -917,7 +917,7 @@ var KIBScene = KIBScene || {};
       commandRow('!컷인 재생|카드명|3초', '카드 컷인 표시') +
       commandRow('!컷인 핸드아웃|자료명|3초', '핸드아웃 표지 컷인 표시') +
       commandRow('!컷인 중지', '현재 컷인과 연결 음원 중지') +
-      commandRow('!... 대사 @컷인 카드명|3초', 'Narrator 줄과 동시에 표시') +
+      commandRow('!... 대사 @컷인 카드명|3초', '나레이터 줄과 함께 표시') +
       commandRow(
         '!컷인 대사추가|컷인명|문구1,문구2',
         '정확히 같은 대사와 자동 연결',
@@ -936,8 +936,8 @@ var KIBScene = KIBScene || {};
       );
     var setup = setupSteps([
       '<code>cutin</code> 덱을 만들고 카드 앞면에 컷인 이미지를 넣습니다.',
-      '<code>다이스-성공</code>·<code>다이스-실패</code>처럼 이름을 지으면 <code>다이스</code> 부류가 같은 크기를 씁니다. 크기는 <code>!컷인 관리</code>에서 부류별로 등록합니다.',
-      '위치를 제한할 때만 GM 레이어에 <code>cutin_area</code>를 둡니다. 배경을 바꾸려면 맵 전체를 덮는 <code>cutin_overlay</code> 토큰을 GM 레이어에 둡니다.',
+      '<code>다이스-성공</code>, <code>다이스-실패</code>처럼 이름을 지으면 <code>다이스</code> 그룹이 같은 크기를 씁니다. 크기는 <code>!컷인 관리</code>에서 그룹별로 등록합니다.',
+      '위치를 제한할 때만 GM 레이어에 <code>cutin_area</code>를 둡니다. 배경을 바꾸려면 맵 전체를 덮는 <code>cutin_overlay</code> 토큰을 GM 레이어에 둡니다. 이미지는 저장되고 토큰은 사라집니다.',
       '핸드아웃 표지를 컷인으로 쓸 때만 07 관리 화면에서 표지 크기를 등록합니다.',
     ]);
     return moduleHelpSection(
@@ -1008,11 +1008,11 @@ var KIBScene = KIBScene || {};
       );
     });
     if (!cards.length || !tracks.length)
-      return '<div style="margin-bottom:8px;padding:7px;background:#fff3d6;border-left:4px solid #d39827">APNG·효과음 연결 버튼을 쓰려면 <code>apng</code> 카드와 쥬크박스 음원을 하나 이상 등록하세요.</div>';
+      return '<div style="margin-bottom:8px;padding:7px;background:#fff;border:1px solid #111">APNG 효과음 연결에는 <code>apng</code> 카드와 쥬크박스 음원이 필요합니다.</div>';
     var cardQuery = idQuery('APNG 카드', cards, 'name');
     var trackQuery = idQuery('효과음', tracks, 'title');
     return (
-      '<div style="margin-bottom:8px;padding:7px;background:#eef0fa;border-left:4px solid #7654a8"><b>APNG ↔ 효과음 자동 연결</b><br>' +
+      '<div style="margin-bottom:8px;padding:7px;background:#fff;border:1px solid #111"><b>APNG 효과음 연결</b><br>' +
       actionButton(
         '연결 등록',
         '!APNG 연결|' + cardQuery + '|' + trackQuery,
@@ -1022,7 +1022,7 @@ var KIBScene = KIBScene || {};
       actionButton('연결 해제', '!APNG 연결해제|' + cardQuery, '#8b3940') +
       ' ' +
       actionButton('연결 목록', '!APNG 연결목록', '#237a8b') +
-      '<br><span style="font-size:11px">나중에 이름을 바꿔도 연결은 유지됩니다.</span></div>'
+      '</div>'
     );
   }
 
@@ -1035,7 +1035,7 @@ var KIBScene = KIBScene || {};
       );
     });
     if (!cards.length)
-      return '<span style="font-size:11px;color:#8b3940">standings 카드 없음</span>';
+      return '<span style="font-size:11px;color:#111">standings 덱에 카드가 없습니다.</span>';
     return actionButton(
       '카드 비율 등록',
       '!비주얼 비율|등록|' +
@@ -1057,8 +1057,8 @@ var KIBScene = KIBScene || {};
 
   function helpSection(title, body) {
     return (
-      '<div style="margin-top:12px;border:1px solid #cbd3df;border-radius:5px;background:#f8fafc">' +
-      '<div style="padding:7px 9px;background:#e7edf5;border-bottom:1px solid #cbd3df;font-weight:bold;color:#26364d">' +
+      '<div style="margin-top:12px;border:1px solid #111;background:#fff">' +
+      '<div style="padding:7px 9px;background:#fff;border-bottom:1px solid #111;font-weight:bold;color:#111">' +
       title +
       '</div>' +
       '<div style="padding:9px">' +
@@ -1069,7 +1069,7 @@ var KIBScene = KIBScene || {};
 
   function setupSteps(steps) {
     return (
-      '<div style="margin-bottom:8px;padding:8px;background:#fff8e8;border-left:4px solid #d39a26"><b>처음 세팅</b><ol style="margin:5px 0 0 20px;padding:0">' +
+      '<div style="margin-bottom:8px;padding:8px;background:#fff;border:1px solid #111"><b>처음 세팅</b><ol style="margin:5px 0 0 20px;padding:0">' +
       steps
         .map(function (step) {
           return '<li style="margin:3px 0">' + step + '</li>';
@@ -1083,7 +1083,7 @@ var KIBScene = KIBScene || {};
     return (
       '<a href="' +
       escapeHtml(command) +
-      '" style="display:inline-block;margin:2px 1px;padding:5px 8px;border-radius:4px;background:' +
+      '" style="display:inline-block;margin:2px 1px;padding:5px 8px;border-radius:0;background:' +
       color +
       ';color:#fff;text-decoration:none;font-weight:bold;font-size:12px">' +
       escapeHtml(label) +
@@ -1093,7 +1093,7 @@ var KIBScene = KIBScene || {};
 
   function inlineCode(command) {
     return (
-      '<code style="display:inline-block;padding:2px 5px;background:#f5e9ed;color:#b42349;border-radius:3px">' +
+      '<code style="display:inline-block;padding:2px 5px;background:#f5f5f5;color:#111;border:1px solid #111;border-radius:0">' +
       escapeHtml(command) +
       '</code>'
     );
@@ -1101,10 +1101,10 @@ var KIBScene = KIBScene || {};
 
   function tableRow(label, value) {
     return (
-      '<tr><td style="width:32%;padding:6px;border-bottom:1px solid #dde3ec;font-weight:bold;vertical-align:top">' +
+      '<tr><td style="width:32%;padding:6px;border-bottom:1px solid #111;font-weight:bold;vertical-align:top">' +
       label +
       '</td>' +
-      '<td style="padding:6px;border-bottom:1px solid #dde3ec;vertical-align:top">' +
+      '<td style="padding:6px;border-bottom:1px solid #111;vertical-align:top">' +
       value +
       '</td></tr>'
     );
@@ -1168,9 +1168,9 @@ var KIBScene = KIBScene || {};
         refreshHandout();
       } catch (err) {
         whisper(
-          '<b>SceneDirector 도움말을 갱신하지 못했습니다.</b><br>GM 핸드아웃을 확인한 뒤 <code>!sd handout</code>을 다시 실행해 주세요.<br><span style="font-size:11px;color:#687386">상세: ' +
+          '<b>사용법 핸드아웃을 갱신하지 못했습니다.</b><br>오류: ' +
             escapeHtml(errorText(err)) +
-            '</span>',
+            '',
         );
       }
     }, 100);
@@ -1302,18 +1302,33 @@ var KIBScene = KIBScene || {};
   function errorText(err) {
     return String(err && err.message ? err.message : err || '알 수 없는 오류');
   }
+  function settingName(path) {
+    return (
+      {
+        'timing.firstDelay': '첫 출력 대기',
+        'timing.lineInterval': '줄 간격',
+        'timing.visualMinShow': '비주얼 노벨 최소 표시 시간',
+        'timing.visualCharRatio': '비주얼 노벨 글자당 시간',
+        'timing.typeSpeed': '스크립트 글자당 시간',
+        'timing.typeHold': '스크립트 유지 시간',
+        'timing.typeAllLines': '모든 줄 스크립트',
+        'help.createHandout': '사용법 핸드아웃',
+        'help.handoutName': '사용법 핸드아웃 이름',
+      }[path] || path
+    );
+  }
   function featureName(name) {
     var key = normalize(name);
     var adapter = KIBScene.adapters[key];
     var labels = {
       audio: '오디오',
-      vd: '비주얼 대사',
+      vd: '비주얼 노벨',
       image: '이미지 전환',
-      type: '타자식',
+      type: '스크립트',
       apng: 'APNG',
       handout: '핸드아웃',
       cutin: '컷인',
-      avatar: '아바타',
+      avatar: '캐릭터 이미지',
     };
     return String(
       (adapter && adapter.meta && adapter.meta.title) ||
@@ -1325,7 +1340,7 @@ var KIBScene = KIBScene || {};
   function featureUnavailable(name) {
     return (
       featureName(name) +
-      ' 기능을 사용할 수 없습니다. 해당 기능 코드가 저장·활성화됐는지 확인해 주세요.'
+      ' 기능을 사용할 수 없습니다. 설치 여부를 확인하세요.'
     );
   }
   function featureFailure(name, err) {

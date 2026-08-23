@@ -105,9 +105,9 @@ KIBScene.adapters = KIBScene.adapters || {};
       handleCommand(msg.content.substring(SETTING.COMMAND.length).trim());
     } catch (err) {
       whisper(
-        '<b>오디오 명령을 처리하지 못했습니다.</b><br><code>!오디오 help</code>에서 형식을 확인해 주세요.<br><span style="font-size:11px;color:#687386">상세: ' +
+        '<b>오디오 명령을 처리하지 못했습니다.</b><br>오류: ' +
           escapeHtml(err && err.message ? err.message : err) +
-          '</span>',
+          '<br><code>!오디오 help</code>에서 사용법을 확인하세요.',
       );
     }
   });
@@ -118,7 +118,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     });
     var command = parts.shift().split(/\s+/);
     if (command[0] == 'audio') return adapterCommand(command.slice(1), parts);
-    whisper('형식: !오디오 재생|음원 제목|반복|볼륨=30|페이드=2초');
+    whisper('<code>!오디오 재생|음원 제목|반복|볼륨=30|페이드=2초</code>');
   }
 
   function koreanAudioCommand(source) {
@@ -153,14 +153,14 @@ KIBScene.adapters = KIBScene.adapters || {};
       });
       if (!prefixes.length)
         return audioUsage(
-          '지정 모드에는 BGM 표식 이모지를 하나 이상 입력하세요.',
+          'BGM으로 분류할 이모지를 입력하세요.',
         );
       state.KIBSceneAudio.classification = {
         mode: 'prefix',
         prefixes: prefixes,
       };
     } else {
-      return audioUsage('분류는 자동 또는 지정만 사용할 수 있습니다.');
+      return audioUsage('자동 또는 지정으로 입력하세요.');
     }
     updateAudioMacros();
     showClassification();
@@ -170,13 +170,12 @@ KIBScene.adapters = KIBScene.adapters || {};
   function showClassification() {
     var config = state.KIBSceneAudio.classification;
     return whisper(
-      '오디오 자동 분류: <b>' +
-        (config.mode == 'prefix' ? '지정 이모지' : '제목 앞 이모지 자동 감지') +
+      '오디오 분류: <b>' +
+        (config.mode == 'prefix' ? '지정' : '자동') +
         '</b>' +
         (config.mode == 'prefix'
-          ? '<br>표식: ' + escapeHtml(config.prefixes.join(' '))
-          : '') +
-        '<br><code>!오디오 분류|자동</code><br><code>!오디오 분류|지정|🌧️|🎻|🌙</code>',
+          ? ' ' + escapeHtml(config.prefixes.join(' '))
+          : ''),
     );
   }
 
@@ -185,18 +184,18 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (action == 'bind') return bind(parts[0], parts.slice(1).join('|'));
     if (action == 'unbind') {
       delete state.KIBSceneAudio.aliases[normalize(parts[0])];
-      return whisper('별칭을 해제했습니다: ' + escapeHtml(parts[0]));
+      return whisper('오디오 연결을 해제했습니다: ' + escapeHtml(parts[0]));
     }
     if (action == 'list') return listBindings();
     if (action == 'driver') {
       var driver = normalize(parts[0]);
       if (driver != 'native' && driver != 'roll20am')
         return whisper(
-          '재생 방식은 <code>native</code> 또는 <code>roll20am</code>으로 입력해 주세요.',
+          '재생 방식은 <code>native</code>(쥬크박스 직접 재생) 또는 <code>roll20am</code>으로 입력하세요.',
         );
       state.KIBSceneAudio.driver = driver;
       return whisper(
-        '오디오 재생 방식: <b>' +
+        '재생 방식: <b>' +
           (driver == 'native' ? 'Roll20 쥬크박스 직접 제어' : 'Roll20AM 연결') +
           '</b>',
       );
@@ -221,7 +220,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       return handleAudioCue([action].concat(parts));
     }
     whisper(
-      '형식: !sd audio play|제목|loop / stop|제목 / fadein|제목|fade=2000 / bind|별칭|제목',
+      '<code>!오디오 재생|음원 제목|반복|볼륨=30|페이드=2초</code>',
     );
   }
 
@@ -387,7 +386,7 @@ KIBScene.adapters = KIBScene.adapters || {};
         ? { ok: true, action: action, target: target, options: options }
         : {
             ok: false,
-            error: 'Roll20AM의 API 발신자 GM 허용 설정이 필요합니다.',
+            error: 'Roll20AM에서 API 명령의 GM 실행을 허용하세요.',
           };
     }
     var resolved = resolveTrack(target);
@@ -403,7 +402,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function bind(alias, title) {
     if (!alias || !title)
-      return whisper('형식: !sd audio bind|별칭|현재 트랙 제목');
+      return whisper('형식: <code>!sd audio bind|연결 이름|쥬크박스 음원 제목</code>');
     var track = findTrackByTitle(title);
     if (!track)
       return whisper(
@@ -414,7 +413,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       lastTitle: track.get('title'),
     };
     whisper(
-      '연결됨: <b>' +
+      '오디오 연결: <b>' +
         escapeHtml(alias) +
         '</b> → ' +
         escapeHtml(track.get('title')),
@@ -424,7 +423,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   function listBindings() {
     var aliases = state.KIBSceneAudio.aliases;
     var keys = Object.keys(aliases);
-    if (!keys.length) return whisper('등록된 별칭이 없습니다.');
+    if (!keys.length) return whisper('등록된 오디오 연결이 없습니다.');
     whisper(
       keys
         .map(function (alias) {
@@ -459,7 +458,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       return {
         ok: false,
         error:
-          '같은 제목의 쥬크박스 음원이 ' +
+          '같은 제목의 음원이 ' +
           matches.length +
           '개입니다: ' +
           aliasOrTitle,
@@ -470,7 +469,7 @@ KIBScene.adapters = KIBScene.adapters || {};
         error:
           '쥬크박스에 "' +
           aliasOrTitle +
-          '" 음원이 없습니다. 제목을 정확히 확인해 주세요.',
+          '" 음원이 없습니다. 쥬크박스에서 제목을 확인하세요.',
       };
     return { ok: true, track: matches[0] };
   }
@@ -484,11 +483,11 @@ KIBScene.adapters = KIBScene.adapters || {};
     }
     if (matches.length > 1) {
       whisper(
-        '같은 제목의 쥬크박스 음원이 ' +
+        '같은 제목의 음원이 ' +
           matches.length +
           '개입니다: <b>' +
           escapeHtml(title) +
-          '</b><br>제목을 구분한 뒤 별칭을 연결하세요.',
+          '</b><br>음원 제목을 다르게 바꿔 주세요.',
       );
       return null;
     }
@@ -497,7 +496,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function sendRoll20Am(action, target, options) {
     if (!SETTING.ROLL20AM_ACCEPT_API_AS_GM)
-      return whisper('Roll20AM의 API 권한을 gm으로 설정해야 합니다.');
+      return whisper('Roll20AM에서 API 명령의 GM 실행을 허용하세요.');
     var command = '';
     if (action == 'play')
       command =
@@ -590,10 +589,10 @@ KIBScene.adapters = KIBScene.adapters || {};
           /^(\d+(?:\.\d+)?)\s*(초|ms|밀리초)?$/i,
         );
         if (!fadeMatch)
-          return { error: '페이드는 2초 또는 2000ms처럼 입력하세요.' };
+          return { error: '페이드 시간은 2초 또는 2000ms처럼 입력하세요.' };
         value = Number(fadeMatch[1]) * (fadeMatch[2] == '초' ? 1000 : 1);
         if (value < 0 || value > 60000)
-          return { error: '페이드는 0~60초 범위만 사용할 수 있습니다.' };
+          return { error: '페이드 시간은 0~60초로 입력하세요.' };
       }
       options[key] = value;
     }
@@ -659,9 +658,9 @@ KIBScene.adapters = KIBScene.adapters || {};
           bridge.refreshHandout();
       } catch (err) {
         whisper(
-          '<b>오디오 매크로를 갱신하지 못했습니다.</b><br>쥬크박스 음원과 GM 계정을 확인해 주세요.<br><span style="font-size:11px;color:#687386">상세: ' +
+          '<b>오디오 매크로를 갱신하지 못했습니다.</b><br>오류: ' +
             escapeHtml(err && err.message ? err.message : err) +
-            '</span>',
+            '',
         );
       }
     }, SETTING.MACRO_REFRESH_MS);
@@ -787,9 +786,9 @@ KIBScene.adapters = KIBScene.adapters || {};
   function audioUsage(error) {
     if (error) {
       whisper(
-        '<b>오디오 명령을 실행하지 못했습니다.</b><br>' +
+        '<b>오디오 명령을 실행하지 못했습니다.</b><br>오류: ' +
           escapeHtml(error) +
-          '<br>사용법: <code>!오디오 help</code>',
+          '',
       );
       return { ok: false, error: String(error) };
     }

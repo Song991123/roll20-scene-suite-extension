@@ -41,6 +41,7 @@ const cutinText = fs.readFileSync(
 const scriptText = scripts
   .map((name) => fs.readFileSync(path.join(scriptsRoot, name), 'utf8'))
   .join('\n');
+const releaseText = `${publicText}\n${scriptText}`;
 new Function(scriptText);
 assert.strictEqual(
   fs.readFileSync(sourcesFile, 'utf8'),
@@ -49,8 +50,25 @@ assert.strictEqual(
 );
 
 assert(
-  !publicText.includes('·'),
-  '공개 문서와 페이지에 가운데 점을 쓰지 않습니다.',
+  !releaseText.includes('·'),
+  '공개 문서, 페이지, 스크립트에 가운데 점을 쓰지 않습니다.',
+);
+assert(!releaseText.includes('—'), '사용자 안내에 긴 대시를 쓰지 않습니다.');
+[
+  '맵·덱 설정은 필요 없습니다.',
+  '현재 설치된 기능을 한곳에서 설정합니다.',
+  '현재 폴더:',
+  '표정 카드가 바꿀 대상을 선택합니다.',
+  '조용히 교체',
+  '타자식',
+].forEach((text) =>
+  assert(!releaseText.includes(text), `배포 문구를 다시 정리해야 합니다: ${text}`),
+);
+assert(
+  scriptText.includes('관리할 폴더:') &&
+    scriptText.includes('현재 설치된 기능 관리') &&
+    scriptText.includes('컷인 스크립트'),
+  '통일한 핸드아웃 용어가 필요합니다.',
 );
 assert(
   !publicText.includes('Song991123'),
@@ -87,6 +105,12 @@ assert(
 assert(
   appText.includes('각종 여러 시트 호환은 아직 미개발. 추후 업뎃 예정'),
   '컷인 시트 호환 예정 안내가 필요합니다.',
+);
+assert(
+  cutinText.includes('state.KIBSceneCutin.overlayImages[pageId] = imgsrc;') &&
+    cutinText.includes('captureOverlayGuides();') &&
+    /function saveOverlayGuide[\s\S]+?guide\.remove\(\);/.test(cutinText),
+  'cutin_overlay 이미지를 저장한 뒤 안내 토큰을 제거해야 합니다.',
 );
 assert(
   !indexText.includes('id="setup-list"') &&

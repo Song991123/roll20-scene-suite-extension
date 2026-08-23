@@ -32,7 +32,7 @@ const nt_setting = {
   use_avatar: true,
   use_page_change: false,
 
-  // 모든 줄 타자 출력
+  // 모든 줄 스크립트 출력
   type_all_lines: true,
 };
 
@@ -52,13 +52,13 @@ on('ready', function () {
     state.narration_error = null;
   }
   var adapter = {
-    meta: { code: '01_narrator_director.js', title: 'Narrator' },
+    meta: { code: '01_narrator_director.js', title: '나레이터' },
     aliases: { 나레이터: '', narrator: '' },
     extract: ntExtractCues,
     help: [
       '<code>!... 대사</code> 차례대로 출력',
-      '<code>!,</code> 일시정지/재시작',
-      '<code>!/</code> 취소',
+      '<code>!,</code> 일시정지 또는 다시 시작',
+      '<code>!/</code> 전체 취소',
     ],
   };
   if (typeof KIBScene.register === 'function')
@@ -73,8 +73,8 @@ on('chat:message', function (msg) {
       playerIsGM(msg.playerid)
     ) {
       sendChat(
-        'Narrator',
-        '/w GM <b>Narrator 도움말</b><br><code>!... 대사</code> 순서대로 출력<br><code>!... /as "홍길동" 대사</code> 캐릭터 대사<br><code>!... /desc 설명</code> 강조문<br><code>!... /emas "홍길동" 행동</code> 행동문<br><code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 추가<br><code>!. 동시에 출력할 줄</code> 같은 차례에 함께 출력<br><code>!,</code> 일시정지/재시작 · <code>!/</code> 전체 취소<br>줄 끝에 <code>@표정</code>·<code>@오디오</code>·<code>@비주얼</code>·<code>@APNG</code>·<code>@핸드아웃</code>·<code>@컷인</code> 명령을 붙일 수 있습니다.',
+        '나레이터',
+        '/w GM <b>나레이터 도움말</b><br><code>!... 대사</code> 차례대로 출력<br><code>!... /as "홍길동" 대사</code> 캐릭터 대사<br><code>!... /desc 설명</code> 강조문<br><code>!... /emas "홍길동" 행동</code> 행동문<br><code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 추가<br><code>!. 동시에 출력할 줄</code> 같은 차례에 함께 출력<br><code>!,</code> 일시정지 또는 다시 시작<br><code>!/</code> 전체 취소<br>줄 끝에 <code>@표정</code>, <code>@오디오</code>, <code>@비주얼</code>, <code>@APNG</code>, <code>@핸드아웃</code>, <code>@컷인</code> 명령을 붙일 수 있습니다.',
         null,
         { noarchive: true },
       );
@@ -125,8 +125,8 @@ on('chat:message', function (msg) {
             );
             if (!as_match) {
               sendChat(
-                'Narrator',
-                '/w GM <b>/as 형식을 확인해 주세요.</b><br>예: <code>!... /as "홍길동" 대사</code>',
+                '나레이터',
+                '/w GM <b>/as 또는 /emas 형식을 확인하세요.</b><br>예: <code>!... /as "홍길동" 대사</code>',
                 null,
                 { noarchive: true },
               );
@@ -180,8 +180,8 @@ on('chat:message', function (msg) {
             state.narration[state.narration.length - 1].msg += '<br>' + str;
           } else {
             sendChat(
-              'Narrator',
-              '/w GM <code>!,,,</code>을 붙일 이전 줄이 없습니다.<br><code>!...</code>로 첫 줄을 먼저 입력해 주세요.',
+              '나레이터',
+              '/w GM <code>!,,,</code>을 추가할 이전 줄이 없습니다.<br><code>!...</code>로 첫 줄을 먼저 입력하세요.',
               null,
               { noarchive: true },
             );
@@ -193,15 +193,15 @@ on('chat:message', function (msg) {
               state.nt_linebreaker + str;
           } else {
             sendChat(
-              'Narrator',
-              '/w GM <code>!.</code>을 붙일 이전 줄이 없습니다.<br><code>!...</code>로 첫 줄을 먼저 입력해 주세요.',
+              '나레이터',
+              '/w GM <code>!.</code>을 추가할 이전 줄이 없습니다.<br><code>!...</code>로 첫 줄을 먼저 입력하세요.',
               null,
               { noarchive: true },
             );
           }
         }
       } catch (err) {
-        ntWhisperProblem('Narrator 명령을 처리하지 못했습니다.', err);
+        ntWhisperProblem('나레이터 명령을 처리하지 못했습니다.', err);
       }
     }
   }
@@ -462,6 +462,7 @@ function ntNormalizeCueType(value) {
       vd: 'vd',
       아바타: 'avatar',
       avatar: 'avatar',
+      스크립트: 'type',
       타자: 'type',
       type: 'type',
       apng: 'apng',
@@ -516,7 +517,7 @@ function ntRunCues(cues, context) {
         ok: false,
         error:
           ntCueLabel(cue.type) +
-          ' 기능을 사용할 수 없습니다. 해당 기능 코드가 저장·활성화됐는지 확인해 주세요.',
+          ' 기능을 사용할 수 없습니다. 설치 여부를 확인하세요.',
         cue: cue,
       };
     }
@@ -543,7 +544,7 @@ function ntValidateCues(cues, context) {
         ok: false,
         error:
           ntCueLabel(cue.type) +
-          ' 기능을 사용할 수 없습니다. 해당 기능 코드가 저장·활성화됐는지 확인해 주세요.',
+          ' 기능을 사용할 수 없습니다. 설치 여부를 확인하세요.',
         cue: cue,
       };
     }
@@ -562,18 +563,18 @@ function ntCancelOnError(result, source) {
   state.is_narrating = 1;
   state.narration_error = null;
   sendChat(
-    'Narrator',
-    '/w GM <b>Narrator가 남은 대사를 취소했습니다.</b><br>' +
-      '문제: ' +
+    '나레이터',
+    '/w GM <b>나레이터를 취소했습니다.</b><br>' +
+      '오류: ' +
       ntEscape(state.last_narration_error.error) +
       (state.last_narration_error.cue
-        ? '<br>함께 실행한 명령: <code>' +
+        ? '<br>명령: <code>' +
           ntEscape(state.last_narration_error.cue) +
           '</code>'
         : '') +
-      '<br>취소: ' +
+      '<br>취소된 줄: ' +
       cancelled +
-      '개<br>수정한 뒤 다음 <code>!...</code>를 바로 입력하면 됩니다.',
+      '개',
     null,
     { noarchive: true },
   );
@@ -594,9 +595,9 @@ function ntCueLabel(type) {
     {
       audio: '오디오',
       image: '이미지 전환',
-      vd: '비주얼 대사',
-      avatar: '아바타',
-      type: '타자식',
+      vd: '비주얼 노벨',
+      avatar: '캐릭터 이미지',
+      type: '스크립트',
       apng: 'APNG',
       handout: '핸드아웃',
       cutin: '컷인',
@@ -610,12 +611,12 @@ function ntWhisperProblem(title, err) {
     err && err.message ? err.message : err || '알 수 없는 오류',
   );
   sendChat(
-    'Narrator',
+    '나레이터',
     '/w GM <b>' +
       ntEscape(title) +
-      '</b><br><span style="font-size:11px;color:#687386">상세: ' +
+      '</b><br>오류: ' +
       ntEscape(detail) +
-      '</span>',
+      '',
     null,
     { noarchive: true },
   );
@@ -690,6 +691,7 @@ function ntCueAliases() {
     'vd',
     '아바타',
     'avatar',
+    '스크립트',
     '타자',
     'type',
     'APNG',

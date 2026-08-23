@@ -24,7 +24,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   };
 
   // ===== 실행 상태 =====
-  var API = 'APNGDirector';
+  var API = 'APNG';
   var macroTimer = null;
   var hideTimers = {};
   var linkedWatches = {};
@@ -56,11 +56,12 @@ KIBScene.adapters = KIBScene.adapters || {};
         playLinkedAPNGForAudio: playLinkedApngForAudio,
         bringToFront: bringActiveToFront,
         help: [
-          '<code>@APNG 카드명|1회|3초|전체</code> — 한 사이클 후 제거',
-          '<code>@APNG 카드명|반복|영역</code> — 중지할 때까지 유지',
-          '<code>전체</code> 토큰 레이어 / <code>영역</code> 맵 레이어',
+          '<code>@APNG 카드 이름|1회|3초|전체</code> 한 번 재생',
+          '<code>@APNG 카드 이름|반복|영역</code> 중지할 때까지 반복',
+          '<code>전체</code> 적용 페이지 전체',
+          '<code>영역</code> ' + escapeHtml(SETTING.AREA_NAME) + ' 위치',
           '<code>@APNG 중지</code>',
-          '<code>@APNG 카드명|중지</code>',
+          '<code>@APNG 카드 이름|중지</code>',
         ],
       };
       if (typeof KIBScene.register === 'function')
@@ -85,7 +86,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       handleCommand(msg);
     } catch (err) {
       whisper(
-        '<b>APNG 명령을 처리하지 못했습니다.</b><br><code>!APNG 도움말</code>에서 형식을 확인해 주세요.<br><span style="font-size:11px;color:#687386">상세: ' +
+        '<b>APNG 명령을 처리하지 못했습니다.</b><br><code>!APNG 도움말</code>에서 형식을 확인해 주세요.<br><span style="font-size:11px;color:#687386">오류 내용: ' +
           escapeHtml(err && err.message ? err.message : err) +
           '</span>',
       );
@@ -164,13 +165,11 @@ KIBScene.adapters = KIBScene.adapters || {};
     )
       return whisper(statusHtml());
     if (action == '매크로갱신') {
-      var updated = updateMacro();
+      updateMacro();
       return whisper(
         '<b>' +
           escapeHtml(SETTING.MACRO_NAME) +
-          '</b> 매크로 ' +
-          updated +
-          '개를 갱신했습니다.<br>동작 → 카드 → 1회/반복 → 시간 순서로 선택합니다.',
+          '</b> 매크로를 갱신했습니다.',
       );
     }
     if (action == '매크로없음')
@@ -180,7 +179,7 @@ KIBScene.adapters = KIBScene.adapters || {};
           '</b> 덱에 앞면 이미지가 있는 카드가 없습니다.',
       );
     whisper(
-      '사용법: <code>!APNG 재생|카드명|1회|3초|전체</code> / <code>!APNG 재생|카드명|반복|영역</code> / <code>!APNG 중지</code>',
+      '사용법: <code>!APNG 재생|카드 이름|1회|3초|전체</code><br><code>!APNG 재생|카드 이름|반복|영역</code><br><code>!APNG 중지</code>',
     );
   }
 
@@ -235,7 +234,7 @@ KIBScene.adapters = KIBScene.adapters || {};
           return {
             ok: false,
             error:
-              'APNG 1회는 한 사이클 뒤 바로 사라집니다. 정지 이미지가 없는 유지 옵션은 사용할 수 없습니다.',
+              'APNG 1회 재생에는 유지 옵션을 사용할 수 없습니다.',
           };
         var durationValue = parseDuration(values[i]);
         if (durationValue === null)
@@ -258,7 +257,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       return {
         ok: false,
         error:
-          '카드 앞면이 Roll20 라이브러리의 사용 가능한 이미지가 아닙니다: ' +
+          '카드 앞면 이미지를 사용할 수 없습니다: ' +
           cardResult.card.get('name'),
       };
     var linkedTrackId = state.KIBSceneAPNG.audioLinks[cardResult.card.id];
@@ -266,31 +265,31 @@ KIBScene.adapters = KIBScene.adapters || {};
       return {
         ok: false,
         error:
-          'APNG에 연결된 효과음이 삭제되었습니다. 연결을 해제하거나 다시 등록하세요: ' +
+          '카드에 연결된 효과음을 찾지 못했습니다. 다시 연결해 주세요: ' +
           cardResult.card.get('name'),
       };
     if (linkedTrackId && !apngHasPlugin('audio'))
       return {
         ok: false,
-        error: '연결한 효과음을 재생하려면 02 오디오 코드가 필요합니다.',
+        error: '효과음을 함께 재생하려면 02 오디오를 설치해 주세요.',
       };
     if (
       linkedTrackId &&
       typeof KIBScene.isFeatureEnabled === 'function' &&
       !KIBScene.isFeatureEnabled('audio')
     )
-      return { ok: false, error: 'SceneDirector에서 오디오 기능을 켜 주세요.' };
+      return { ok: false, error: '00 Scene Director에서 오디오를 켜 주세요.' };
     var audioStatus = linkedTrackId ? apngCall('audio', 'status') : null;
     if (audioStatus && audioStatus.driver && audioStatus.driver != 'native')
       return {
         ok: false,
         error:
-          'Roll20AM 방식에서는 APNG·효과음 자동 연결을 사용할 수 없습니다. <code>!sd audio driver|native</code>로 Roll20 직접 재생 방식을 선택해 주세요.',
+          'Roll20AM 재생 방식에서는 APNG와 효과음을 연결할 수 없습니다. <code>!sd audio driver|native</code>로 Roll20 직접 재생 방식을 선택해 주세요.',
       };
     if (!(duration >= 100 && duration <= 600000))
       return {
         ok: false,
-        error: 'APNG 한 사이클 시간은 0.1초~600초여야 합니다.',
+        error: 'APNG 한 사이클 시간은 0.1초에서 600초 사이여야 합니다.',
       };
     return {
       ok: true,
@@ -313,7 +312,9 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (!(pageWidth > 0 && pageHeight > 0))
       return {
         ok: false,
-        error: 'conversation 페이지 크기가 올바르지 않습니다.',
+        error:
+          '적용 페이지 크기를 확인해 주세요: ' +
+          escapeHtml(parsed.page.get('name')),
       };
     var mapSheetBounds = parsed.area
       ? null
@@ -332,7 +333,12 @@ KIBScene.adapters = KIBScene.adapters || {};
           height: pageHeight,
         };
     if (!(bounds.width > 0 && bounds.height > 0))
-      return { ok: false, error: 'apng_area 토큰 크기가 올바르지 않습니다.' };
+      return {
+        ok: false,
+        error:
+          '지정 영역 토큰의 크기를 확인해 주세요: ' +
+          escapeHtml(SETTING.AREA_NAME),
+      };
     var graphic = createObj('graphic', {
       _pageid: parsed.page.id,
       imgsrc: parsed.imgsrc,
@@ -351,7 +357,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       return {
         ok: false,
         error:
-          'APNG 그림을 만들지 못했습니다. 카드 앞면 이미지와 페이지 설정을 확인해 주세요.',
+          'APNG를 표시하지 못했습니다. 카드 앞면 이미지와 적용 페이지를 확인해 주세요.',
       };
     state.KIBSceneAPNG.activeIds.push(graphic.id);
     bringActiveToFront(parsed.page.id);
@@ -470,13 +476,22 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (areas.length > 1)
       return {
         ok: false,
-        error: 'conversation 페이지에 apng_area 토큰이 여러 개 있습니다.',
+        error:
+          '<b>' +
+          escapeHtml(page.get('name')) +
+          '</b> 페이지에 <b>' +
+          escapeHtml(SETTING.AREA_NAME) +
+          '</b> 토큰이 여러 개 있습니다. 하나만 남겨 주세요.',
       };
     if (!areas.length)
       return {
         ok: false,
         error:
-          '지정 영역에 재생하려면 conversation 페이지 GM 레이어에 apng_area 토큰을 하나 두세요.',
+          '지정 영역에 재생하려면 <b>' +
+          escapeHtml(page.get('name')) +
+          '</b> 페이지 GM 레이어에 <b>' +
+          escapeHtml(SETTING.AREA_NAME) +
+          '</b> 토큰을 하나 놓아 주세요.',
       };
     return { ok: true, area: areas[0] };
   }
@@ -550,7 +565,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   function saveCardSetting(args) {
     if (!args || args.length < 2)
       return whisper(
-        '사용법: <code>!APNG 설정|카드명|반복</code> 또는 <code>!APNG 설정|카드명|1회|3초</code>',
+        '사용법: <code>!APNG 설정|카드 이름|반복</code> 또는 <code>!APNG 설정|카드 이름|1회|3초</code>',
       );
     var cardResult = findCard(args[0]);
     if (!cardResult.ok) return whisper(cardResult.error);
@@ -561,7 +576,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       );
     var duration = args[2] ? parseDuration(args[2]) : SETTING.DEFAULT_DURATION;
     if (!(duration >= 100 && duration <= 600000))
-      return whisper('APNG 한 사이클 시간은 0.1초~600초여야 합니다.');
+      return whisper('APNG 한 사이클 시간은 0.1초에서 600초 사이여야 합니다.');
     state.KIBSceneAPNG.cardSettings[cardResult.card.id] = {
       mode: mode,
       duration: duration,
@@ -571,16 +586,18 @@ KIBScene.adapters = KIBScene.adapters || {};
     whisper(
       '<b>' +
         escapeHtml(cardResult.card.get('name')) +
-        '</b> = ' +
+        '</b> 재생 설정: ' +
         (mode == 'loop'
-          ? '반복 / 최소 ' + formatSeconds(duration)
-          : formatSeconds(duration) + ' 1회'),
+          ? '반복, 한 사이클 ' + formatSeconds(duration)
+          : '1회, 한 사이클 ' + formatSeconds(duration)),
     );
   }
 
   function bindAudio(args) {
     if (!args || args.length < 2)
-      return whisper('사용법: <code>!APNG 연결|APNG 카드명|효과음 제목</code>');
+      return whisper(
+        '사용법: <code>!APNG 연결|APNG 카드 이름|효과음 제목</code>',
+      );
     var cardResult = findCard(args[0]);
     if (!cardResult.ok) return whisper(cardResult.error);
     var trackResult = findTrack(args[1]);
@@ -594,9 +611,9 @@ KIBScene.adapters = KIBScene.adapters || {};
     whisper(
       '<b>' +
         escapeHtml(cardResult.card.get('name')) +
-        '</b> ↔ <b>' +
+        '</b>에 <b>' +
         escapeHtml(trackResult.track.get('title')) +
-        '</b> 연결 완료',
+        '</b> 효과음을 연결했습니다.',
     );
   }
 
@@ -650,14 +667,14 @@ KIBScene.adapters = KIBScene.adapters || {};
         );
         return (
           escapeHtml(card ? card.get('name') : '(삭제된 카드)') +
-          ' ↔ ' +
+          ': ' +
           escapeHtml(track ? track.get('title') : '(삭제된 음원)')
         );
       },
     );
     return rows.length
-      ? '<b>APNG·효과음 연결</b><br>' + rows.join('<br>')
-      : '등록된 APNG·효과음 연결이 없습니다.';
+      ? '<b>APNG와 효과음 연결</b><br>' + rows.join('<br>')
+      : '연결된 APNG와 효과음이 없습니다.';
   }
 
   function findCard(reference) {
@@ -833,7 +850,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       refreshHelp();
     } catch (err) {
       whisper(
-        '<b>APNG 매크로를 갱신하지 못했습니다.</b><br><code>apng</code> 덱과 GM 계정을 확인해 주세요.<br><span style="font-size:11px;color:#687386">상세: ' +
+        '<b>APNG 매크로를 갱신하지 못했습니다.</b><br><code>apng</code> 덱을 확인해 주세요.<br><span style="font-size:11px;color:#687386">오류 내용: ' +
           escapeHtml(err && err.message ? err.message : err) +
           '</span>',
       );
@@ -867,20 +884,20 @@ KIBScene.adapters = KIBScene.adapters || {};
           escapeHtml(card.get('name')) +
           '</td><td style="border:1px solid #ddd;padding:4px">' +
           (mode == 'loop'
-            ? '반복 / 최소 ' + formatSeconds(duration)
-            : formatSeconds(duration) + ' 1회') +
+            ? '반복, 한 사이클 ' + formatSeconds(duration)
+            : '1회, 한 사이클 ' + formatSeconds(duration)) +
           '</td></tr>'
         );
       })
       .join('');
     return (
-      '<b>APNG 설정</b><br>페이지: <b>' +
+      '<b>APNG 설정</b><br>적용 페이지: <b>' +
       escapeHtml(SETTING.PAGE_NAME) +
-      '</b> / 덱: <b>' +
+      '</b><br>카드 덱: <b>' +
       escapeHtml(SETTING.DECK_NAME) +
-      '</b><br><code>전체</code>: 등록 맵시트 또는 페이지 전체, 토큰 레이어 맨 앞 / <code>영역</code>: <b>' +
+      '</b><br>전체 화면: 적용 페이지 전체<br>지정 영역: <b>' +
       escapeHtml(SETTING.AREA_NAME) +
-      '</b> 위치, 맵 레이어 맨 앞<table style="border-collapse:collapse;width:100%;margin-top:6px">' +
+      '</b> 토큰의 위치와 크기<table style="border-collapse:collapse;width:100%;margin-top:6px">' +
       rows +
       '</table>'
     );

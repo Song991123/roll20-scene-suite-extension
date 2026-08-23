@@ -11,8 +11,8 @@ KIBScene.adapters = KIBScene.adapters || {};
 var avatar_setting = {
   enabled: true,
   deck_name: 'avatars',
-  management_handout_name: '[GM] 아바타 관리',
-  expression_handout_prefix: '🎭 아바타｜',
+  management_handout_name: '[GM] 캐릭터 이미지 관리',
+  expression_handout_prefix: '🎭 캐릭터 이미지 | ',
   update_character_avatar: true,
   update_map_tokens: false,
   update_visual_dialogue: true,
@@ -206,21 +206,20 @@ function avValidateChange(request) {
     if (!decks.length)
       return {
         ok: false,
-        error: avatar_setting.deck_name + ' 아바타 덱이 없습니다.',
+        error: avatar_setting.deck_name + ' 덱이 없습니다.',
       };
     if (decks.length > 1)
       return {
         ok: false,
         error:
           avatar_setting.deck_name +
-          ' 아바타 덱이 여러 개입니다. 하나만 남겨 주세요.',
+          ' 덱이 여러 개입니다. 하나만 남겨 주세요.',
       };
     card = avExpressionCard(character, request.expression, request.cardId);
     if (!card)
       return {
         ok: false,
         error:
-          '표정 카드를 찾지 못했습니다. ' +
           avatar_setting.deck_name +
           ' 덱에 <b>' +
           avEscape(
@@ -337,7 +336,7 @@ function avSyncExternal(payload) {
         avEscape(character.get('name')) +
         '</b>의 <b>' +
         avEscape(payload.expression || '기본') +
-        '</b> 아바타 카드가 없어 시트·토큰은 바꾸지 않았습니다.',
+        '</b> 카드가 <code>avatars</code> 덱에 없습니다.',
     );
     return { ok: true, skipped: true };
   }
@@ -424,12 +423,12 @@ function avHandleHiddenChat(msg) {
   if (!character) {
     avWhisperPlayer(
       msg,
-      '<code>!대사</code>는 캐릭터 Speaking As 상태에서 사용하세요.',
+      '<code>!대사</code>는 채팅 화자를 캐릭터로 선택한 뒤 사용하세요.',
     );
     return {
       ok: false,
       handled: true,
-      error: 'Speaking As 캐릭터가 없습니다.',
+      error: '채팅 화자로 선택한 캐릭터가 없습니다.',
     };
   }
   if (!avCanControl(character, msg.playerid)) {
@@ -459,7 +458,7 @@ function avValidateCue(args, context) {
     return {
       ok: false,
       error:
-        '짧은 표정 큐는 !... /as "캐릭터명" 대사 @표정 형식으로 사용하세요.',
+        '표정 명령은 <code>!... /as "캐릭터명" 대사 @표정</code> 형식으로 입력하세요.',
     };
   return avValidateChange({
     characterId: character.id,
@@ -486,7 +485,7 @@ function avHandleExpressionButton(msg) {
   if (!character || !avCardBelongs(card, character))
     return avWhisperPlayer(
       msg,
-      '아바타 카드 또는 캐릭터를 찾지 못했습니다. 핸드아웃을 갱신해 주세요.',
+      '캐릭터 또는 표정 카드를 찾지 못했습니다. 관리 핸드아웃을 갱신해 주세요.',
     );
   var result = avApplyChange({
     characterId: character.id,
@@ -500,9 +499,9 @@ function avHandleExpressionButton(msg) {
     msg,
     '<b>' +
       avEscape(character.get('name')) +
-      '</b>의 표정을 <b>' +
+      '</b> 표정: <b>' +
       avEscape(avExpressionName(card, character)) +
-      '</b>(으)로 변경했습니다.',
+      '</b>',
   );
 }
 
@@ -518,38 +517,66 @@ function avHandleTargetCommand(msg) {
     시트: 'avatar',
     아바타: 'avatar',
     avatar: 'avatar',
+    '캐릭터 이미지': 'avatar',
+    캐릭터이미지: 'avatar',
     토큰: 'token',
     token: 'token',
+    '맵 토큰': 'token',
+    맵토큰: 'token',
     비주얼: 'vd',
     vd: 'vd',
+    '비주얼 노벨': 'vd',
+    비주얼노벨: 'vd',
   }[String(parts[2] || '').toLowerCase()];
   var value = avBoolean(parts[3]);
   var data = avInitState();
+  var savedMessage = '';
   if (!reference || (!key && parts[2] != '초기화'))
     return avWhisperGm(
-      '사용법: <code>!아바타 대상|캐릭터명 또는 기본|시트·토큰·비주얼|켜기·끄기</code>',
+      '사용법: <code>!아바타 대상|캐릭터명 또는 기본|시트|켜기</code>',
     );
   if (reference == '기본') {
     if (!key || value === null)
       return avWhisperGm(
-        '기본 대상은 시트·토큰·비주얼과 켜기·끄기를 지정하세요.',
+        '캐릭터 이미지, 맵 토큰, 비주얼 노벨 중 하나와 켜기 또는 끄기를 입력하세요.',
       );
     data.defaults[key] = value;
+    savedMessage =
+      '기본 ' + avTargetLabel(key) + ': ' + (value ? '켜기' : '끄기');
   } else {
     var character = avCharacter(reference);
     if (!character)
       return avWhisperGm('캐릭터를 찾지 못했습니다: ' + avEscape(reference));
-    if (parts[2] == '초기화') delete data.characterTargets[character.id];
+    if (parts[2] == '초기화') {
+      delete data.characterTargets[character.id];
+      savedMessage =
+        '<b>' + avEscape(character.get('name')) + '</b> 변경 대상: 기본값';
+    }
     else {
       if (value === null)
         return avWhisperGm('대상 설정은 켜기 또는 끄기를 입력하세요.');
       data.characterTargets[character.id] =
         data.characterTargets[character.id] || avTargets(character);
       data.characterTargets[character.id][key] = value;
+      savedMessage =
+        '<b>' +
+        avEscape(character.get('name')) +
+        '</b> ' +
+        avTargetLabel(key) +
+        ': ' +
+        (value ? '켜기' : '끄기');
     }
   }
   avScheduleRefresh();
-  avWhisperGm('아바타 변경 대상을 저장했습니다.');
+  avWhisperGm(savedMessage);
+}
+
+function avTargetLabel(key) {
+  return {
+    avatar: '캐릭터 이미지',
+    token: '맵 토큰',
+    vd: '비주얼 노벨',
+  }[key];
 }
 
 function avHandleExcludeCommand(msg) {
@@ -573,8 +600,8 @@ function avHandleExcludeCommand(msg) {
   avWhisperGm(
     '<b>' +
       avEscape(character.get('name')) +
-      '</b>을(를) 아바타·토큰 자동 변경에서 ' +
-      (action == '추가' ? '제외했습니다.' : '다시 사용합니다.'),
+      '</b> 자동 변경: ' +
+      (action == '추가' ? '제외' : '사용'),
   );
 }
 
@@ -594,7 +621,7 @@ function avRefreshSafe() {
     return manager;
   } catch (err) {
     avWhisperGm(
-      '<b>아바타 관리 화면을 갱신하지 못했습니다.</b><br><code>avatars</code> 덱과 캐릭터 이름을 확인해 주세요.<br><span style="font-size:11px;color:#687386">상세: ' +
+      '<b>캐릭터 이미지 관리 갱신 오류</b><br><code>avatars</code> 덱과 캐릭터 이름을 확인해 주세요.<br><span style="font-size:11px">오류: ' +
         avEscape(err && err.message ? err.message : err) +
         '</span>',
     );
@@ -631,7 +658,7 @@ function avRefreshHandouts() {
         var label =
           selected && selected.id == card.id ? '✓ ' + expression : expression;
         return (
-          '<div style="display:inline-block;width:150px;vertical-align:top;text-align:center;margin:4px;padding:6px;border:1px solid #bbb;border-radius:4px">' +
+          '<div style="display:inline-block;width:150px;vertical-align:top;text-align:center;margin:4px;padding:6px;background:#fff;color:#111;border:1px solid #111">' +
           '<img src="' +
           avEscape(card.get('avatar')) +
           '" style="max-width:138px;max-height:138px"><br>' +
@@ -651,9 +678,9 @@ function avRefreshHandouts() {
       controlledby: '',
       archived: false,
       notes:
-        '<div style="font-family:Arial,sans-serif"><h3>' +
+        '<div style="font-family:Arial,sans-serif;background:#fff;color:#111"><h3 style="padding-bottom:6px;border-bottom:1px solid #111">' +
         avEscape(character.get('name')) +
-        ' 아바타 표정</h3><p>버튼은 현재 설정에 따라 시트 아바타·맵 토큰·Visual Dialogue를 함께 바꿉니다.</p>' +
+        ' 표정</h3>' +
         cells +
         '</div>',
     });
@@ -699,7 +726,7 @@ function avRefreshManagementHandout() {
       .map(function (character) {
         var excluded = avIsExcluded(character);
         return (
-          '<div style="margin:7px 0;padding:8px;border:1px solid #ccd4df;border-radius:5px"><b>' +
+          '<div style="margin:7px 0;padding:8px;background:#fff;color:#111;border:1px solid #111"><b>' +
           avEscape(character.get('name')) +
           '</b>' +
           '<div style="margin-top:5px">' +
@@ -725,30 +752,30 @@ function avRefreshManagementHandout() {
           '</div></div>'
         );
       })
-      .join('') || '<p>avatars 덱과 이름이 맞는 캐릭터가 없습니다.</p>';
+      .join('') || '<p>avatars 덱에 등록된 캐릭터가 없습니다.</p>';
   handout.set({
     name: avatar_setting.management_handout_name,
     inplayerjournals: '',
     controlledby: '',
     archived: false,
     notes:
-      '<div style="font-family:Arial,sans-serif;color:#2d3340"><div style="padding:12px;background:#172235;color:#fff;border-radius:6px"><b style="font-size:18px">🎭 아바타 관리</b><br><span style="font-size:12px">표정 카드가 바꿀 대상을 선택합니다.</span></div>' +
-      '<div style="margin-top:10px;padding:9px;background:#fff8e8;border-left:4px solid #d39a26"><b>기본 대상</b><div style="margin-top:5px">' +
+      '<div style="font-family:Arial,sans-serif;color:#111;background:#fff"><div style="padding:12px;background:#fff;color:#111;border:1px solid #111"><b style="font-size:18px">🎭 캐릭터 이미지 관리</b></div>' +
+      '<div style="margin-top:8px;padding:9px;background:#fff;border:1px solid #111"><b>기본 변경 대상</b><div style="margin-top:5px">' +
       defaults +
       '</div></div>' +
       rows +
-      '<p style="font-size:12px;color:#667085">제외한 캐릭터는 아바타·토큰만 바꾸지 않으며, Visual Dialogue 표정은 설치돼 있으면 계속 동작합니다.</p></div>',
+      '</div>',
   });
   return handout;
 }
 
 function avTargetButtons(reference, targets) {
   return (
-    avToggleButton('시트', reference, '시트', targets.avatar) +
+    avToggleButton('캐릭터', reference, '시트', targets.avatar) +
     ' ' +
-    avToggleButton('토큰', reference, '토큰', targets.token) +
+    avToggleButton('맵 토큰', reference, '토큰', targets.token) +
     ' ' +
-    avToggleButton('비주얼', reference, '비주얼', targets.vd)
+    avToggleButton('비주얼 노벨', reference, '비주얼', targets.vd)
   );
 }
 
@@ -764,7 +791,7 @@ function avButton(label, command, color) {
   return (
     '<a href="' +
     avEscape(command) +
-    '" style="display:inline-block;margin:2px 1px;padding:5px 8px;border-radius:4px;background:' +
+    '" style="display:inline-block;margin:2px 1px;padding:5px 8px;border-radius:0;background:' +
     color +
     ';color:#fff;text-decoration:none;font-weight:bold;font-size:12px">' +
     avEscape(label) +
@@ -798,7 +825,7 @@ function avEscape(value) {
 }
 
 function avWhisperGm(text) {
-  sendChat('Avatar Director', '/w gm ' + text, null, { noarchive: true });
+  sendChat('캐릭터 이미지', '/w gm ' + text, null, { noarchive: true });
 }
 
 function avWhisperPlayer(msg, text) {
@@ -807,7 +834,7 @@ function avWhisperPlayer(msg, text) {
     ? player.get('_displayname')
     : String((msg && msg.who) || 'gm').replace(/ \(GM\)$/, '');
   sendChat(
-    'Avatar Director',
+    '캐릭터 이미지',
     '/w "' + String(who || 'gm').replace(/"/g, '') + '" ' + text,
     null,
     { noarchive: true },
@@ -816,12 +843,12 @@ function avWhisperPlayer(msg, text) {
 
 function avHelp() {
   return (
-    '<b>Avatar Director 도움말</b><br>' +
-    '<code>!@웃음</code> Speaking As 캐릭터 표정 변경<br>' +
-    '<code>!... /as "홍길동" 대사 @웃음</code> Narrator와 동시 변경<br>' +
-    '<code>!아바타 관리</code> 대상·제외 설정 핸드아웃 갱신<br>' +
-    '<code>!아바타 대상|홍길동|시트·토큰·비주얼|켜기·끄기</code><br>' +
-    '<code>!아바타 제외|추가|홍길동</code> 아바타·토큰 자동 변경 제외'
+    '<b>캐릭터 이미지 명령어</b><br>' +
+    '<code>!@웃음</code> 채팅 화자 캐릭터의 표정 변경<br>' +
+    '<code>!... /as "홍길동" 대사 @웃음</code> 나레이터와 동시 변경<br>' +
+    '<code>!아바타 관리</code> 변경 대상과 제외 캐릭터 설정<br>' +
+    '<code>!아바타 대상|홍길동|시트|켜기</code> 캐릭터 이미지 변경 사용<br>' +
+    '<code>!아바타 제외|추가|홍길동</code> 자동 변경 제외'
   );
 }
 
@@ -830,7 +857,7 @@ on('ready', function () {
   state.api_tag = state.api_tag || '<a href="#vd-permitted-api-chat"></a>';
   avInitState();
   var adapter = {
-    meta: { code: '09_avatar_director.js', title: '아바타 표정' },
+    meta: { code: '09_avatar_director.js', title: '캐릭터 이미지' },
     aliases: { 아바타: '', avatar: '' },
     cue: avRunCue,
     validate: avValidateCue,
@@ -847,7 +874,7 @@ on('ready', function () {
       };
     },
     help: [
-      '<code>!@표정명</code> 시트·토큰·비주얼 표정 변경',
+      '<code>!@표정명</code> 캐릭터 이미지, 맵 토큰, 비주얼 노벨 변경',
       '<code>!아바타 관리</code> 대상과 제외 캐릭터 설정',
     ],
   };
@@ -877,7 +904,7 @@ on('chat:message', function (msg) {
         avWhisperGm(
           manager
             ? avManagerOpenHtml(manager)
-            : '관리 핸드아웃을 만들지 못했습니다.',
+            : '관리 핸드아웃 생성 오류',
         );
       }
       return;
@@ -898,7 +925,7 @@ on('chat:message', function (msg) {
     avHandleInline(msg);
   } catch (err) {
     avWhisperGm(
-      '<b>아바타 명령을 처리하지 못했습니다.</b><br><code>!아바타 help</code>에서 형식을 확인해 주세요.<br><span style="font-size:11px;color:#687386">상세: ' +
+      '<b>캐릭터 이미지 명령 오류</b><br><code>!아바타 help</code>에서 형식을 확인해 주세요.<br><span style="font-size:11px">오류: ' +
         avEscape(err && err.message ? err.message : err) +
         '</span>',
     );
@@ -907,10 +934,10 @@ on('chat:message', function (msg) {
 
 function avManagerOpenHtml(handout) {
   return (
-    '<div style="padding:8px;background:#f6f1fb;border-left:4px solid #7654a8;border-radius:5px;color:#2d3340"><b>🎭 아바타 관리</b><br>' +
+    '<div style="padding:8px;background:#fff;border:1px solid #111;color:#111"><b>🎭 캐릭터 이미지 관리</b><br>' +
     '<a href="http://journal.roll20.net/handout/' +
     encodeURIComponent(handout.id) +
-    '" style="display:inline-block;margin-top:5px;padding:5px 8px;background:#7654a8;color:#fff;text-decoration:none;border-radius:4px;font-weight:bold;font-size:12px">관리 핸드아웃 열기</a></div>'
+    '" style="display:inline-block;margin-top:5px;padding:5px 8px;background:#7654a8;color:#fff;text-decoration:none;border-radius:0;font-weight:bold;font-size:12px">관리 핸드아웃 열기</a></div>'
   );
 }
 
