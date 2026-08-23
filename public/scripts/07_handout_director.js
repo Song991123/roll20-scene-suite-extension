@@ -560,8 +560,6 @@ KIBScene.adapters = KIBScene.adapters || {};
       ? handouts
           .map(function (handout) {
             var view = permissionNames(handout.get('inplayerjournals'));
-            var edit = permissionNames(handout.get('controlledby'));
-            var hasImage = !!String(handout.get('avatar') || '').trim();
             var cutin = KIBScene.adapters && KIBScene.adapters.cutin;
             var cutinControls =
               cutin && typeof cutin.handoutControls === 'function'
@@ -588,38 +586,35 @@ KIBScene.adapters = KIBScene.adapters || {};
                 '#9b6b20',
               );
             return (
-              '<div style="padding:10px;margin-top:8px;background:#fff;color:#111;border:1px solid #111">' +
-              '<div style="font-size:15px;font-weight:bold">' +
+              '<div style="margin-top:10px;background:#fff;color:#111;border:1px solid #111">' +
+              '<div style="padding:7px 9px;background:#111;color:#fff;font-size:15px;font-weight:bold">' +
               escapeHtml(handout.get('name') || '(이름 없음)') +
-              '</div>' +
-              '<div style="font-size:12px;color:#111;margin:4px 0">볼 수 있는 사람: ' +
+              '</div><div style="padding:9px">' +
+              '<div style="font-size:12px;margin-bottom:6px"><b>보기 권한:</b> ' +
               escapeHtml(view) +
-              '<br>편집할 수 있는 사람: ' +
-              escapeHtml(edit) +
               '</div>' +
-              (cutinControls ||
-                '<div style="padding:6px;margin:5px 0;background:#fff;border:1px solid #111;font-size:11px">표지 이미지: ' +
-                  (hasImage ? '있음' : '없음') +
-                  '</div>') +
+              cutinControls +
               openLink(handout, '핸드아웃 열기') +
               ' ' +
               playerButtons +
-              '</div>'
+              '</div></div>'
             );
           })
           .join('')
-      : '<div style="padding:16px;text-align:center;color:#111;background:#fff;border:1px solid #111">이 폴더에 핸드아웃이 없습니다.</div>';
+      : '<div style="margin-top:10px;padding:16px;text-align:center;color:#111;background:#f3f3f3;border-left:4px solid #111">이 폴더에 핸드아웃이 없습니다.</div>';
 
     return (
       '<div style="font-family:Arial,sans-serif;color:#111;background:#fff;line-height:1.45">' +
-      '<div style="padding:12px;background:#fff;color:#111;border:1px solid #111;font-size:20px;font-weight:bold">📚 핸드아웃 관리</div>' +
-      '<div style="padding:10px;margin-top:8px;background:#fff;border:1px solid #111"><b>관리할 폴더: ' +
+      '<div style="padding:12px;background:#111;color:#fff;font-size:20px;font-weight:bold">📚 핸드아웃 관리</div>' +
+      '<div style="margin-top:10px;background:#fff;border:1px solid #111">' +
+      '<div style="padding:6px 9px;background:#111;color:#fff;font-weight:bold">관리할 폴더</div>' +
+      '<div style="padding:9px"><b>' +
       escapeHtml(active.path) +
       '</b><br>' +
       button('폴더 선택', SETTING.command + ' 폴더|' + folderQuery, '#237a8b') +
       ' ' +
       button('새로고침', SETTING.command + ' 갱신', '#53657d') +
-      '</div>' +
+      '</div></div>' +
       rows +
       '<div style="margin-top:8px">' +
       button('명령어 보기', SETTING.command + ' help', '#53657d') +
@@ -839,7 +834,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function managerOpenHtml(handout) {
     return (
-      '<div style="padding:8px;background:#fff;border:1px solid #111;color:#111"><b>📚 핸드아웃 관리</b><br>' +
+      '<div style="padding:8px;background:#111;color:#fff"><b>📚 핸드아웃 관리</b><br>' +
       openLink(
         handout,
         '관리 핸드아웃 열기',

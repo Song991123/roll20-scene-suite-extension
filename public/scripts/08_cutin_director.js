@@ -1649,7 +1649,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       });
     var notes =
       '<div style="font-family:Arial,sans-serif;color:#111;background:#fff;line-height:1.4">' +
-      '<div style="padding:12px;background:#fff;color:#111;border:1px solid #111"><b style="font-size:18px">🎬 컷인 관리</b></div>' +
+      '<div style="padding:12px;background:#111;color:#fff"><b style="font-size:18px">🎬 컷인 관리</b></div>' +
       captionManagerHtml() +
       cardManagerHtml() +
       '</div>';
@@ -1671,7 +1671,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       ? getObj('handout', state.KIBSceneCutin.managerId)
       : null;
     return manager
-      ? '<div style="padding:8px;background:#fff;border:1px solid #111;color:#111">' +
+      ? '<div style="padding:8px;background:#111;color:#fff">' +
           '<b>🎬 컷인 관리</b><br>' +
           '<a href="http://journal.roll20.net/handout/' +
           encodeURIComponent(manager.id) +
@@ -1682,8 +1682,9 @@ KIBScene.adapters = KIBScene.adapters || {};
   function captionManagerHtml() {
     var position = state.KIBSceneCutin.captionOffsetY;
     return (
-      '<div style="padding:9px;margin-top:9px;background:#fff;border:1px solid #111"><b>컷인 스크립트</b><br>' +
-      '<span style="font-size:11px">크기 ' +
+      '<div style="margin-top:10px;background:#fff;border:1px solid #111">' +
+      '<div style="padding:6px 9px;background:#111;color:#fff;font-weight:bold">컷인 스크립트</div>' +
+      '<div style="padding:9px"><span style="font-size:11px">크기 ' +
       state.KIBSceneCutin.captionFontSize +
       'px / 위치 ' +
       (position >= 0 ? '+' : '') +
@@ -1706,7 +1707,7 @@ KIBScene.adapters = KIBScene.adapters || {};
           '}',
         '#237a8b',
       ) +
-      '</div>'
+      '</div></div>'
     );
   }
 
@@ -1742,14 +1743,14 @@ KIBScene.adapters = KIBScene.adapters || {};
           group +
           '|?{표시 크기 (가로*세로)|800*600}';
         return (
-          '<div style="margin-top:8px;padding:7px;background:#fff;border:1px solid #111"><b>' +
+          '<div style="margin-top:10px;background:#fff;border:1px solid #111">' +
+          '<div style="padding:6px 9px;background:#111;color:#fff"><b>' +
           escapeHtml(group) +
           '</b> ' +
-          '<span style="font-size:11px;color:#111">그룹 크기: ' +
+          '<span style="font-size:11px;color:#fff">그룹 크기: ' +
           sizeText +
-          '</span><br>' +
+          '</span></div><div style="padding:7px">' +
           button(groupSize ? '크기 수정' : '크기 등록', sizeButton, '#7654a8') +
-          '</div>' +
           groups[group]
             .map(function (card) {
               var info = cardInfo(card);
@@ -1762,7 +1763,7 @@ KIBScene.adapters = KIBScene.adapters || {};
                 info: info,
               };
               return (
-                '<div style="padding:7px;margin-top:4px;background:#fff;border:1px solid #111"><b>' +
+                '<div style="padding:7px;margin-top:7px;background:#fff;border:1px solid #bbb"><b>' +
                 escapeHtml(info.shortName) +
                 '</b><br>' +
                 sourceButtons(source) +
@@ -1772,15 +1773,16 @@ KIBScene.adapters = KIBScene.adapters || {};
               );
             })
             .join('') +
-          '</div>'
+          '</div></div>'
         );
       })
       .join('');
     return (
-      '<div style="padding:9px;margin-top:9px;background:#fff;border:1px solid #111"><b>카드 컷인</b><br>' +
-      '<span style="font-size:11px"><code>cutin</code> 덱을 만들고 카드 앞면에 컷인 이미지를 넣습니다. 카드 이름 앞부분이 같으면 같은 크기를 사용합니다.</span></div>' +
+      '<div style="margin-top:10px;background:#fff;border:1px solid #111">' +
+      '<div style="padding:6px 9px;background:#111;color:#fff;font-weight:bold">카드 컷인</div>' +
+      '<div style="padding:9px;font-size:11px"><code>cutin</code> 덱에 컷인 이미지를 카드로 등록<br>이름 앞부분이 같으면 같은 그룹</div></div>' +
       (rows ||
-        '<div style="padding:10px;color:#111;border:1px solid #111"><code>cutin</code> 덱에 카드가 없습니다.</div>')
+        '<div style="margin-top:10px;padding:12px;background:#f3f3f3;border-left:4px solid #111"><code>cutin</code> 덱에 카드가 없습니다.</div>')
     );
   }
 
@@ -1800,7 +1802,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       handout.id +
       '|?{원본 크기 (가로*세로)|800*600}';
     return (
-      '<div style="padding:6px;margin-top:6px;background:#fff;border:1px solid #111;font-size:11px"><b>표지 이미지: </b>' +
+      '<div style="padding:6px;margin-top:6px;background:#f3f3f3;border-left:4px solid #111;font-size:11px"><b>표지 이미지: </b>' +
       (image ? '있음' : '없음') +
       '<br><b>크기: </b>' +
       size +
@@ -1829,7 +1831,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       button('재생', play, '#287a4b') +
       ' ' +
       button(
-        '대사 +',
+        '대사 추가',
         SETTING.command +
           ' 대사추가|' +
           target +
@@ -1839,8 +1841,8 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (source.card) {
       controls +=
         ' ' +
-        button(
-          '효과음 +',
+          button(
+            '효과음 연결',
           SETTING.command +
             ' 연결|' +
             target +
@@ -1851,7 +1853,7 @@ KIBScene.adapters = KIBScene.adapters || {};
         controls +=
           ' ' +
           button(
-            '효과음 -',
+            '효과음 해제',
             SETTING.command + ' 연결해제|' + target,
             '#8b3940',
           );
@@ -1859,8 +1861,8 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (textRules.length)
       controls +=
         ' ' +
-        button(
-          '대사 -',
+          button(
+            '대사 삭제',
           SETTING.command +
             ' 대사삭제|' +
             target +
@@ -1963,7 +1965,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       '<code>!... 대사 @컷인 카드명|3초</code> 나레이터 줄과 동시에 표시<br>' +
       '<code>!... 대사 @컷인 카드명|줄=3</code> 현재 줄부터 나레이터 3줄 동안 표시<br>' +
       '핸드아웃 컷인과 함께 해당 줄의 스크립트를 표시합니다.<br>' +
-      '<code>cutin_overlay</code> 전체 화면 배경. 이미지를 저장한 토큰은 자동으로 사라집니다.<br>' +
+      '<code>cutin_overlay</code> GM 레이어 토큰: 전체 화면 배경 등록 후 자동 제거<br>' +
       '컷인은 현재 페이지의 전원에게 표시됩니다.'
     );
   }

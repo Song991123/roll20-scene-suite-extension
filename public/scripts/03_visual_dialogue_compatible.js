@@ -1108,7 +1108,9 @@ function vdUpdateExpressionHandouts() {
         var label =
           selected && selected.id == card.id ? '✓ ' + expression : expression;
         return (
-          '<div style="display:inline-block;width:150px;vertical-align:top;text-align:center;margin:4px;padding:6px;border:1px solid #111;background:#fff;color:#111">' +
+          '<div style="display:inline-block;width:150px;vertical-align:top;text-align:center;margin:4px;padding:6px;border:' +
+          (selected && selected.id == card.id ? '2px solid #111' : '1px solid #bbb') +
+          ';background:#fff;color:#111">' +
           '<img src="' +
           image +
           '" style="max-width:138px;max-height:180px"><br>' +
@@ -1129,11 +1131,15 @@ function vdUpdateExpressionHandouts() {
       controlledby: '',
       archived: false,
       notes:
-        '<div style="font-family:Arial,sans-serif;background:#fff;color:#111"><h3 style="padding-bottom:7px;border-bottom:1px solid #111">' +
+        '<div style="font-family:Arial,sans-serif;background:#fff;color:#111"><div style="padding:9px;background:#111;color:#fff;font-size:17px;font-weight:bold">' +
         vdEscapeHtml(character.get('name')) +
-        ' 표정</h3>' +
+        ' 표정</div><div style="padding:8px"><div style="margin:0 4px 6px"><b>현재 표정:</b> ' +
+        vdEscapeHtml(
+          selected ? vdExpressionName(selected, character.get('name')) : '없음',
+        ) +
+        '</div>' +
         cells +
-        '</div>',
+        '</div></div>',
     });
   });
   Object.keys(state.KIBSceneVD.expressionHandouts).forEach(

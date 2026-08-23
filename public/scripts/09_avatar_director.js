@@ -658,7 +658,9 @@ function avRefreshHandouts() {
         var label =
           selected && selected.id == card.id ? '✓ ' + expression : expression;
         return (
-          '<div style="display:inline-block;width:150px;vertical-align:top;text-align:center;margin:4px;padding:6px;background:#fff;color:#111;border:1px solid #111">' +
+          '<div style="display:inline-block;width:150px;vertical-align:top;text-align:center;margin:4px;padding:6px;background:#fff;color:#111;border:' +
+          (selected && selected.id == card.id ? '2px solid #111' : '1px solid #bbb') +
+          '">' +
           '<img src="' +
           avEscape(card.get('avatar')) +
           '" style="max-width:138px;max-height:138px"><br>' +
@@ -678,11 +680,13 @@ function avRefreshHandouts() {
       controlledby: '',
       archived: false,
       notes:
-        '<div style="font-family:Arial,sans-serif;background:#fff;color:#111"><h3 style="padding-bottom:6px;border-bottom:1px solid #111">' +
+        '<div style="font-family:Arial,sans-serif;background:#fff;color:#111"><div style="padding:9px;background:#111;color:#fff;font-size:17px;font-weight:bold">' +
         avEscape(character.get('name')) +
-        ' 표정</h3>' +
+        ' 표정</div><div style="padding:8px"><div style="margin:0 4px 6px"><b>현재 표정:</b> ' +
+        avEscape(selected ? avExpressionName(selected, character) : '없음') +
+        '</div>' +
         cells +
-        '</div>',
+        '</div></div>',
     });
   });
   Object.keys(data.expressionHandouts).forEach(function (characterId) {
@@ -726,10 +730,10 @@ function avRefreshManagementHandout() {
       .map(function (character) {
         var excluded = avIsExcluded(character);
         return (
-          '<div style="margin:7px 0;padding:8px;background:#fff;color:#111;border:1px solid #111"><b>' +
+          '<div style="margin-top:10px;background:#fff;color:#111;border:1px solid #111">' +
+          '<div style="padding:6px 9px;background:#111;color:#fff;font-weight:bold">' +
           avEscape(character.get('name')) +
-          '</b>' +
-          '<div style="margin-top:5px">' +
+          '</div><div style="padding:8px">' +
           (excluded
             ? avButton(
                 '다시 사용',
@@ -752,15 +756,16 @@ function avRefreshManagementHandout() {
           '</div></div>'
         );
       })
-      .join('') || '<p>avatars 덱에 등록된 캐릭터가 없습니다.</p>';
+      .join('') || '<div style="margin-top:10px;padding:12px;background:#f3f3f3;border-left:4px solid #111">avatars 덱에 등록된 캐릭터가 없습니다.</div>';
   handout.set({
     name: avatar_setting.management_handout_name,
     inplayerjournals: '',
     controlledby: '',
     archived: false,
     notes:
-      '<div style="font-family:Arial,sans-serif;color:#111;background:#fff"><div style="padding:12px;background:#fff;color:#111;border:1px solid #111"><b style="font-size:18px">🎭 캐릭터 이미지 관리</b></div>' +
-      '<div style="margin-top:8px;padding:9px;background:#fff;border:1px solid #111"><b>기본 변경 대상</b><div style="margin-top:5px">' +
+      '<div style="font-family:Arial,sans-serif;color:#111;background:#fff"><div style="padding:12px;background:#111;color:#fff"><b style="font-size:18px">🎭 캐릭터 이미지 관리</b></div>' +
+      '<div style="margin-top:10px;padding:8px 9px;background:#f3f3f3;border-left:4px solid #111"><b>avatars 덱:</b> <code>캐릭터명</code>, <code>캐릭터명-표정명</code> 카드</div>' +
+      '<div style="margin-top:10px;background:#fff;border:1px solid #111"><div style="padding:6px 9px;background:#111;color:#fff;font-weight:bold">기본 변경 대상</div><div style="padding:8px">' +
       defaults +
       '</div></div>' +
       rows +
@@ -934,7 +939,7 @@ on('chat:message', function (msg) {
 
 function avManagerOpenHtml(handout) {
   return (
-    '<div style="padding:8px;background:#fff;border:1px solid #111;color:#111"><b>🎭 캐릭터 이미지 관리</b><br>' +
+    '<div style="padding:8px;background:#111;color:#fff"><b>🎭 캐릭터 이미지 관리</b><br>' +
     '<a href="http://journal.roll20.net/handout/' +
     encodeURIComponent(handout.id) +
     '" style="display:inline-block;margin-top:5px;padding:5px 8px;background:#7654a8;color:#fff;text-decoration:none;border-radius:0;font-weight:bold;font-size:12px">관리 핸드아웃 열기</a></div>'

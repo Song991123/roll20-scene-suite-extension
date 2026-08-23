@@ -38,6 +38,22 @@ const cutinText = fs.readFileSync(
   path.join(scriptsRoot, '08_cutin_director.js'),
   'utf8',
 );
+const sceneDirectorText = fs.readFileSync(
+  path.join(scriptsRoot, '00_scene_director.js'),
+  'utf8',
+);
+const visualDialogueText = fs.readFileSync(
+  path.join(scriptsRoot, '03_visual_dialogue_compatible.js'),
+  'utf8',
+);
+const handoutText = fs.readFileSync(
+  path.join(scriptsRoot, '07_handout_director.js'),
+  'utf8',
+);
+const avatarText = fs.readFileSync(
+  path.join(scriptsRoot, '09_avatar_director.js'),
+  'utf8',
+);
 const scriptText = scripts
   .map((name) => fs.readFileSync(path.join(scriptsRoot, name), 'utf8'))
   .join('\n');
@@ -65,10 +81,31 @@ assert(!releaseText.includes('—'), '사용자 안내에 긴 대시를 쓰지 �
   assert(!releaseText.includes(text), `배포 문구를 다시 정리해야 합니다: ${text}`),
 );
 assert(
-  scriptText.includes('관리할 폴더:') &&
+  scriptText.includes('관리할 폴더') &&
     scriptText.includes('현재 설치된 기능 관리') &&
     scriptText.includes('컷인 스크립트'),
   '통일한 핸드아웃 용어가 필요합니다.',
+);
+[
+  sceneDirectorText,
+  visualDialogueText,
+  handoutText,
+  cutinText,
+  avatarText,
+].forEach((text) =>
+  assert(
+    text.includes('background:#111;color:#fff'),
+    '자동 핸드아웃에는 검은 제목 영역과 흰 글자가 필요합니다.',
+  ),
+);
+assert(
+  sceneDirectorText.includes('<b>세팅법</b>') &&
+    !sceneDirectorText.includes('처음 세팅'),
+  '사용법 핸드아웃의 세팅 용어를 통일해야 합니다.',
+);
+assert(
+  !handoutText.includes('편집할 수 있는 사람:'),
+  '핸드아웃 관리에는 보기 권한만 표시합니다.',
 );
 assert(
   !publicText.includes('Song991123'),
