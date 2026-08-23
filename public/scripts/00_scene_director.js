@@ -1,5 +1,5 @@
 /*
- * Scene Suite 00 - Scene Director 3.4.0
+ * Scene Suite 00 - Scene Director 3.4.1
  * 제작 및 통합: @EOOOOORK
  */
 var KIBScene = KIBScene || {};
@@ -8,7 +8,7 @@ var KIBScene = KIBScene || {};
 
   // ===== 기본 설정 =====
   var DEFAULTS = {
-    version: '3.4.0',
+    version: '3.4.1',
     command: '!sd',
     features: {
       audio: true,
@@ -646,6 +646,10 @@ var KIBScene = KIBScene || {};
 
   function vdHelpSection() {
     var vd = vdHelpConfig();
+    var panelSetup =
+      vd.dialogue_panel_mode == 'shared'
+        ? '<code>vd_panel</code> 패널 하나'
+        : '<code>vd_panel</code> 스크립트창, <code>vd_dialogue_box</code> 대사창';
     var setup =
       tableRow('페이지', '<code>page_list</code>에 실제 페이지 이름 입력') +
       tableRow(
@@ -653,15 +657,24 @@ var KIBScene = KIBScene || {};
         '<code>vd_area</code>, <code>vd_name</code>, <code>vd_dialogue</code>',
       ) +
       tableRow(
-        '오브젝트 레이어',
-        '<code>vd_panel</code> 필수, <code>vd_dialogue_box</code> 선택',
+        '창 구성',
+        vd.dialogue_panel_mode == 'shared'
+          ? '패널 하나'
+          : '스크립트창과 대사창 분리',
       ) +
+      tableRow('오브젝트 레이어', panelSetup) +
       tableRow('맵 레이어', '<code>vd_background</code> 선택') +
       tableRow(
         '스탠딩',
         '<code>standings</code> 덱에 <code>캐릭터명</code>, <code>캐릭터명-표정명</code> 카드',
       );
     var controls =
+      actionButton(
+        '창 구성',
+        '!비주얼 설정|창구성|?{창 구성|패널 하나,패널 하나|스크립트창과 대사창 분리,분리}',
+        '#237a8b',
+      ) +
+      ' ' +
       actionButton(
         '글꼴',
         '!비주얼 설정|글꼴|?{글꼴|Arial|Patrick Hand|Contrail One|Shadows Into Light|Candal}',
@@ -706,7 +719,11 @@ var KIBScene = KIBScene || {};
       '<br>' +
       actionButton('맵시트 등록', '!비주얼 순서|맵시트등록', '#53657d') +
       ' ' +
-      actionButton('강조창 뒤', '!비주얼 순서|강조창뒤', '#287a4b') +
+      actionButton(
+        '스크립트창 뒤',
+        '!비주얼 순서|스크립트창뒤',
+        '#287a4b',
+      ) +
       ' ' +
       actionButton('대사창 뒤', '!비주얼 순서|대사창뒤', '#287a4b') +
       ' ' +
@@ -714,6 +731,10 @@ var KIBScene = KIBScene || {};
       ' ' +
       actionButton('순서 상태', '!비주얼 순서|상태', '#237a8b');
     var rows =
+      commandRow(
+        '!비주얼 설정|창구성|패널 하나 또는 분리',
+        '창 사용 방식 변경',
+      ) +
       commandRow('!@웃음', '현재 캐릭터 표정 변경') +
       commandRow('!@', '기본 표정으로 변경') +
       commandRow('!비주얼 제외|추가|화자명', '해당 화자 숨김') +
@@ -738,7 +759,7 @@ var KIBScene = KIBScene || {};
         controls +
         '</div><div style="margin:7px 0;padding:7px;background:#f3f3f3;border-left:4px solid #111"><b>화면 순서</b><br>' +
         vdHelpLayerOrder() +
-        '<br>글자: 강조창과 대사창 앞</div><table style="width:100%;border-collapse:collapse">' +
+        '<br>글자: 스크립트창과 대사창 앞</div><table style="width:100%;border-collapse:collapse">' +
         rows +
         '</table>',
     );
@@ -944,6 +965,7 @@ var KIBScene = KIBScene || {};
       stroke_enabled: false,
       stroke_color: '#000000',
       desc_offset_y: 0,
+      dialogue_panel_mode: 'split',
       width: 415,
       height: 623,
       standing_fit: 'contain-top',

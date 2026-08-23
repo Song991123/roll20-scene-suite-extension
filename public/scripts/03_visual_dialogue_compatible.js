@@ -67,6 +67,21 @@ state.VD_INJECT = function (text, type, who, options) {
 };
 
 function vdInitState() {
+  var existingConfig =
+    state.KIBSceneVD &&
+    state.KIBSceneVD.config &&
+    typeof state.KIBSceneVD.config == 'object' &&
+    !Array.isArray(state.KIBSceneVD.config)
+      ? state.KIBSceneVD.config
+      : null;
+  var migratedPanelMode = null;
+  if (existingConfig && existingConfig.dialogue_panel_mode === undefined) {
+    migratedPanelMode = vd_dialogue_box_names.some(function (name) {
+      return (findObjs({ _type: 'graphic', name: name }) || []).length > 0;
+    })
+      ? 'split'
+      : 'shared';
+  }
   state.KIBSceneVD = state.KIBSceneVD || {};
   if (!Array.isArray(state.KIBSceneVD.excludedAs)) {
     state.KIBSceneVD.excludedAs = vdParseNames(vd_setting.excluded_as_list);
@@ -77,11 +92,18 @@ function vdInitState() {
     Array.isArray(state.KIBSceneVD.config)
   )
     state.KIBSceneVD.config = {};
+  if (migratedPanelMode)
+    state.KIBSceneVD.config.dialogue_panel_mode = migratedPanelMode;
   Object.keys(vd_config_defaults).forEach(function (key) {
     if (state.KIBSceneVD.config[key] === undefined)
       state.KIBSceneVD.config[key] = vd_config_defaults[key];
     vd_setting[key] = state.KIBSceneVD.config[key];
   });
+  if (!/^(?:shared|split)$/.test(state.KIBSceneVD.config.dialogue_panel_mode)) {
+    state.KIBSceneVD.config.dialogue_panel_mode =
+      vd_config_defaults.dialogue_panel_mode;
+    vd_setting.dialogue_panel_mode = vd_config_defaults.dialogue_panel_mode;
+  }
   if (
     !state.KIBSceneVD.standingRatios ||
     typeof state.KIBSceneVD.standingRatios != 'object' ||
@@ -312,7 +334,7 @@ function vdPluginStatus() {
     layerOrder =
       '<b>맵시트:</b> ' +
       vdEscapeHtml(sheet ? sheet.get('name') || '이름 없음' : '삭제됨') +
-      '<br><b>강조창:</b> ' +
+      '<br><b>스크립트창:</b> ' +
       (entry.panelPosition == 'front' ? '앞' : '뒤') +
       '<br><b>대사창:</b> ' +
       (entry.decoPosition == 'front' ? '앞' : '뒤') +
@@ -359,6 +381,9 @@ const vd_setting = {
   page_list: 'conversation,intro',
   background_macro_name: '📹장면',
 
+  // 창 구성: split은 스크립트창과 대사창 분리, shared는 패널 하나
+  dialogue_panel_mode: 'split',
+
   // 글자
   font_family: 'Arial',
   name_font_size: 20,
@@ -391,6 +416,7 @@ const vd_config_defaults = {
   stroke_enabled: vd_setting.stroke_enabled,
   stroke_color: vd_setting.stroke_color,
   desc_offset_y: vd_setting.desc_offset_y,
+  dialogue_panel_mode: vd_setting.dialogue_panel_mode,
   line_height: vd_setting.line_height,
   letter_spacing: vd_setting.letter_spacing,
   width: vd_setting.width,
@@ -416,8 +442,10 @@ function vdHandleConfigCommand(content) {
   var action = parts[1] || '';
   if (!action || action == '보기') return vdWhisperExclude(vdConfigStatus());
   if (action == '초기화') {
-    state.KIBSceneVD.config = {};
+    state.KIBSceneVD.config = Object.assign({}, vd_config_defaults);
     vdInitState();
+    showHideDecorations('vd_panel', false);
+    showHideDecorations('vd_dialogue_box', false);
     vdApplyStandingLayout();
     vdRefreshHandout();
     return vdWhisperExclude('비주얼 노벨 설정을 초기화했습니다.');
@@ -436,6 +464,9 @@ function vdHandleConfigCommand(content) {
     선색: 'stroke_color',
     강조위치: 'desc_offset_y',
     강조Y: 'desc_offset_y',
+    창구성: 'dialogue_panel_mode',
+    대사창구성: 'dialogue_panel_mode',
+    패널구성: 'dialogue_panel_mode',
     줄간격: 'line_height',
     글자폭: 'letter_spacing',
     스탠딩맞춤: 'standing_fit',
@@ -486,6 +517,19 @@ function vdHandleConfigCommand(content) {
         return vdWhisperExclude(
           '강조 위치는 -2000~2000 픽셀 범위로 입력하세요. 양수는 아래, 음수는 위입니다.',
         );
+    } else if (key == 'dialogue_panel_mode') {
+      var mode = String(value || '')
+        .toLowerCase()
+        .replace(/\s+/g, '');
+      value = /^(?:공용|하나|패널하나|shared)$/.test(mode)
+        ? 'shared'
+        : /^(?:분리|따로|split)$/.test(mode)
+          ? 'split'
+          : '';
+      if (!value)
+        return vdWhisperExclude(
+          '창 구성은 <b>패널 하나</b> 또는 <b>분리</b>로 입력하세요.',
+        );
     } else if (key == 'line_height' || key == 'letter_spacing') {
       value = vdPositiveNumber(value, 0.1, 5);
       if (!value)
@@ -512,6 +556,10 @@ function vdHandleConfigCommand(content) {
   vdTrimStandingCount();
   vdApplyTextStyle();
   vdApplyStandingLayout();
+  if (key == 'dialogue_panel_mode') {
+    showHideDecorations('vd_panel', false);
+    showHideDecorations('vd_dialogue_box', false);
+  }
   vdRefreshHandout();
   var shownValue =
     action == '스탠딩크기'
@@ -524,7 +572,9 @@ function vdHandleConfigCommand(content) {
           ? value == 'contain-top'
             ? '비율 유지'
             : '지정 크기로 늘이기'
-          : String(value);
+          : key == 'dialogue_panel_mode'
+            ? vdPanelModeLabel(value)
+            : String(value);
   vdWhisperExclude(
     '<b>' + vdEscapeHtml(action) + ':</b> ' + vdEscapeHtml(shownValue),
   );
@@ -618,7 +668,9 @@ function vdHandleRatioCommand(content, msg) {
 function vdConfigStatus() {
   var c = state.KIBSceneVD.config;
   return (
-    '<b>비주얼 노벨 설정</b><br>글꼴=' +
+    '<b>비주얼 노벨 설정</b><br>창 구성=' +
+    vdPanelModeLabel(c.dialogue_panel_mode) +
+    '<br>글꼴=' +
     vdEscapeHtml(c.font_family) +
     '<br>이름=' +
     c.name_font_size +
@@ -643,6 +695,16 @@ function vdConfigStatus() {
     '명 / 맞춤=' +
     (c.standing_fit == 'contain-top' ? '비율 유지' : '지정 크기로 늘이기')
   );
+}
+
+function vdPanelModeLabel(mode) {
+  return mode == 'shared' ? '패널 하나' : '스크립트창과 대사창 분리';
+}
+
+function vdDecorationForMessage(type, mode) {
+  return mode == 'shared' || type == 'desc' || type == 'emote'
+    ? 'vd_panel'
+    : 'vd_dialogue_box';
 }
 
 function vdPositiveNumber(value, min, max) {
@@ -1291,8 +1353,9 @@ on('ready', function () {
     }
   }
 
-  // 강조창 기본 숨김
+  // 창 기본 숨김
   showHideDecorations('vd_panel', false);
+  showHideDecorations('vd_dialogue_box', false);
   vdScheduleExpressionHandouts();
 
   on('add:card', function (obj) {
@@ -1343,7 +1406,7 @@ on('chat:message', function (msg) {
     ) {
       if (playerIsGM(msg.playerid))
         vdWhisperExclude(
-          '<b>비주얼 노벨 도움말</b><br><code>!@배경 장면명</code> 배경 전환<br><code>!@표정명</code> 현재 화자의 표정 변경<br><code>!대사 본문 @표정명</code> 명령 글자를 숨기고 대사와 표정 변경<br><code>!비주얼 설정|항목|값</code> 글꼴, 크기, 색, 스탠딩 설정<br><code>!비주얼 순서|상태</code> 화면 앞뒤 순서 확인<br><code>!비주얼 비율|등록|카드명|가로|세로</code> 스탠딩 비율 등록<br><code>!비주얼 제외|추가|화자명</code> 특정 화자 숨김',
+          '<b>비주얼 노벨 도움말</b><br><code>!@배경 장면명</code> 배경 전환<br><code>!@표정명</code> 현재 화자의 표정 변경<br><code>!대사 본문 @표정명</code> 명령 글자를 숨기고 대사와 표정 변경<br><code>!비주얼 설정|창구성|패널 하나 또는 분리</code> 창 구성 변경<br>패널 하나: <code>vd_panel</code><br>분리: <code>vd_panel</code> 스크립트창, <code>vd_dialogue_box</code> 대사창<br><code>!비주얼 설정|항목|값</code> 글꼴, 크기, 색, 스탠딩 설정<br><code>!비주얼 순서|상태</code> 화면 앞뒤 순서 확인<br><code>!비주얼 비율|등록|카드명|가로|세로</code> 스탠딩 비율 등록<br><code>!비주얼 제외|추가|화자명</code> 특정 화자 숨김',
         );
       return;
     }
@@ -1753,6 +1816,19 @@ function vdValidateCue(args, context) {
         };
       }
     }
+    if (
+      vdDecorationForMessage(
+        context && context.chatType,
+        vd_setting.dialogue_panel_mode,
+      ) == 'vd_dialogue_box' &&
+      !vdDecorationGraphics('vd_dialogue_box', pageId).length
+    )
+      return {
+        ok: false,
+        error:
+          getObj('page', pageId).get('name') +
+          ' 페이지에 vd_dialogue_box 토큰이 없습니다.',
+      };
     return { ok: true };
   }
   if (/^(?:배경|background)\s+/.test(command)) {
@@ -1930,7 +2006,11 @@ const showDialogue = function () {
   }
 
   let is_general = msg.type == 'general';
-  let is_panel_mode = msg.type == 'desc' || msg.type == 'emote';
+  let is_script_mode = msg.type == 'desc' || msg.type == 'emote';
+  const decoration_name = vdDecorationForMessage(
+    msg.type,
+    vd_setting.dialogue_panel_mode,
+  );
   const type_feature_enabled =
     typeof KIBScene.isFeatureEnabled === 'function'
       ? KIBScene.isFeatureEnabled('type')
@@ -2003,17 +2083,29 @@ const showDialogue = function () {
   } else {
     vdWhisperProblem(
       vdPageName(current_page_id) + ' 페이지에 vd_panel 토큰이 없습니다.',
-      'GM 레이어에 강조창 이미지인 <code>vd_panel</code>을 놓아 주세요.',
+      '오브젝트 레이어에 스크립트창 이미지인 <code>vd_panel</code>을 놓아 주세요.',
+    );
+    showNextDialogue();
+    return;
+  }
+  if (
+    decoration_name == 'vd_dialogue_box' &&
+    !vdDecorationGraphics('vd_dialogue_box', current_page_id).length
+  ) {
+    vdWhisperProblem(
+      vdPageName(current_page_id) +
+        ' 페이지에 vd_dialogue_box 토큰이 없습니다.',
+      '창 분리 설정에서는 오브젝트 레이어에 대사창 이미지인 <code>vd_dialogue_box</code>를 놓아 주세요.',
     );
     showNextDialogue();
     return;
   }
 
   const panel_size = vdDecorationSize(bg_panel);
-  const width = is_panel_mode
+  const width = is_script_mode
     ? panel_size.width
     : Number(bg_dialogue.get('width'));
-  const text_height = is_panel_mode
+  const text_height = is_script_mode
     ? panel_size.height
     : Number(bg_dialogue.get('height'));
   const name_width = bg_name.get('width');
@@ -2265,8 +2357,8 @@ const showDialogue = function () {
     stroke: vdTextStroke(),
     width: width,
     height: text_height,
-    left: is_panel_mode ? bg_panel.get('left') : bg_dialogue.get('left'),
-    top: is_panel_mode
+    left: is_script_mode ? bg_panel.get('left') : bg_dialogue.get('left'),
+    top: is_script_mode
       ? Number(bg_panel.get('top')) + Number(vd_setting.desc_offset_y || 0)
       : bg_dialogue.get('top'),
   });
@@ -2302,11 +2394,11 @@ const showDialogue = function () {
   }
 
   setTimeout(() => {
-    // 강조창과 대사창 전환
-    const isPanelMode = msg.type === 'desc' || msg.type === 'emote';
-
-    showHideDecorations('vd_panel', isPanelMode);
-    showHideDecorations('vd_dialogue_box', !isPanelMode);
+    showHideDecorations('vd_panel', decoration_name == 'vd_panel');
+    showHideDecorations(
+      'vd_dialogue_box',
+      decoration_name == 'vd_dialogue_box',
+    );
     if (!vdApplyLayerOrder(current_page_id)) {
       toFront(text_name);
       toFront(text_dialogue);
@@ -2819,15 +2911,21 @@ function vdHandleLayerOrderCommand(msg) {
     action == '패널뒤' ||
     action == '패널앞' ||
     action == '강조창뒤' ||
-    action == '강조창앞'
+    action == '강조창앞' ||
+    action == '스크립트창뒤' ||
+    action == '스크립트창앞'
   ) {
     entry.panelPosition =
-      action == '패널앞' || action == '강조창앞' ? 'front' : 'behind';
+      action == '패널앞' ||
+      action == '강조창앞' ||
+      action == '스크립트창앞'
+        ? 'front'
+        : 'behind';
     if (entry.panelPosition == 'front') entry.textPosition = 'front';
     vdApplyLayerOrder(pageId);
     vdRefreshHandout();
     return vdWhisperExclude(
-      '<b>강조창:</b> 맵시트 ' +
+      '<b>스크립트창:</b> 맵시트 ' +
         (entry.panelPosition == 'front' ? '앞' : '뒤') +
         (entry.panelPosition == 'front' ? '<br><b>글자:</b> 맵시트 앞' : ''),
     );
@@ -2860,7 +2958,7 @@ function vdHandleLayerOrderCommand(msg) {
     return vdWhisperExclude(
       '<b>글자:</b> 맵시트 ' +
         (entry.textPosition == 'front' ? '앞' : '뒤') +
-        '<br><b>강조창:</b> 맵시트 ' +
+        '<br><b>스크립트창:</b> 맵시트 ' +
         (entry.panelPosition == 'front' ? '앞' : '뒤') +
         '<br><b>대사창:</b> 맵시트 ' +
         (entry.decoPosition == 'front' ? '앞' : '뒤'),
@@ -2870,13 +2968,13 @@ function vdHandleLayerOrderCommand(msg) {
   vdWhisperExclude(
     '<b>맵시트:</b> ' +
       vdEscapeHtml(sheet ? sheet.get('name') || '이름 없음' : '삭제됨') +
-      '<br><b>강조창:</b> 맵시트 ' +
+      '<br><b>스크립트창:</b> 맵시트 ' +
       (entry.panelPosition == 'front' ? '앞' : '뒤') +
       '<br><b>대사창:</b> 맵시트 ' +
       (entry.decoPosition == 'behind' ? '뒤' : '앞') +
       '<br><b>글자:</b> 맵시트 ' +
       (entry.textPosition == 'behind' ? '뒤' : '앞') +
-      '<br><b>표시 순서:</b> 글자는 강조창과 대사창 앞',
+      '<br><b>표시 순서:</b> 글자는 스크립트창과 대사창 앞',
   );
 }
 

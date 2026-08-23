@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const { execFileSync } = require('child_process');
 const buildSourceCatalog = require('./build-sources');
 
@@ -59,6 +60,91 @@ const scriptText = scripts
   .join('\n');
 const releaseText = `${publicText}\n${scriptText}`;
 new Function(scriptText);
+
+const vdRuntime = {
+  state: { KIBSceneVD: { config: { font_family: 'Candal' } } },
+  on() {},
+  log() {},
+  findObjs() {
+    return [];
+  },
+  getObj() {
+    return null;
+  },
+  createObj() {
+    return null;
+  },
+  Campaign() {
+    return { get() { return ''; } };
+  },
+  playerIsGM() {
+    return true;
+  },
+  sendChat() {},
+  toFront() {},
+  toBack() {},
+  setTimeout() {
+    return 1;
+  },
+  clearTimeout() {},
+  setInterval() {
+    return 1;
+  },
+  clearInterval() {},
+};
+vm.createContext(vdRuntime);
+vm.runInContext(visualDialogueText, vdRuntime);
+assert.strictEqual(
+  vdRuntime.vdDecorationForMessage('desc', 'split'),
+  'vd_panel',
+);
+assert.strictEqual(
+  vdRuntime.vdDecorationForMessage('emote', 'split'),
+  'vd_panel',
+);
+assert.strictEqual(
+  vdRuntime.vdDecorationForMessage('general', 'split'),
+  'vd_dialogue_box',
+);
+assert.strictEqual(
+  vdRuntime.vdDecorationForMessage('general', 'shared'),
+  'vd_panel',
+);
+vdRuntime.vdInitState();
+assert.strictEqual(vdRuntime.state.KIBSceneVD.config.font_family, 'Candal');
+assert.strictEqual(
+  vdRuntime.state.KIBSceneVD.config.dialogue_panel_mode,
+  'shared',
+);
+vdRuntime.state = { KIBSceneVD: { config: { font_family: 'Candal' } } };
+vdRuntime.findObjs = (query) =>
+  query && query._type === 'graphic' && query.name === 'vd_dialogue_box'
+    ? [{}]
+    : [];
+vdRuntime.vdInitState();
+assert.strictEqual(
+  vdRuntime.state.KIBSceneVD.config.dialogue_panel_mode,
+  'split',
+);
+vdRuntime.findObjs = () => [];
+vdRuntime.state.KIBSceneVD.config.dialogue_panel_mode = 'shared';
+vdRuntime.vdInitState();
+assert.strictEqual(
+  vdRuntime.state.KIBSceneVD.config.dialogue_panel_mode,
+  'shared',
+);
+vdRuntime.state.KIBSceneVD.config.dialogue_panel_mode = 'invalid';
+vdRuntime.vdInitState();
+assert.strictEqual(
+  vdRuntime.state.KIBSceneVD.config.dialogue_panel_mode,
+  'split',
+);
+vdRuntime.state = {};
+vdRuntime.vdInitState();
+assert.strictEqual(
+  vdRuntime.state.KIBSceneVD.config.dialogue_panel_mode,
+  'split',
+);
 assert.strictEqual(
   fs.readFileSync(sourcesFile, 'utf8'),
   buildSourceCatalog(),
@@ -102,6 +188,12 @@ assert(
   sceneDirectorText.includes('<b>세팅법</b>') &&
     !sceneDirectorText.includes('처음 세팅'),
   '사용법 핸드아웃의 세팅 용어를 통일해야 합니다.',
+);
+assert(
+  appText.includes("codeKey: 'dialogue_panel_mode'") &&
+    sceneDirectorText.includes('!비주얼 설정|창구성|') &&
+    visualDialogueText.includes("dialogue_panel_mode: 'split'"),
+  '비주얼 노벨 창 구성 설정이 설치 페이지와 도움말에 필요합니다.',
 );
 assert(
   !handoutText.includes('편집할 수 있는 사람:'),
