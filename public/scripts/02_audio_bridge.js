@@ -1,5 +1,5 @@
 /*
- * Scene Suite 02 - Audio Bridge 1.8.6
+ * Scene Suite 02 - Audio Bridge 1.8.7
  * 제작 및 통합: @EOOOOORK
  */
 var KIBScene = KIBScene || {};
@@ -19,7 +19,6 @@ KIBScene.adapters = KIBScene.adapters || {};
     // 페이드 갱신 간격(ms)
     FADE_IN_STEP_MS: 500,
     FADE_OUT_STEP_MS: 100,
-    RESTART_DELAY_MS: 50,
     COMMAND: '!sd',
     KOREAN_AUDIO_COMMAND: '!오디오',
     BGM_MACRO_NAME: '🎵오디오',
@@ -255,26 +254,14 @@ KIBScene.adapters = KIBScene.adapters || {};
 
     if (action == 'play') {
       state.KIBSceneAudio.volumes[track.id] = volume;
-      // 재생 중으로 남은 트랙도 짧게 재시작
       track.set({
-        playing: false,
+        playing: true,
         softstop: false,
         loop: loop,
         volume: volume,
       });
-      fades[track.id] = setTimeout(function () {
-        delete fades[track.id];
-        var restarted = getObj('jukeboxtrack', track.id);
-        if (restarted)
-          restarted.set({
-            playing: true,
-            softstop: false,
-            loop: loop,
-            volume: volume,
-          });
-      }, SETTING.RESTART_DELAY_MS);
       notifyLinkedApng(track);
-      return fades[track.id];
+      return { ok: true };
     }
     if (action == 'stop') return track.set({ playing: false, softstop: false });
     if (action == 'volume') {
@@ -283,23 +270,6 @@ KIBScene.adapters = KIBScene.adapters || {};
     }
     if (action == 'fadein') {
       state.KIBSceneAudio.volumes[track.id] = volume;
-      if (options.once === true || options.restart === true) {
-        track.set({ playing: false, softstop: false, loop: loop, volume: 0 });
-        fades[track.id] = setTimeout(function () {
-          delete fades[track.id];
-          var restarted = getObj('jukeboxtrack', track.id);
-          if (!restarted) return;
-          restarted.set({
-            playing: true,
-            softstop: false,
-            loop: loop,
-            volume: 0,
-          });
-          fadeTrack(restarted, 0, volume, fade, false, SETTING.FADE_IN_STEP_MS);
-        }, SETTING.RESTART_DELAY_MS);
-        notifyLinkedApng(track);
-        return fades[track.id];
-      }
       track.set({ playing: true, softstop: false, loop: loop, volume: 0 });
       notifyLinkedApng(track);
       return fadeTrack(track, 0, volume, fade, false, SETTING.FADE_IN_STEP_MS);
@@ -628,9 +598,6 @@ KIBScene.adapters = KIBScene.adapters || {};
       '1회': 'once',
       한번: 'once',
       once: 'once',
-      처음부터: 'restart',
-      재시작: 'restart',
-      restart: 'restart',
       볼륨: 'volume',
       volume: 'volume',
       페이드: 'fade',

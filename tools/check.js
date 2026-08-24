@@ -47,6 +47,10 @@ const narratorText = fs.readFileSync(
   path.join(scriptsRoot, '01_narrator_director.js'),
   'utf8',
 );
+const audioText = fs.readFileSync(
+  path.join(scriptsRoot, '02_audio_bridge.js'),
+  'utf8',
+);
 const visualDialogueText = fs.readFileSync(
   path.join(scriptsRoot, '03_visual_dialogue_compatible.js'),
   'utf8',
@@ -204,6 +208,21 @@ vm.runInContext(narratorText, narratorRuntime);
 const expressionCue = narratorRuntime.ntExtractCues('대사 @난감').cues[0];
 assert.strictEqual(expressionCue.type, 'avatar');
 assert.strictEqual(expressionCue.args[0], '난감');
+
+assert(!audioText.includes('RESTART_DELAY_MS'));
+assert(!/(?:처음부터|재시작|restart): 'restart'/.test(audioText));
+[
+  '!오디오 전체초기화',
+  '!오디오 재생위치',
+  '!오디오 재생 위치',
+  '!오디오 재시작',
+  '|처음부터',
+].forEach((removedCommand) => {
+  assert(
+    !releaseText.includes(removedCommand),
+    `제거한 오디오 초기화 항목이 남아 있습니다: ${removedCommand}`,
+  );
+});
 
 assert.strictEqual(
   fs.readFileSync(sourcesFile, 'utf8'),

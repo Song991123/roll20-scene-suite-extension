@@ -34,7 +34,12 @@ const MODULES = [
     file: '02_audio_bridge.js',
     title: '오디오',
     description: '쥬크박스 재생, 중지, 반복, 볼륨, 페이드',
-    setup: ['Roll20 쥬크박스에 음원을 추가합니다.', '음원마다 다른 제목을 붙입니다.', '자동 생성된 🎵오디오와 🪇효과음 매크로를 사용합니다.'],
+    setup: [
+      'Roll20 쥬크박스에 음원을 추가합니다.',
+      '음원마다 다른 제목을 붙입니다.',
+      '자동 생성된 🎵오디오와 🪇효과음 매크로를 사용합니다.',
+      '같은 제목의 음원이 하나뿐인데 중복 오류가 나면 Roll20에 유령 음원이 남은 경우입니다. 문제가 되는 음원을 지웠다가 다시 추가해 주세요.',
+    ],
     settings: [
       { id: 'driver', group: '기본', label: '오디오 처리 방식', type: 'select', value: 'native', options: [['native', 'Roll20 쥬크박스'], ['roll20am', 'Roll20AM']], codeKey: 'AUDIO_DRIVER' },
       { id: 'command', group: '기본', label: '한국어 명령어', type: 'text', value: '!오디오', codeKey: 'KOREAN_AUDIO_COMMAND' },
