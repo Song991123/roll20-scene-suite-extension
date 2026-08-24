@@ -10,7 +10,9 @@ function buildSourceCatalog() {
     .filter((name) => /^\d{2}_.+\.js$/.test(name))
     .sort()
     .forEach((name) => {
-      sources[name] = fs.readFileSync(path.join(scriptsRoot, name), 'utf8');
+      sources[name] = fs
+        .readFileSync(path.join(scriptsRoot, name), 'utf8')
+        .replace(/\r\n?/g, '\n');
     });
   return `window.SCENE_SUITE_SOURCES = ${JSON.stringify(sources)};\n`;
 }
