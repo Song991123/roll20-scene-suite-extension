@@ -43,6 +43,10 @@ const sceneDirectorText = fs.readFileSync(
   path.join(scriptsRoot, '00_scene_director.js'),
   'utf8',
 );
+const narratorText = fs.readFileSync(
+  path.join(scriptsRoot, '01_narrator_director.js'),
+  'utf8',
+);
 const visualDialogueText = fs.readFileSync(
   path.join(scriptsRoot, '03_visual_dialogue_compatible.js'),
   'utf8',
@@ -145,6 +149,62 @@ assert.strictEqual(
   vdRuntime.state.KIBSceneVD.config.dialogue_panel_mode,
   'split',
 );
+assert.strictEqual(
+  vdRuntime.vdResolveCueCommand(['장면없음'], {
+    explicitAs: true,
+    as: '이경태',
+  }),
+  '장면없음',
+);
+vdRuntime.findObjs = (query) =>
+  query && (query.type === 'page' || query._type === 'page')
+    ? [{ get(key) { return key === '_id' ? 'page-1' : 'conversation'; } }]
+    : [];
+assert.strictEqual(vdRuntime.vdValidateCue(['퇴장:이경태'], {}).ok, true);
+assert.strictEqual(vdRuntime.vdValidateCue(['장면없음'], {}).ok, true);
+
+const narratorRuntime = {
+  state: {},
+  KIBScene: {
+    handlers: { avatar() {}, vd() {} },
+    adapters: { avatar: {}, vd: {} },
+  },
+  on() {},
+  sendChat() {},
+  playerIsGM() {
+    return true;
+  },
+  findObjs() {
+    return [];
+  },
+  getObj() {
+    return null;
+  },
+  Campaign() {
+    return { get() { return ''; } };
+  },
+  setTimeout() {
+    return 1;
+  },
+  clearTimeout() {},
+};
+vm.createContext(narratorRuntime);
+vm.runInContext(narratorText, narratorRuntime);
+[
+  '퇴장:이경태',
+  'exit:이경태',
+  '숨김',
+  '장면없음',
+].forEach((command) => {
+  const parsed = narratorRuntime.ntExtractCues(`대사 !@${command}`);
+  assert.strictEqual(parsed.cues.length, 1);
+  assert.strictEqual(parsed.cues[0].type, 'vd');
+  assert.strictEqual(parsed.cues[0].args[0], command);
+});
+const expressionCue = narratorRuntime.ntExtractCues('대사 @난감').cues[0];
+assert.strictEqual(expressionCue.type, 'avatar');
+assert.strictEqual(expressionCue.args[0], '난감');
+
 assert.strictEqual(
   fs.readFileSync(sourcesFile, 'utf8'),
   buildSourceCatalog(),

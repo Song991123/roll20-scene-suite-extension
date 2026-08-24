@@ -391,7 +391,7 @@ function ntExtractCues(source) {
   const expressionMatch = text.match(/(^|\s)!?@([^\s@|{}]*)\s*$/);
   if (expressionMatch && !ntKnownCue(ntCueHead(expressionMatch[2]).type)) {
     expressionCue = {
-      type: ntExpressionCueType(),
+      type: ntExpressionCueType(expressionMatch[2]),
       args: [expressionMatch[2]],
       raw: '@' + expressionMatch[2],
     };
@@ -479,7 +479,13 @@ function ntNormalizeCueType(value) {
   );
 }
 
-function ntExpressionCueType() {
+function ntExpressionCueType(value) {
+  if (
+    /^(?:장면없음|숨김|hide|퇴장|exit|리셋|reset|강제진행|force-progress)(?::|\s|$)/i.test(
+      String(value || '').trim(),
+    )
+  )
+    return 'vd';
   return ntHasPlugin('avatar') ? 'avatar' : 'vd';
 }
 

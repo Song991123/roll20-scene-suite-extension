@@ -1871,7 +1871,9 @@ function vdValidateCue(args, context) {
     return { ok: true };
   }
   if (
-    /^(?:숨김|hide|퇴장|exit|리셋|reset|강제진행|force-progress)/.test(command)
+    /^(?:장면없음|숨김|hide|퇴장|exit|리셋|reset|강제진행|force-progress)/.test(
+      command,
+    )
   )
     return { ok: true };
   var standingDeck = (findObjs({ _type: 'deck', name: vd_setting.deck_name }) ||
@@ -1928,7 +1930,7 @@ function vdResolveCueCommand(args, context) {
     !command ||
     command == '__display__' ||
     command.indexOf(':') > -1 ||
-    /^(?:배경|background)\s+|^(?:숨김|hide|퇴장|exit|리셋|reset|강제진행|force-progress)$/.test(
+    /^(?:배경|background)\s+|^(?:장면없음|숨김|hide|퇴장|exit|리셋|reset|강제진행|force-progress)$/.test(
       command,
     )
   )
