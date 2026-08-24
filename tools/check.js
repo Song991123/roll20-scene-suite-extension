@@ -151,6 +151,120 @@ assert.strictEqual(
   '코드 원문 묶음을 다시 만들어야 합니다: node tools/build-sources.js',
 );
 
+function roll20Object(id, values) {
+  return {
+    id,
+    get(key) {
+      return values[key];
+    },
+    set(key, value) {
+      if (typeof key === 'object') Object.assign(values, key);
+      else values[key] = value;
+    },
+  };
+}
+
+const avatarDeck = roll20Object('avatar-deck', { name: 'avatars' });
+const avatarCharacterValues = {
+  name: '이경태',
+  avatar: 'original.png',
+  controlledby: '',
+};
+const avatarCharacter = roll20Object('character-1', avatarCharacterValues);
+const avatarEvents = [];
+let avatarCards = [];
+let avatarWhispers = 0;
+const avatarRuntime = {
+  state: {},
+  KIBScene: {
+    adapters: {
+      vd: {
+        validateExpression(payload) {
+          avatarEvents.push(['validate', payload]);
+          return { ok: true };
+        },
+      },
+    },
+    broadcast(name, payload) {
+      avatarEvents.push([name, payload]);
+      return { ok: true };
+    },
+  },
+  on() {},
+  findObjs(query) {
+    if (query._type === 'deck') return query.name === 'avatars' ? [avatarDeck] : [];
+    if (query._type === 'character') return [avatarCharacter];
+    if (query._type === 'card') return avatarCards;
+    return [];
+  },
+  getObj(type, id) {
+    if (type === 'character' && id === avatarCharacter.id) return avatarCharacter;
+    return avatarCards.find((card) => type === 'card' && card.id === id) || null;
+  },
+  Campaign() {
+    return { get() { return 'page-1'; } };
+  },
+  playerIsGM() {
+    return true;
+  },
+  sendChat() {
+    avatarWhispers += 1;
+  },
+  setTimeout() {
+    return 1;
+  },
+  clearTimeout() {},
+};
+vm.createContext(avatarRuntime);
+vm.runInContext(avatarText, avatarRuntime);
+
+const avatarRequest = {
+  characterId: avatarCharacter.id,
+  expression: '난감',
+  playerId: 'API',
+};
+let avatarResult = avatarRuntime.avValidateChange(avatarRequest);
+assert.strictEqual(avatarResult.ok, true);
+assert.strictEqual(avatarResult.targets.avatar, false);
+assert.strictEqual(avatarResult.targets.token, false);
+assert.strictEqual(avatarResult.targets.vd, true);
+avatarResult = avatarRuntime.avApplyChange(avatarRequest);
+assert.strictEqual(avatarResult.ok, true);
+assert.strictEqual(avatarCharacterValues.avatar, 'original.png');
+assert.strictEqual(
+  avatarEvents.filter((event) => event[0] === 'expression:changed').length,
+  1,
+);
+const whispersBeforeSync = avatarWhispers;
+avatarResult = avatarRuntime.avSyncExternal({
+  source: 'vd',
+  characterId: avatarCharacter.id,
+  expression: '난감',
+});
+assert.strictEqual(avatarResult.skipped, true);
+assert.strictEqual(avatarWhispers, whispersBeforeSync);
+
+avatarCards = [
+  roll20Object('avatar-base', { name: '이경태', avatar: 'base.png' }),
+];
+avatarResult = avatarRuntime.avValidateChange(avatarRequest);
+assert.strictEqual(avatarResult.ok, false);
+assert(avatarResult.error.includes('이경태-난감'));
+
+avatarCards.push(
+  roll20Object('avatar-expression', {
+    name: '이경태-난감',
+    avatar: 'awkward.png',
+  }),
+);
+avatarResult = avatarRuntime.avApplyChange(avatarRequest);
+assert.strictEqual(avatarResult.ok, true);
+assert.strictEqual(avatarCharacterValues.avatar, 'awkward.png');
+assert.strictEqual(
+  avatarRuntime.state.KIBSceneAvatar.selectedCards[avatarCharacter.id],
+  'avatar-expression',
+);
+
 assert(
   !releaseText.includes('·'),
   '공개 문서, 페이지, 스크립트에 가운데 점을 쓰지 않습니다.',

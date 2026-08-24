@@ -1,5 +1,5 @@
 /*
- * Scene Suite 09 - Avatar Expression Director 1.0.0
+ * Scene Suite 09 - Avatar Expression Director 1.0.1
  * 제작 및 통합: @EOOOOORK
  */
 
@@ -198,7 +198,7 @@ function avValidateChange(request) {
     return { ok: false, error: '표정을 바꿀 캐릭터 저널을 찾지 못했습니다.' };
   if (!avCanControl(character, request.playerId || 'API'))
     return { ok: false, error: '이 캐릭터의 표정을 변경할 권한이 없습니다.' };
-  var targets = request.targets || avTargets(character);
+  var targets = Object.assign({}, request.targets || avTargets(character));
   var card = null;
   if (targets.avatar || targets.token) {
     var decks =
@@ -215,21 +215,26 @@ function avValidateChange(request) {
           avatar_setting.deck_name +
           ' 덱이 여러 개입니다. 하나만 남겨 주세요.',
       };
-    card = avExpressionCard(character, request.expression, request.cardId);
-    if (!card)
-      return {
-        ok: false,
-        error:
-          avatar_setting.deck_name +
-          ' 덱에 <b>' +
-          avEscape(
-            character.get('name') +
-              (request.expression && request.expression != '기본'
-                ? '-' + request.expression
-                : ''),
-          ) +
-          '</b> 카드를 만들어 주세요.',
-      };
+    if (!avCards(character).length) {
+      targets.avatar = false;
+      targets.token = false;
+    } else {
+      card = avExpressionCard(character, request.expression, request.cardId);
+      if (!card)
+        return {
+          ok: false,
+          error:
+            avatar_setting.deck_name +
+            ' 덱에 <b>' +
+            avEscape(
+              character.get('name') +
+                (request.expression && request.expression != '기본'
+                  ? '-' + request.expression
+                  : ''),
+            ) +
+            '</b> 카드를 만들어 주세요.',
+        };
+    }
   }
   var vd = KIBScene.adapters && KIBScene.adapters.vd;
   if (targets.vd && vd && typeof vd.validateExpression === 'function') {
@@ -329,6 +334,7 @@ function avSyncExternal(payload) {
   if (!character) return { ok: true, skipped: true };
   var targets = avTargets(character);
   if (!targets.avatar && !targets.token) return { ok: true, skipped: true };
+  if (!avCards(character).length) return { ok: true, skipped: true };
   var card = avExpressionCard(character, payload.expression);
   if (!card) {
     avWhisperGm(
