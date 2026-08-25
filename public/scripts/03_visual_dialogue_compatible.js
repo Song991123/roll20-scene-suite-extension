@@ -21,6 +21,7 @@ var vd_ratio_warned = {};
 var vd_dialogue_box_names = ['vd_dialogue_box', 'vd_deco'];
 var vd_cutin_suppressed = {};
 var vd_cutin_hidden_texts = {};
+var vd_tabletop_front_timers = {};
 
 // ===== 공통 태그 =====
 state.api_tag = '<a href="#vd-permitted-api-chat"></a>';
@@ -1401,6 +1402,18 @@ on('destroy:graphic', function (obj) {
   }
 });
 
+on('add:graphic', function (obj) {
+  if (!obj) return;
+  var pageId = obj.get('_pageid');
+  if (!pageId) return;
+  vdScheduleTabletopFront(pageId, 0);
+  if (vdIsTabletopCard(obj)) vdScheduleTabletopFront(pageId, 1000);
+});
+
+on('add:text', function (obj) {
+  if (obj && obj.get('_pageid')) vdScheduleTabletopFront(obj.get('_pageid'), 0);
+});
+
 // ===== 채팅 처리 =====
 on('chat:message', function (msg) {
   try {
@@ -2712,6 +2725,64 @@ function vdDecorationGraphics(name, pageId) {
   return result;
 }
 
+function vdIsTabletopCard(item) {
+  return (
+    item &&
+    item.get('_subtype') == 'card' &&
+    item.get('layer') == 'objects' &&
+    item.get('name') != 'vd_standing'
+  );
+}
+
+function vdTabletopCards(pageId, pageGraphics) {
+  var cards = (pageGraphics ||
+    findObjs({ _type: 'graphic', _pageid: pageId }) ||
+    []).filter(vdIsTabletopCard);
+  var page = getObj('page', pageId);
+  var order = page
+    ? String(page.get('_zorder') || '')
+        .split(',')
+        .filter(Boolean)
+    : [];
+  var positions = {};
+  order.forEach(function (id, index) {
+    positions[id] = index;
+  });
+  return cards
+    .map(function (card, index) {
+      return {
+        card: card,
+        index: index,
+        position: Object.prototype.hasOwnProperty.call(positions, card.id)
+          ? positions[card.id]
+          : order.length + index,
+      };
+    })
+    .sort(function (a, b) {
+      return a.position - b.position || a.index - b.index;
+    })
+    .map(function (entry) {
+      return entry.card;
+    });
+}
+
+function vdBringTabletopCardsFront(pageId, pageGraphics) {
+  vdTabletopCards(pageId, pageGraphics).forEach(function (card) {
+    if (getObj('graphic', card.id)) toFront(card);
+  });
+}
+
+function vdScheduleTabletopFront(pageId, delay) {
+  var key = pageId + ':' + Number(delay || 0);
+  if (vd_tabletop_front_timers[key])
+    clearTimeout(vd_tabletop_front_timers[key]);
+  vd_tabletop_front_timers[key] = setTimeout(function () {
+    delete vd_tabletop_front_timers[key];
+    vdBringTabletopCardsFront(pageId);
+    vdKeepTransientFront(pageId);
+  }, Number(delay || 0));
+}
+
 function vdRestoreDefaultLayers(pageId) {
   vdDecorationGraphics('vd_panel', pageId)
     .concat(vdDecorationGraphics('vd_dialogue_box', pageId))
@@ -2824,6 +2895,7 @@ function vdApplyLayerOrder(pageId) {
     graphicsFront.forEach(toFront);
     if (entry.textPosition == 'front') texts.forEach(toFront);
   }
+  vdBringTabletopCardsFront(pageId, pageGraphics);
   vdKeepTransientFront(pageId);
   return true;
 }

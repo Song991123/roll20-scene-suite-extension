@@ -220,6 +220,32 @@ vdRuntime.findObjs = (query) =>
     : [];
 assert.strictEqual(vdRuntime.vdValidateCue(['퇴장:이경태'], {}).ok, true);
 assert.strictEqual(vdRuntime.vdValidateCue(['장면없음'], {}).ok, true);
+const tabletopCards = [
+  roll20Object('card-front', {
+    _subtype: 'card',
+    layer: 'objects',
+    name: '앞 카드',
+  }),
+  roll20Object('not-card', {
+    _subtype: 'token',
+    layer: 'objects',
+    name: '일반 토큰',
+  }),
+  roll20Object('card-back', {
+    _subtype: 'card',
+    layer: 'objects',
+    name: '뒤 카드',
+  }),
+];
+vdRuntime.getObj = (type) =>
+  type === 'page'
+    ? roll20Object('page-1', { _zorder: 'card-back,not-card,card-front' })
+    : null;
+assert.deepStrictEqual(
+  Array.from(vdRuntime.vdTabletopCards('page-1', tabletopCards), (card) => card.id),
+  ['card-back', 'card-front'],
+  '카드 토큰끼리의 기존 앞뒤 순서를 보존해야 합니다.',
+);
 
 const narratorRuntime = {
   state: {},
@@ -487,6 +513,21 @@ assert(
     cutinText.includes('captureOverlayGuides();') &&
     /function saveOverlayGuide[\s\S]+?guide\.remove\(\);/.test(cutinText),
   'cutin_overlay 이미지를 저장한 뒤 안내 토큰을 제거해야 합니다.',
+);
+assert(
+  visualDialogueText.includes(
+    'vdBringTabletopCardsFront(pageId, pageGraphics);\n  vdKeepTransientFront(pageId);',
+  ) &&
+    visualDialogueText.includes(
+      "if (vdIsTabletopCard(obj)) vdScheduleTabletopFront(pageId, 1000);",
+    ),
+  '카드 토큰은 비주얼 요소 위, 활성 연출 아래에 다시 배치해야 합니다.',
+);
+assert(
+  cutinText.includes("on('add:graphic', keepActiveAboveNewObject);") &&
+    cutinText.includes("on('add:text', keepActiveAboveNewObject);") &&
+    /function scheduleFrontRetry[\s\S]+?1000\);/.test(cutinText),
+  '활성 컷인은 새 카드와 새 화면 객체보다 위로 복구되어야 합니다.',
 );
 assert(
   !indexText.includes('id="setup-list"') &&

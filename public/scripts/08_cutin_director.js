@@ -1,5 +1,5 @@
 /*
- * Scene Suite 08 - Cutin Director 1.4.1
+ * Scene Suite 08 - Cutin Director 1.4.2
  * 제작 및 통합: @EOOOOORK
  * 연출 아이디어 참고: 젠트의 주사위 판정 컷인, 똣의 범용 컷인 API
  * https://lise1415622.tistory.com/52
@@ -37,6 +37,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   var activeCaptionEnabled = false;
   var macroTimer = null;
   var managerTimer = null;
+  var frontRetryTimer = null;
 
   on('ready', function () {
     if (!SETTING.enabled) return;
@@ -125,6 +126,8 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (activeCaptionInterval) clearInterval(activeCaptionInterval);
     activeCaptionInterval = null;
   });
+  on('add:graphic', keepActiveAboveNewObject);
+  on('add:text', keepActiveAboveNewObject);
 
   function registerAdapter() {
     var adapter = {
@@ -463,7 +466,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (activeCaptionEnabled && parsed.captionText)
       showCaption(parsed.page, parsed.captionText);
     bringActiveToFront();
-    setTimeout(bringActiveToFront, 100);
+    scheduleFrontRetry();
 
     if (parsed.trackId) {
       var audioResult = cutinCall('audio', 'cue', [
@@ -528,10 +531,36 @@ KIBScene.adapters = KIBScene.adapters || {};
     return !!(overlay || graphic || caption);
   }
 
+  function keepActiveAboveNewObject(item) {
+    if (!item || !state.KIBSceneCutin) return;
+    var graphic = state.KIBSceneCutin.activeGraphicId
+      ? getObj('graphic', state.KIBSceneCutin.activeGraphicId)
+      : null;
+    if (!graphic || item.get('_pageid') != graphic.get('_pageid')) return;
+    if (
+      item.id == state.KIBSceneCutin.activeGraphicId ||
+      item.id == state.KIBSceneCutin.activeOverlayId ||
+      item.id == state.KIBSceneCutin.activeCaptionId
+    )
+      return;
+    bringActiveToFront();
+    scheduleFrontRetry();
+  }
+
+  function scheduleFrontRetry() {
+    if (frontRetryTimer) clearTimeout(frontRetryTimer);
+    frontRetryTimer = setTimeout(function () {
+      frontRetryTimer = null;
+      bringActiveToFront();
+    }, 1000);
+  }
+
   function clearActive(stopAudio) {
     initState();
     if (activeTimer) clearTimeout(activeTimer);
     activeTimer = null;
+    if (frontRetryTimer) clearTimeout(frontRetryTimer);
+    frontRetryTimer = null;
     var graphic = state.KIBSceneCutin.activeGraphicId
       ? getObj('graphic', state.KIBSceneCutin.activeGraphicId)
       : null;
