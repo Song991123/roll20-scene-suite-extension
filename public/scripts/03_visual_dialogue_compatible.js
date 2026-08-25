@@ -123,6 +123,12 @@ function vdInitState() {
   )
     state.KIBSceneVD.expressionHandouts = {};
   if (
+    !state.KIBSceneVD.scriptTexts ||
+    typeof state.KIBSceneVD.scriptTexts != 'object' ||
+    Array.isArray(state.KIBSceneVD.scriptTexts)
+  )
+    state.KIBSceneVD.scriptTexts = {};
+  if (
     !state.KIBSceneVD.layerOrder ||
     typeof state.KIBSceneVD.layerOrder != 'object' ||
     Array.isArray(state.KIBSceneVD.layerOrder)
@@ -1511,10 +1517,12 @@ on('chat:message', function (msg) {
           );
           return;
         }
-        let text_name = getObj('text', bg_name.get('gmnotes'));
-        let text_dialogue = getObj('text', bg_dialogue.get('gmnotes'));
-        text_name.remove();
-        text_dialogue.remove();
+        vdDialogueTexts(current_page_id).forEach(function (text) {
+          text.remove();
+        });
+        bg_name.set('gmnotes', '');
+        bg_dialogue.set('gmnotes', '');
+        delete state.KIBSceneVD.scriptTexts[current_page_id];
         sendChat('vd-api-wildcard', '!@퇴장:전원', null, { noarchive: true });
       } else if (
         msg.content.indexOf('!@퇴장') == 0 ||
@@ -2104,17 +2112,39 @@ const showDialogue = function () {
   }
 
   const panel_size = vdDecorationSize(bg_panel);
-  const width = is_script_mode
-    ? panel_size.width
-    : Number(bg_dialogue.get('width'));
-  const text_height = is_script_mode
-    ? panel_size.height
-    : Number(bg_dialogue.get('height'));
+  const dialogue_width = Number(bg_dialogue.get('width'));
+  const dialogue_height = Number(bg_dialogue.get('height'));
+  const width = is_script_mode ? panel_size.width : dialogue_width;
+  const text_height = is_script_mode ? panel_size.height : dialogue_height;
   const name_width = bg_name.get('width');
+  const name_left = Number(bg_name.get('left'));
+  const name_top =
+    Number(bg_name.get('top')) +
+    (vd_setting['name_font_size'] * vd_setting['line_height']) / 2;
+  const dialogue_left = Number(bg_dialogue.get('left'));
+  const dialogue_top = Number(bg_dialogue.get('top'));
+  const script_left = Number(bg_panel.get('left'));
+  const script_top =
+    Number(bg_panel.get('top')) + Number(vd_setting.desc_offset_y || 0);
   let blank_name = '';
   let blank_dialogue = '';
   let text_name = getObj('text', bg_name.get('gmnotes'));
-  let text_dialogue = getObj('text', bg_dialogue.get('gmnotes'));
+  let text_normal = getObj('text', bg_dialogue.get('gmnotes'));
+  let text_script = vdScriptText(current_page_id);
+  if (
+    !text_script &&
+    text_normal &&
+    text_normal.get('_pageid') == current_page_id &&
+    (Math.abs(script_left - dialogue_left) > 0.5 ||
+      Math.abs(script_top - dialogue_top) > 0.5) &&
+    Math.abs(Number(text_normal.get('left')) - script_left) <= 0.5 &&
+    Math.abs(Number(text_normal.get('top')) - script_top) <= 0.5
+  ) {
+    text_script = text_normal;
+    text_normal = null;
+    bg_dialogue.set('gmnotes', '');
+    state.KIBSceneVD.scriptTexts[current_page_id] = text_script.get('_id');
+  }
   while (
     name_width >
     blank_name.length *
@@ -2135,15 +2165,15 @@ const showDialogue = function () {
     text_name.remove();
     text_name = null;
   }
-  if (text_dialogue && text_dialogue.get('_pageid') != current_page_id) {
-    text_dialogue.remove();
-    text_dialogue = null;
+  if (text_normal && text_normal.get('_pageid') != current_page_id) {
+    text_normal.remove();
+    text_normal = null;
   }
   if (!text_name) {
     text_name = createObj('text', {
       _pageid: bg_area.get('_pageid'),
-      left: bg_name.get('left'),
-      top: bg_name.get('top'),
+      left: name_left,
+      top: name_top,
       width: bg_name.get('width'),
       height: bg_name.get('height'),
       layer: 'objects',
@@ -2155,26 +2185,47 @@ const showDialogue = function () {
     });
     bg_name.set({ gmnotes: text_name.get('_id') });
   }
-  if (!text_dialogue) {
-    text_dialogue = createObj('text', {
+  if (!text_normal && !is_script_mode) {
+    text_normal = createObj('text', {
       _pageid: bg_dialogue.get('_pageid'),
-      left: bg_dialogue.get('left'),
-      top: bg_dialogue.get('top'),
-      width: width,
-      height: bg_dialogue.get('height'),
+      left: dialogue_left,
+      top: dialogue_top,
+      width: dialogue_width,
+      height: dialogue_height,
       layer: 'objects',
       font_family: vd_setting.font_family,
       text: '',
-      font_size: font_size,
-      color: font_color,
+      font_size: vd_setting.dialogue_font_size,
+      color: vd_setting.dialogue_font_color,
       stroke: vdTextStroke(),
     });
-    bg_dialogue.set({ gmnotes: text_dialogue.get('_id') });
+    bg_dialogue.set({ gmnotes: text_normal.get('_id') });
+  }
+  if (!text_script && is_script_mode) {
+    text_script = createObj('text', {
+      _pageid: bg_panel.get('_pageid'),
+      left: script_left,
+      top: script_top,
+      width: panel_size.width,
+      height: panel_size.height,
+      layer: 'objects',
+      font_family: vd_setting.font_family,
+      text: '',
+      font_size: vd_setting.desc_font_size,
+      color: vd_setting.desc_font_color,
+      stroke: vdTextStroke(),
+    });
+    state.KIBSceneVD.scriptTexts[current_page_id] = text_script.get('_id');
   }
   if (!vd_cutin_suppressed[current_page_id]) {
     vdRestoreCutinText(text_name, current_page_id);
-    vdRestoreCutinText(text_dialogue, current_page_id);
+    vdRestoreCutinText(text_normal, current_page_id);
+    vdRestoreCutinText(text_script, current_page_id);
   }
+  let text_dialogue = is_script_mode ? text_script : text_normal;
+  let inactive_text = is_script_mode ? text_normal : text_script;
+  if (inactive_text && inactive_text.get('text') !== '')
+    inactive_text.set('text', '');
 
   // 롤꾸 제거
   let name = msg.who + '\n' + blank_name;
@@ -2339,14 +2390,12 @@ const showDialogue = function () {
 
   text_name.set({
     text: name,
-    left: bg_name.get('left'),
+    left: name_left,
     font_family: vd_setting.font_family,
     font_size: vd_setting['name_font_size'],
     color: vd_setting['name_font_color'],
     stroke: vdTextStroke(),
-    top:
-      bg_name.get('top') +
-      (vd_setting['name_font_size'] * vd_setting['line_height']) / 2,
+    top: name_top,
   });
   const full_dialogue_text = split.join('\n');
   text_dialogue.set({
@@ -2359,10 +2408,8 @@ const showDialogue = function () {
     stroke: vdTextStroke(),
     width: width,
     height: text_height,
-    left: is_script_mode ? bg_panel.get('left') : bg_dialogue.get('left'),
-    top: is_script_mode
-      ? Number(bg_panel.get('top')) + Number(vd_setting.desc_offset_y || 0)
-      : bg_dialogue.get('top'),
+    left: is_script_mode ? script_left : dialogue_left,
+    top: is_script_mode ? script_top : dialogue_top,
   });
 
   if (!vdApplyLayerOrder(current_page_id)) {
@@ -2408,7 +2455,7 @@ const showDialogue = function () {
     }
   }, 100);
 
-  clearTextWithout(text_name, text_dialogue);
+  clearTextWithout(text_name, text_dialogue, inactive_text);
 
   const ignore_list = vd_setting.ignore_list
     .replace(/, /g, ',')
@@ -2552,13 +2599,17 @@ function vdClearTypewriter() {
   vd_typewriter_interval = null;
 }
 
-const clearTextWithout = function (name_txt, dial_txt) {
+const clearTextWithout = function (name_txt, dial_txt, extra_txt) {
+  const managed = [name_txt, dial_txt, extra_txt].filter(Boolean);
+  if (!managed.length) return;
+  const managed_ids = managed.map(function (text) {
+    return text.get('_id');
+  });
   let filtered_txt = (
-    findObjs({ _type: 'text', _pageid: name_txt.get('_pageid') }) || []
+    findObjs({ _type: 'text', _pageid: managed[0].get('_pageid') }) || []
   ).filter(function (obj) {
     return (
-      obj.get('_id') != name_txt.get('_id') &&
-      obj.get('_id') != dial_txt.get('_id') &&
+      managed_ids.indexOf(obj.get('_id')) < 0 &&
       ((Math.abs(obj.get('left') - name_txt.get('left')) < 100 &&
         Math.abs(obj.get('top') - name_txt.get('top')) < 100) ||
         (Math.abs(obj.get('left') - dial_txt.get('left')) < 100 &&
@@ -2667,11 +2718,8 @@ function vdRestoreDefaultLayers(pageId) {
     .forEach(function (item) {
       if (item.get('layer') != 'gmlayer') item.set('layer', 'objects');
     });
-  ['vd_name', 'vd_dialogue'].forEach(function (name) {
-    var guide = (findObjs({ _type: 'graphic', name: name, _pageid: pageId }) ||
-      [])[0];
-    var text = guide && getObj('text', guide.get('gmnotes'));
-    if (text) text.set('layer', 'objects');
+  vdDialogueTexts(pageId).forEach(function (text) {
+    if (text.get('layer') != 'objects') text.set('layer', 'objects');
   });
 }
 
@@ -2722,9 +2770,7 @@ function vdApplyLayerOrder(pageId) {
   graphicsNamed(vd_dialogue_box_names).forEach(function (item) {
     addGraphic(item, entry.decoPosition);
   });
-  ['vd_name', 'vd_dialogue'].forEach(function (name) {
-    var guide = graphicsNamed([name])[0];
-    var text = guide && getObj('text', guide.get('gmnotes'));
+  vdDialogueTexts(pageId, pageGraphics).forEach(function (text) {
     if (!text || text.get('layer') == 'gmlayer') return;
     if (text.get('layer') != layer) text.set('layer', layer);
     texts.push(text);
@@ -2782,9 +2828,18 @@ function vdApplyLayerOrder(pageId) {
   return true;
 }
 
-function vdDialogueTexts(pageId) {
-  var graphics = findObjs({ _type: 'graphic', _pageid: pageId }) || [];
-  return ['vd_name', 'vd_dialogue']
+function vdScriptText(pageId) {
+  var ids = state.KIBSceneVD && state.KIBSceneVD.scriptTexts;
+  var id = ids && ids[pageId];
+  var text = id && getObj('text', id);
+  if (text && text.get('_pageid') == pageId) return text;
+  if (id) delete ids[pageId];
+  return null;
+}
+
+function vdDialogueTexts(pageId, graphics) {
+  graphics = graphics || findObjs({ _type: 'graphic', _pageid: pageId }) || [];
+  var texts = ['vd_name', 'vd_dialogue']
     .map(function (name) {
       var guide = graphics.filter(function (item) {
         return item.get('name') == name;
@@ -2792,6 +2847,10 @@ function vdDialogueTexts(pageId) {
       return guide && getObj('text', guide.get('gmnotes'));
     })
     .filter(Boolean);
+  var script = vdScriptText(pageId);
+  if (script && !texts.some(function (text) { return text.id == script.id; }))
+    texts.push(script);
+  return texts;
 }
 
 function vdSuppressCutinText(enabled, pageId) {
@@ -3182,6 +3241,17 @@ function vdApplyTextStyle() {
         });
       },
     );
+  });
+  vdInitState();
+  Object.keys(state.KIBSceneVD.scriptTexts).forEach(function (pageId) {
+    var text = vdScriptText(pageId);
+    if (!text) return;
+    text.set({
+      font_family: vd_setting.font_family,
+      font_size: vd_setting.desc_font_size,
+      color: vd_setting.desc_font_color,
+      stroke: vdTextStroke(),
+    });
   });
 }
 

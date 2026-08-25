@@ -118,6 +118,33 @@ assert.strictEqual(
   vdRuntime.vdDecorationForMessage('general', 'shared'),
   'vd_panel',
 );
+assert.strictEqual(
+  (visualDialogueText.match(/left: name_left/g) || []).length,
+  2,
+  '이름 글자는 생성할 때부터 최종 위치를 사용해야 합니다.',
+);
+assert.strictEqual(
+  (visualDialogueText.match(/left: dialogue_left/g) || []).length,
+  1,
+  '일반 대사 글자는 vd_dialogue 위치에 따로 생성해야 합니다.',
+);
+assert.strictEqual(
+  (visualDialogueText.match(/left: script_left/g) || []).length,
+  1,
+  '스크립트 글자는 vd_panel 위치에 따로 생성해야 합니다.',
+);
+assert(
+  visualDialogueText.includes(
+    'let text_dialogue = is_script_mode ? text_script : text_normal;',
+  ),
+  '일반 대사와 스크립트는 서로 다른 글자 객체를 사용해야 합니다.',
+);
+assert(
+  visualDialogueText.includes(
+    'clearTextWithout(text_name, text_dialogue, inactive_text);',
+  ),
+  '현재 글자 주변만 정리하고 비활성 글자 객체는 보존해야 합니다.',
+);
 vdRuntime.vdInitState();
 assert.strictEqual(vdRuntime.state.KIBSceneVD.config.font_family, 'Candal');
 assert.strictEqual(
@@ -152,6 +179,33 @@ vdRuntime.vdInitState();
 assert.strictEqual(
   vdRuntime.state.KIBSceneVD.config.dialogue_panel_mode,
   'split',
+);
+const vdTexts = {
+  name: roll20Object('name-text', { _pageid: 'page-1' }),
+  dialogue: roll20Object('dialogue-text', { _pageid: 'page-1' }),
+  script: roll20Object('script-text', { _pageid: 'page-1' }),
+};
+const vdGuides = [
+  roll20Object('name-guide', {
+    name: 'vd_name',
+    _pageid: 'page-1',
+    gmnotes: 'name-text',
+  }),
+  roll20Object('dialogue-guide', {
+    name: 'vd_dialogue',
+    _pageid: 'page-1',
+    gmnotes: 'dialogue-text',
+  }),
+];
+vdRuntime.state.KIBSceneVD.scriptTexts['page-1'] = 'script-text';
+vdRuntime.findObjs = (query) =>
+  query && query._type === 'graphic' && query._pageid === 'page-1'
+    ? vdGuides
+    : [];
+vdRuntime.getObj = (type, id) => (type === 'text' ? vdTexts[id.split('-')[0]] : null);
+assert.deepStrictEqual(
+  Array.from(vdRuntime.vdDialogueTexts('page-1'), (text) => text.id),
+  ['name-text', 'dialogue-text', 'script-text'],
 );
 assert.strictEqual(
   vdRuntime.vdResolveCueCommand(['장면없음'], {
