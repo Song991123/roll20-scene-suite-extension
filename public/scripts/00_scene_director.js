@@ -1,5 +1,5 @@
 /*
- * Scene Suite 00 - Scene Director 3.5.0
+ * Scene Suite 00 - Scene Director 3.5.1
  * 제작 및 통합: @EOOOOORK
  */
 var KIBScene = KIBScene || {};
@@ -8,7 +8,7 @@ var KIBScene = KIBScene || {};
 
   // ===== 기본 설정 =====
   var DEFAULTS = {
-    version: '3.5.0',
+    version: '3.5.1',
     command: '!sd',
     features: {
       audio: true,
@@ -193,14 +193,25 @@ var KIBScene = KIBScene || {};
     var typeEnabled = KIBScene.isFeatureEnabled('type');
     var vdEnabled = KIBScene.isFeatureEnabled('vd');
     var typeAll = KIBScene.get('timing.typeAllLines', true) === true;
-    var lastStart = first + (lines.length - 1) * interval;
+    var lastStart = first;
+    var nextStart = first;
     var typeEnd = 0;
     var vdEnd = 0;
     var vdCursor = first;
     for (var i = 0; i < lines.length; i++) {
-      var start = first + i * interval;
+      var start = nextStart;
+      lastStart = start;
       var length = visibleLength(lines[i]);
       var parsedLine = KIBScene.call('narrator', 'extract', [lines[i]]) || null;
+      if (parsedLine && parsedLine.lineDelayError)
+        return { error: parsedLine.lineDelayError };
+      nextStart =
+        start +
+        (parsedLine &&
+          typeof parsedLine.lineDelay === 'number' &&
+          !parsedLine.lineDelayError
+          ? Number(parsedLine.lineDelay)
+          : interval);
       if (
         typeEnabled &&
         (typeAll ||
@@ -342,6 +353,10 @@ var KIBScene = KIBScene || {};
     if (!lines.length || (lines.length === 1 && !lines[0]))
       return whisper('형식: <code>!sd estimate|첫 줄|둘째 줄</code>');
     var result = KIBScene.estimate(lines);
+    if (result.error)
+      return whisper(
+        '<b>예상 시간을 계산하지 못했습니다.</b><br>' + result.error,
+      );
     whisper(
       '<b>예상 출력 시간</b><br>' +
         '줄 수: ' +
@@ -588,6 +603,10 @@ var KIBScene = KIBScene || {};
   function narratorHelpSection() {
     var rows =
       commandRow('!... 대사', '줄을 차례대로 출력') +
+      commandRow(
+        '!... 대사 @다음줄 1.2초',
+        '이 줄만 다음 줄까지 1.2초 대기',
+      ) +
       commandRow('!,', '일시정지 / 다시 시작') +
       commandRow('!/', '전체 취소') +
       commandRow('!... /as "홍길동" 대사 @웃음', '캐릭터 대사와 표정 변경') +

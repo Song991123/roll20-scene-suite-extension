@@ -57,6 +57,7 @@ on('ready', function () {
     extract: ntExtractCues,
     help: [
       '<code>!... 대사</code> 차례대로 출력',
+      '<code>!... 대사 @다음줄 1.2초</code> 이 줄만 다음 줄까지 1.2초 대기',
       '<code>!,</code> 일시정지 또는 다시 시작',
       '<code>!/</code> 전체 취소',
     ],
@@ -74,7 +75,7 @@ on('chat:message', function (msg) {
     ) {
       sendChat(
         '나레이터',
-        '/w GM <b>나레이터 도움말</b><br><code>!... 대사</code> 차례대로 출력<br><code>!... /as "홍길동" 대사</code> 캐릭터 대사<br><code>!... /desc 설명</code> 강조문<br><code>!... /emas "홍길동" 행동</code> 행동문<br><code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 추가<br><code>!. 동시에 출력할 줄</code> 같은 차례에 함께 출력<br><code>!,</code> 일시정지 또는 다시 시작<br><code>!/</code> 전체 취소<br>줄 끝에 <code>@표정</code>, <code>@캐릭터명:표정</code>, <code>@오디오</code>, <code>@비주얼</code>, <code>@APNG</code>, <code>@핸드아웃</code>, <code>@컷인</code> 명령을 붙일 수 있습니다.',
+        '/w GM <b>나레이터 도움말</b><br><code>!... 대사</code> 차례대로 출력<br><code>!... 대사 @다음줄 1.2초</code> 이 줄만 다음 줄까지 1.2초 대기<br><code>!... /as "홍길동" 대사</code> 캐릭터 대사<br><code>!... /desc 설명</code> 강조문<br><code>!... /emas "홍길동" 행동</code> 행동문<br><code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 추가<br><code>!. 동시에 출력할 줄</code> 같은 차례에 함께 출력<br><code>!,</code> 일시정지 또는 다시 시작<br><code>!/</code> 전체 취소<br>줄 끝에 <code>@표정</code>, <code>@캐릭터명:표정</code>, <code>@오디오</code>, <code>@비주얼</code>, <code>@APNG</code>, <code>@핸드아웃</code>, <code>@컷인</code> 명령을 붙일 수 있습니다.',
         null,
         { noarchive: true },
       );
@@ -214,9 +215,23 @@ function narrate() {
       const current = state.narration[0];
       const split = current.msg.split(state.nt_linebreaker);
       const prepared = [];
+      let lineDelay = null;
       for (let i = 0; i < split.length; i++) {
         const element = split[i];
         const parsed = ntExtractCues(element);
+        if (parsed.lineDelayError)
+          return ntCancelOnError({ ok: false, error: parsed.lineDelayError }, element);
+        if (parsed.lineDelay !== null) {
+          if (lineDelay !== null && lineDelay !== parsed.lineDelay)
+            return ntCancelOnError(
+              {
+                ok: false,
+                error: '같은 차례에 동시 출력할 줄은 @다음줄 시간을 하나만 사용하세요.',
+              },
+              current.msg,
+            );
+          lineDelay = parsed.lineDelay;
+        }
         const privateChat = /^\s*\/w(?:\s|$)/i.test(parsed.text);
         const typeEnabled = ntFeature('type', nt_setting.use_dialog_overlay);
         const context = {
@@ -233,6 +248,10 @@ function narrate() {
                 : 'general',
           text: privateChat ? '' : parsed.text,
           visualDialogue: false,
+          lineDelay:
+            parsed.lineDelay === null
+              ? Number(ntCentral('timing.lineInterval', nt_setting.interval))
+              : parsed.lineDelay,
         };
         const preparedEvent = privateChat
           ? { ok: true, values: [] }
@@ -297,6 +316,13 @@ function narrate() {
           source: element,
         });
       }
+      const nextLineDelay =
+        lineDelay === null
+          ? Number(ntCentral('timing.lineInterval', nt_setting.interval))
+          : lineDelay;
+      prepared.forEach(function (item) {
+        item.context.lineDelay = nextLineDelay;
+      });
       const publicPrepared = prepared.filter(function (item) {
         return !item.context.privateChat;
       });
@@ -304,6 +330,7 @@ function narrate() {
         ? ntBroadcast('narrator:line', {
             current: current,
             prepared: publicPrepared,
+            lineDelay: nextLineDelay,
           })
         : { ok: true, values: [] };
       if (!lineEvent.ok) return ntCancelOnError(lineEvent, current.msg);
@@ -333,10 +360,7 @@ function narrate() {
       state.narration_error = null;
       state.narration.splice(0, 1);
       if (state.narration.length > 0) {
-        setTimeout(
-          narrate,
-          ntCentral('timing.lineInterval', nt_setting.interval),
-        );
+        setTimeout(narrate, nextLineDelay);
       } else {
         state.is_narrating = 1;
       }
@@ -391,6 +415,26 @@ function ntInjectVisualDialogue(item, current) {
 function ntExtractCues(source) {
   const cues = [];
   let directType = false;
+  let lineDelay = null;
+  let lineDelayError = '';
+  function useLineDelay(duration) {
+    const parsedDelay = ntParseLineDelay(duration);
+    if (parsedDelay === null) {
+      lineDelayError =
+        '@다음줄 시간은 0~600초로 적어 주세요. 예: <code>@다음줄 1.2초</code>';
+    } else if (lineDelay !== null && lineDelay !== parsedDelay) {
+      lineDelayError = '한 줄에 @다음줄 시간을 하나만 적어 주세요.';
+    } else lineDelay = parsedDelay;
+  }
+  function stripLineDelay(value) {
+    return value.replace(
+      /(^|\s)@다음줄(?:(?:\||\s+)([\s\S]*?))?(?=\s+@|$)/gi,
+      function (all, prefix, duration) {
+        useLineDelay(duration);
+        return prefix;
+      },
+    );
+  }
   let text = String(source || '').replace(
     /\{\{@([^{}]+)\}\}/g,
     function (all, body) {
@@ -405,12 +449,20 @@ function ntExtractCues(source) {
       return '';
     },
   );
+  text = text.replace(
+    /(^|\s)@다음줄(?:\||\s+)(\d+(?:\.\d+)?\s*(?:초|s|ms|밀리초))\s*$/i,
+    function (all, prefix, duration) {
+      useLineDelay(duration);
+      return prefix;
+    },
+  );
   let rollDecorationSuffix = '';
   const rollDecorationMatch = text.match(/(\]\(\s*#"[\s\S]*\)\s*)$/i);
   if (rollDecorationMatch) {
     rollDecorationSuffix = rollDecorationMatch[1];
     text = text.substring(0, text.length - rollDecorationSuffix.length);
   }
+  text = stripLineDelay(text);
   const expressionCues = [];
   let expressionMatch = text.match(/(^|\s)!?@([^\s@|{}]*)\s*$/);
   while (
@@ -462,7 +514,26 @@ function ntExtractCues(source) {
   });
   if (removedBareCue || expressionCues.length) text = text.replace(/\s+$/, '');
   if (rollDecorationSuffix) text += rollDecorationSuffix;
-  return { text: text, cues: cues, directType: directType };
+  return {
+    text: text,
+    cues: cues,
+    directType: directType,
+    lineDelay: lineDelay,
+    lineDelayError: lineDelayError,
+  };
+}
+
+function ntParseLineDelay(value) {
+  const match = String(value || '')
+    .trim()
+    .toLowerCase()
+    .match(/^(\d+(?:\.\d+)?)\s*(초|s|ms|밀리초)$/);
+  if (!match) return null;
+  const duration =
+    match[2] === 'ms' || match[2] === '밀리초'
+      ? Math.round(Number(match[1]))
+      : Math.round(Number(match[1]) * 1000);
+  return duration >= 0 && duration <= 600000 ? duration : null;
 }
 
 function ntCueHead(value) {

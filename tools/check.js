@@ -249,10 +249,6 @@ assert.deepStrictEqual(
 
 const narratorRuntime = {
   state: {},
-  KIBScene: {
-    handlers: { avatar() {}, vd() {} },
-    adapters: { avatar: {}, vd: {} },
-  },
   on() {},
   sendChat() {},
   playerIsGM() {
@@ -274,6 +270,10 @@ const narratorRuntime = {
 };
 vm.createContext(narratorRuntime);
 vm.runInContext(narratorText, narratorRuntime);
+narratorRuntime.KIBScene.handlers.avatar = function () {};
+narratorRuntime.KIBScene.handlers.vd = function () {};
+narratorRuntime.KIBScene.adapters.avatar = {};
+narratorRuntime.KIBScene.adapters.vd = {};
 [
   '퇴장:이경태',
   'exit:이경태',
@@ -319,6 +319,49 @@ const expressionAndExit = narratorRuntime.ntExtractCues(
 assert.deepStrictEqual(
   Array.from(expressionAndExit.cues, (cue) => cue.type),
   ['avatar', 'vd'],
+);
+const lineDelayCue = narratorRuntime.ntExtractCues(
+  '전환 @APNG 블라인드페이드아웃|1회|영역|1.2초 @퇴장:전원 @다음줄 1.2초',
+);
+assert.strictEqual(lineDelayCue.lineDelay, 1200);
+assert.strictEqual(lineDelayCue.lineDelayError, '');
+assert(!lineDelayCue.text.includes('@다음줄'));
+assert.deepStrictEqual(
+  Array.from(lineDelayCue.cues, (cue) => ({
+    type: cue.type,
+    args: Array.from(cue.args),
+  })),
+  [
+    {
+      type: 'apng',
+      args: ['블라인드페이드아웃', '1회', '영역', '1.2초'],
+    },
+    { type: 'vd', args: ['퇴장:전원'] },
+  ],
+);
+assert(
+  narratorRuntime.ntExtractCues('대사 @다음줄 1.2').lineDelayError,
+  '@다음줄은 시간 단위를 요구해야 합니다.',
+);
+const decoratedLineDelay = narratorRuntime.ntExtractCues(
+  '/desc [설명 @오디오 재생|BGM ](#" style="font-size:13px;") @다음줄 1.2초',
+);
+assert.strictEqual(decoratedLineDelay.lineDelay, 1200);
+assert.strictEqual(
+  decoratedLineDelay.text.trim(),
+  '/desc [설명](#" style="font-size:13px;")',
+);
+assert.deepStrictEqual(
+  Array.from(decoratedLineDelay.cues[0].args),
+  ['재생', 'BGM'],
+);
+const innerDecoratedLineDelay = narratorRuntime.ntExtractCues(
+  '/desc [설명 @다음줄 1.2초 ](#" style="font-size:13px;")',
+);
+assert.strictEqual(innerDecoratedLineDelay.lineDelay, 1200);
+assert.strictEqual(
+  innerDecoratedLineDelay.text.trim(),
+  '/desc [설명 ](#" style="font-size:13px;")',
 );
 
 const narratorSent = [];
@@ -407,6 +450,31 @@ assert.deepStrictEqual(
     { text: '공개 대사', type: 'general' },
   ],
 );
+
+const narratorTimeouts = [];
+narratorSent.length = 0;
+narratorRuntime.setTimeout = (callback, delay) => {
+  narratorTimeouts.push(delay);
+  return narratorTimeouts.length;
+};
+narratorRuntime.KIBScene.get = (path, fallback) =>
+  path === 'timing.lineInterval' ? 3800 : fallback;
+narratorRuntime.state.narration = [
+  { as: 'GM', msg: '첫 줄 @다음줄 1.2초', explicitAs: false },
+  { as: 'GM', msg: '둘째 줄', explicitAs: false },
+  { as: 'GM', msg: '셋째 줄', explicitAs: false },
+];
+narratorRuntime.state.is_narrating = 2;
+narratorRuntime.narrate();
+assert.strictEqual(narratorTimeouts.pop(), 1200);
+assert(!narratorSent[0].content.includes('@다음줄'));
+narratorRuntime.narrate();
+assert.strictEqual(narratorTimeouts.pop(), 3800);
+
+if (process.argv.includes('--narrator-delay')) {
+  console.log('Narrator line delay: checked');
+  process.exit(0);
+}
 
 assert.strictEqual(
   vdRuntime.vdShouldCollectMessage({
