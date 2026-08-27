@@ -169,6 +169,7 @@ on('chat:message', function (msg) {
             as: as_who,
             msg: str,
             explicitAs: explicit_as,
+            originPlayerId: msg.playerid,
           });
 
           if (state.is_narrating == 1) {
@@ -340,21 +341,21 @@ function narrate() {
         if (!execution.ok) return ntCancelOnError(execution, item.source);
         if (item.parsed.text.trim().length > 0) {
           const injected = ntInjectVisualDialogue(item, current);
-          sendChat(
-            current.as,
+          const chatText =
             item.parsed.text +
-              (item.context.privateChat || injected
-                ? ''
-                : (!item.parsed.text.includes(state.api_tag)
-                    ? state.api_tag
-                    : '') +
-                  (current.explicitAs === true
-                    ? state.vd_explicit_as_tag
-                    : '') +
-                  (item.typeEnabled && item.parsed.directType
-                    ? '<a href="#sd-direct-type"></a>'
-                    : '')),
-          );
+            (item.context.privateChat || injected
+              ? ''
+              : (!item.parsed.text.includes(state.api_tag)
+                  ? state.api_tag
+                  : '') +
+                (current.explicitAs === true
+                  ? state.vd_explicit_as_tag
+                  : '') +
+                (item.typeEnabled && item.parsed.directType
+                  ? '<a href="#sd-direct-type"></a>'
+                  : ''));
+          sendChat(current.as, chatText);
+          if (item.context.privateChat) ntMirrorWhisper(current, chatText);
         }
       }
       state.narration_error = null;
@@ -373,6 +374,79 @@ function narrate() {
       '(runtime)',
     );
   }
+}
+
+// API 귓말은 발신자 화면에 송신 기록이 남지 않으므로 휘발성 사본을 보냄
+function ntMirrorWhisper(current, text) {
+  try {
+    const playerId = String((current && current.originPlayerId) || '');
+    if (!playerId || playerId == 'API') return;
+    const match = String(text || '').match(
+      /^\s*\/w\s+(?:"([^"]+)"|(\S+))(?:\s+([\s\S]*))?$/i,
+    );
+    if (!match) return;
+    const target = match[1] || match[2];
+    const player = getObj('player', playerId);
+    if (!player) return;
+    if (ntWhisperIncludesPlayer(target, playerId, player)) return;
+    const displayName = String(
+      player.get('_displayname') || player.get('displayname') || '',
+    )
+      .replace(/"/g, '')
+      .trim();
+    if (!displayName || ntDuplicatePlayerName(displayName)) return;
+    sendChat(
+      current.as,
+      '/w "' +
+        displayName +
+        '" (To ' +
+        ntEscape(target) +
+        '): ' +
+        (match[3] || ''),
+      null,
+      { noarchive: true },
+    );
+  } catch (err) {
+    if (typeof log === 'function')
+      log('Narrator whisper copy skipped: ' + String(err));
+  }
+}
+
+function ntDuplicatePlayerName(displayName) {
+  const name = String(displayName || '').trim().toLowerCase();
+  return (
+    findObjs({ _type: 'player' }).filter(function (player) {
+      return (
+        String(player.get('_displayname') || player.get('displayname') || '')
+          .trim()
+          .toLowerCase() == name
+      );
+    }).length > 1
+  );
+}
+
+function ntWhisperIncludesPlayer(target, playerId, player) {
+  const name = String(target || '').trim().toLowerCase();
+  if (name == 'gm') return playerIsGM(playerId);
+  if (
+    String(player.get('_displayname') || player.get('displayname') || '')
+      .trim()
+      .toLowerCase() == name
+  )
+    return true;
+  let characters = findObjs({ _type: 'character', name: target });
+  if (!characters.length)
+    characters = findObjs({ _type: 'character' }).filter(function (character) {
+      return String(character.get('name') || '').trim().toLowerCase() == name;
+    });
+  return characters.some(function (character) {
+    const controlledBy = String(character.get('controlledby') || '')
+      .split(',')
+      .filter(Boolean);
+    return controlledBy.length
+      ? controlledBy.indexOf('all') >= 0 || controlledBy.indexOf(playerId) >= 0
+      : playerIsGM(playerId);
+  });
 }
 
 function ntInjectVisualDialogue(item, current) {

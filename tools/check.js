@@ -368,7 +368,8 @@ const narratorSent = [];
 const narratorInjected = [];
 const narratorExecuted = [];
 const narratorBroadcasts = [];
-narratorRuntime.sendChat = (as, content) => narratorSent.push({ as, content });
+narratorRuntime.sendChat = (as, content, callback, options) =>
+  narratorSent.push({ as, content, options });
 narratorRuntime.KIBScene.adapters.type = {};
 narratorRuntime.KIBScene.get = (path, fallback) => fallback;
 narratorRuntime.KIBScene.isFeatureEnabled = () => true;
@@ -428,6 +429,55 @@ assert.deepStrictEqual(
   Array.from(narratorSent, (entry) => entry.content),
   ['/w HO1 첫 번째', '/w "공백 있는 대상" 두 번째'],
 );
+
+narratorSent.length = 0;
+narratorRuntime.getObj = (type, id) =>
+  type === 'player' && id === 'gm-1'
+    ? {
+        id,
+        get(key) {
+          return key === '_displayname' ? '마렌' : '';
+        },
+      }
+    : null;
+narratorRuntime.findObjs = (query) =>
+  query._type === 'player'
+    ? [
+        {
+          id: 'gm-1',
+          get(key) {
+            return key === '_displayname' ? '마렌' : '';
+          },
+        },
+      ]
+    : [];
+narratorRuntime.playerIsGM = (id) => id === 'gm-1';
+narratorRuntime.state.narration = [
+  {
+    as: 'character|gm-character',
+    msg: '/w HO4 비밀 지문',
+    explicitAs: false,
+    originPlayerId: 'gm-1',
+  },
+];
+narratorRuntime.state.is_narrating = 2;
+narratorRuntime.narrate();
+assert.deepStrictEqual(
+  Array.from(narratorSent, (entry) => entry.content),
+  ['/w HO4 비밀 지문', '/w "마렌" (To HO4): 비밀 지문'],
+);
+assert.strictEqual(narratorSent[1].options.noarchive, true);
+const captureNarratorChat = narratorRuntime.sendChat;
+narratorRuntime.sendChat = () => {
+  throw new Error('sender copy failed');
+};
+assert.doesNotThrow(() =>
+  narratorRuntime.ntMirrorWhisper(
+    { as: 'character|gm-character', originPlayerId: 'gm-1' },
+    '/w HO4 비밀 지문',
+  ),
+);
+narratorRuntime.sendChat = captureNarratorChat;
 
 narratorInjected.length = 0;
 narratorRuntime.state.narration = [
