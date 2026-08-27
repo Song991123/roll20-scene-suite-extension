@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.4.1
+ * Scene Suite 10 - Sheet Helper 0.4.2
  * 제작 및 통합: @EOOOOORK
  * CoC 7판 프로필 기준 시트: 천량성님 커스텀 시트
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -21,7 +21,7 @@ var sheet_helper_setting = {
 (function (api) {
   'use strict';
 
-  var VERSION = '0.4.1';
+  var VERSION = '0.4.2';
   var profiles = {};
   var cache = {};
   var refreshTimer = null;
@@ -1612,7 +1612,13 @@ var sheet_helper_setting = {
     if (!playerIsGM(msg.playerid)) return whisper(msg, 'GM 전용 명령입니다.');
     var player = getObj('player', msg.playerid);
     if (!player) return whisper(msg, '화자를 바꿀 플레이어 정보를 찾지 못했습니다.');
-    if (/^(?:gm|나|본인|해제|끄기|off)$/i.test(trim(query))) {
+    var rawDisplayName = trim(player.get('_displayname'));
+    var displayName = rawDisplayName.replace(/\s*\(GM\)\s*$/i, '');
+    if (
+      normalize(query) === normalize(rawDisplayName) ||
+      normalize(query) === normalize(displayName) ||
+      /^(?:나|본인|해제|끄기|off)$/i.test(trim(query))
+    ) {
       if (player.get('speakingas')) player.set({ speakingas: '' });
       return whisper(msg, '화자: <b>' + escapeHtml(player.get('_displayname')) + '</b>');
     }
@@ -1628,7 +1634,7 @@ var sheet_helper_setting = {
       '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #aaa"><b>GM 명령어</b><br>' +
       '<code>!!관리</code> 관리 핸드아웃<br>' +
       '<code>!!화자 이름</code> 채팅 화자 전환<br>' +
-      '<code>!!화자 GM</code> GM 화자로 복귀<br>' +
+      '<code>!!화자 본인</code> 내 화자로 복귀<br>' +
       '<code>!!명령대상 이름</code> 시트 명령 대상 변경<br>' +
       '<code>!!추적 공개</code> 수치 변화 표시 설정<br>' +
       '<code>!!GM전용추적 끄기</code> GM 전용 캐릭터 변화 숨김</div>';

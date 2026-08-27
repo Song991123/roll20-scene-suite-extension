@@ -150,9 +150,10 @@ const character = roll20Object(characterId, {
 });
 const gmCharacter = roll20Object('character-gm', { name: '이경태', controlledby: '' });
 const playerCharacter = roll20Object('character-player', { name: '이경호', controlledby: 'player-2' });
-const characters = [character, gmCharacter, playerCharacter];
+const gmSpeakerCharacter = roll20Object('character-gm-speaker', { name: 'GM', controlledby: '' });
+const characters = [character, gmCharacter, playerCharacter, gmSpeakerCharacter];
 const players = {
-  gm: roll20Object('gm', { _displayname: 'GM', speakingas: '' }),
+  gm: roll20Object('gm', { _displayname: '마렌 (GM)', speakingas: '' }),
   'player-1': roll20Object('player-1', { _displayname: '테스터', speakingas: '' }),
 };
 let attributeObjects = Object.entries(attributeValues).map(([name, current], index) =>
@@ -754,6 +755,8 @@ assert.strictEqual(players.gm.get('speakingas'), '');
 events['chat:message']({ type: 'api', content: '!!화자 경태', playerid: 'gm', who: 'GM (GM)' });
 assert.strictEqual(players.gm.get('speakingas'), 'character|' + gmCharacter.id);
 events['chat:message']({ type: 'api', content: '!!화자 GM', playerid: 'gm', who: 'GM (GM)' });
+assert.strictEqual(players.gm.get('speakingas'), 'character|' + gmSpeakerCharacter.id);
+events['chat:message']({ type: 'api', content: '!!화자 마렌', playerid: 'gm', who: 'GM (GM)' });
 assert.strictEqual(players.gm.get('speakingas'), '');
 events['chat:message']({ type: 'api', content: '!!명령대상 경태', playerid: 'gm', who: 'GM (GM)' });
 assert.strictEqual(runtime.state.KIBSheetHelper.activeCharacterId, gmCharacter.id);
