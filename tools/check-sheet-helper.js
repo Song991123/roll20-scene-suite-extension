@@ -151,6 +151,10 @@ const character = roll20Object(characterId, {
 const gmCharacter = roll20Object('character-gm', { name: '이경태', controlledby: '' });
 const playerCharacter = roll20Object('character-player', { name: '이경호', controlledby: 'player-2' });
 const characters = [character, gmCharacter, playerCharacter];
+const players = {
+  gm: roll20Object('gm', { _displayname: 'GM', speakingas: '' }),
+  'player-1': roll20Object('player-1', { _displayname: '테스터', speakingas: '' }),
+};
 let attributeObjects = Object.entries(attributeValues).map(([name, current], index) =>
   roll20Object(`attribute-${index}`, {
     _characterid: characterId,
@@ -228,7 +232,7 @@ const runtime = {
   },
   getObj(type, id) {
     if (type === 'character') return characters.find((item) => item.id === id) || null;
-    if (type === 'player' && id === 'player-1') return roll20Object(id, { _displayname: '테스터' });
+    if (type === 'player') return players[id] || null;
     if (type === 'handout') return created.find((item) => item.id === id && item.get('_type') === 'handout') || null;
     return null;
   },
@@ -743,9 +747,15 @@ assert.strictEqual(
   '전체 검증 중 _reporder_repeating_* getAttrByName 호출이 없어야 합니다.',
 );
 
-events['chat:message']({ type: 'api', content: '!시트 캐릭터|이경', playerid: 'gm', who: 'GM (GM)' });
+runtime.sheet_helper_setting.legacy_commands = true;
+events['chat:message']({ type: 'api', content: '!!화자 이경', playerid: 'gm', who: 'GM (GM)' });
 assert(sent.at(-1).content.includes('여러 명'), '부분 이름이 겹치면 선택하지 않아야 합니다.');
-events['chat:message']({ type: 'api', content: '!시트 캐릭터|경태', playerid: 'gm', who: 'GM (GM)' });
+assert.strictEqual(players.gm.get('speakingas'), '');
+events['chat:message']({ type: 'api', content: '!!화자 경태', playerid: 'gm', who: 'GM (GM)' });
+assert.strictEqual(players.gm.get('speakingas'), 'character|' + gmCharacter.id);
+events['chat:message']({ type: 'api', content: '!!화자 GM', playerid: 'gm', who: 'GM (GM)' });
+assert.strictEqual(players.gm.get('speakingas'), '');
+events['chat:message']({ type: 'api', content: '!!명령대상 경태', playerid: 'gm', who: 'GM (GM)' });
 assert.strictEqual(runtime.state.KIBSheetHelper.activeCharacterId, gmCharacter.id);
 events['chat:message']({ type: 'api', content: '!시트 상태', playerid: 'gm', who: 'GM (GM)' });
 assert(sent.at(-1).content.includes('이경태'), 'GM이 고른 캐릭터를 다음 명령에 사용해야 합니다.');

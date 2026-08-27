@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.4.0
+ * Scene Suite 10 - Sheet Helper 0.4.1
  * 제작 및 통합: @EOOOOORK
  * CoC 7판 프로필 기준 시트: 천량성님 커스텀 시트
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -21,7 +21,7 @@ var sheet_helper_setting = {
 (function (api) {
   'use strict';
 
-  var VERSION = '0.4.0';
+  var VERSION = '0.4.1';
   var profiles = {};
   var cache = {};
   var refreshTimer = null;
@@ -335,10 +335,10 @@ var sheet_helper_setting = {
     });
   }
 
-  function resolveCharacterName(query) {
+  function resolveCharacterName(query, characters) {
     var wanted = normalize(query);
     if (!wanted) return { ok: false, error: '캐릭터 이름을 입력해 주세요.' };
-    var characters = profileCharacters();
+    characters = characters || profileCharacters();
     var exact = characters.filter(function (character) {
       return normalize(character.get('name')) === wanted;
     });
@@ -1608,11 +1608,28 @@ var sheet_helper_setting = {
     sendChat('시트 헬퍼', '/w gm ' + text, null, { noarchive: true });
   }
 
+  function switchSpeaker(msg, query) {
+    if (!playerIsGM(msg.playerid)) return whisper(msg, 'GM 전용 명령입니다.');
+    var player = getObj('player', msg.playerid);
+    if (!player) return whisper(msg, '화자를 바꿀 플레이어 정보를 찾지 못했습니다.');
+    if (/^(?:gm|나|본인|해제|끄기|off)$/i.test(trim(query))) {
+      if (player.get('speakingas')) player.set({ speakingas: '' });
+      return whisper(msg, '화자: <b>' + escapeHtml(player.get('_displayname')) + '</b>');
+    }
+    var found = resolveCharacterName(query, characterObjects());
+    if (!found.ok) return whisper(msg, escapeHtml(found.error));
+    var speakingAs = 'character|' + found.character.id;
+    if (player.get('speakingas') !== speakingAs) player.set({ speakingas: speakingAs });
+    return whisper(msg, '화자: <b>' + escapeHtml(found.character.get('name')) + '</b>');
+  }
+
   function helpHtml() {
     return playerHelpHtml() +
       '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #aaa"><b>GM 명령어</b><br>' +
       '<code>!!관리</code> 관리 핸드아웃<br>' +
-      '<code>!!캐릭터 이름</code> 명령 대상 변경<br>' +
+      '<code>!!화자 이름</code> 채팅 화자 전환<br>' +
+      '<code>!!화자 GM</code> GM 화자로 복귀<br>' +
+      '<code>!!명령대상 이름</code> 시트 명령 대상 변경<br>' +
       '<code>!!추적 공개</code> 수치 변화 표시 설정<br>' +
       '<code>!!GM전용추적 끄기</code> GM 전용 캐릭터 변화 숨김</div>';
   }
@@ -1771,7 +1788,7 @@ var sheet_helper_setting = {
       handleNamespaced(msg, '!시트 ' + direct[1]);
       return true;
     }
-    var managed = body.match(/^(캐릭터|전환|설정|추적|GM전용추적)\s+(.+)$/i);
+    var managed = body.match(/^(화자|캐릭터|전환|명령대상|설정|추적|GM전용추적)\s+(.+)$/i);
     if (managed) {
       handleNamespaced(msg, '!시트 ' + managed[1] + '|' + trim(managed[2]));
       return true;
@@ -1911,7 +1928,9 @@ var sheet_helper_setting = {
       managerHandout();
       return whisperGm('시트 프로필: <b>' + escapeHtml(profiles[profileId].name) + '</b>');
     }
-    if (action === '캐릭터' || action === '전환') {
+    if (action === '화자' || action === '캐릭터' || action === '전환')
+      return switchSpeaker(msg, parts[0]);
+    if (action === '명령대상') {
       if (!playerIsGM(msg.playerid)) return whisper(msg, 'GM 전용 명령입니다.');
       if (/^(?:해제|끄기|off)$/i.test(parts[0] || '')) {
         initState().activeCharacterId = '';
@@ -2145,6 +2164,7 @@ var sheet_helper_setting = {
         '<code>!!항목명</code> 판정, 무기, 주문, 방어구 자동 실행',
         '<code>!!이성 -1d3</code> 수치 변경',
         '<code>:hp+3</code> 일반 채팅에서 수치 변경',
+        '<code>!!화자 이름</code> 채팅 화자 전환',
         '<code>!!관리</code> 인식 항목 관리',
       ],
     };
