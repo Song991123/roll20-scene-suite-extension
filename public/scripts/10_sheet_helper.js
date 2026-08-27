@@ -525,6 +525,19 @@ var sheet_helper_setting = {
       payload.outcome = result.outcome;
       payload.outcomeLabel = result.outcomeLabel;
     }
+    var autoTemporaryInsanity = payload.autoTemporaryInsanity === true;
+    delete payload.autoTemporaryInsanity;
+    if (
+      autoTemporaryInsanity &&
+      result &&
+      ['critical', 'extreme', 'hard', 'success'].indexOf(result.outcome) > -1 &&
+      enabledValue(getAttr(payload.characterId, 'indef_insane')) !== true &&
+      enabledValue(getAttr(payload.characterId, 'temp_insane')) === false
+    ) {
+      setAttribute(payload.characterId, 'temp_insane', 1);
+      invalidate(payload.characterId);
+      scheduleManager();
+    }
     payload.message = message || null;
     if (typeof KIBScene.broadcast === 'function')
       KIBScene.broadcast('sheet:result', payload);
@@ -625,6 +638,7 @@ var sheet_helper_setting = {
       cutinKey: resultKey(activeProfile().id, resolved.item.label),
       value: value,
       secret: secret,
+      autoTemporaryInsanity: !!(options && options.autoTemporaryInsanity),
     }, built.payload));
   }
 
@@ -946,7 +960,7 @@ var sheet_helper_setting = {
     if (!profile || profile.id !== 'coc7' || oldSan === null || san === null || oldSan - san < 5)
       return [];
     if (enabledValue(getAttr(characterId, 'indef_insane')) === true) return [];
-    var rolled = rollCheck(characterId, '지능', {});
+    var rolled = rollCheck(characterId, '지능', { autoTemporaryInsanity: true });
     return rolled && rolled.ok ? ['지능 판정 실행'] : ['지능 판정을 실행하지 못함'];
   }
 
@@ -1611,6 +1625,7 @@ var sheet_helper_setting = {
       '<code>!!주문명</code> 주문 표시<br>' +
       '<code>!!방어구명</code> 방어구 표시<br>' +
       '<code>!!이성 -1d3</code> 수치 변경<br>' +
+      '<code>:hp+3</code> 일반 채팅에서 수치 변경<br>' +
       '<code>!!비밀 관찰력</code> GM에게 판정<br>' +
       '<code>!!판정 관찰력 보너스1</code> 주사위 방식 지정<br>' +
       '<code>!!자유</code> 시트 자유 주사위<br>' +
@@ -2041,7 +2056,7 @@ var sheet_helper_setting = {
 
   function handleGeneralChange(msg) {
     var content = trim(msg.content);
-    var match = content.match(/^:?([가-힣A-Za-z0-9_()（）\s-]+?)\s*([+\-=])\s*(\d*d\d+|\d+(?:\.\d+)?)$/i);
+    var match = content.match(/^:\s*([가-힣A-Za-z0-9_()（）\s-]+?)\s*([+\-=])\s*(\d*d\d+|\d+(?:\.\d+)?)$/i);
     if (!match) return false;
     var resolved = resolveCharacter(msg);
     if (!resolved.ok) return false;
@@ -2129,6 +2144,7 @@ var sheet_helper_setting = {
       help: [
         '<code>!!항목명</code> 판정, 무기, 주문, 방어구 자동 실행',
         '<code>!!이성 -1d3</code> 수치 변경',
+        '<code>:hp+3</code> 일반 채팅에서 수치 변경',
         '<code>!!관리</code> 인식 항목 관리',
       ],
     };

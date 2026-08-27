@@ -396,6 +396,26 @@ const invalidSanBefore = sanAttribute.get('current');
   assert(error && error.options && error.options.noarchive === true, `${content} 오류는 기록에 남지 않아야 합니다.`);
 });
 
+const hpAttribute = attributeObjects.find((item) => item.get('_characterid') === characterId && item.get('name') === 'hp') || runtime.createObj('attribute', {
+  _characterid: characterId, characterid: characterId, name: 'hp', current: '6', max: '12',
+});
+hpAttribute.set('current', '6');
+events['chat:message']({ type: 'general', content: 'hp+3', playerid: 'player-1', who: '저널 이름' });
+assert.strictEqual(hpAttribute.get('current'), '6', '콜론 없는 일반 채팅은 체력을 바꾸면 안 됩니다.');
+events['chat:message']({ type: 'general', content: ':hp+3', playerid: 'player-1', who: '저널 이름' });
+assert.strictEqual(hpAttribute.get('current'), '9', '콜론을 붙인 일반 채팅은 체력을 바꿔야 합니다.');
+
+const generalSanBefore = Number(sanAttribute.get('current'));
+events['chat:message']({ type: 'general', content: '이성-1', playerid: 'player-1', who: '저널 이름' });
+assert.strictEqual(Number(sanAttribute.get('current')), generalSanBefore, '콜론 없는 일반 채팅은 이성을 바꾸면 안 됩니다.');
+events['chat:message']({ type: 'general', content: ':이성-1', playerid: 'player-1', who: '저널 이름' });
+assert.strictEqual(Number(sanAttribute.get('current')), generalSanBefore - 1, '콜론을 붙인 일반 채팅은 이성을 바꿔야 합니다.');
+const attributeCountBeforeUnknown = attributeObjects.length;
+events['chat:message']({ type: 'general', content: ':없는항목+1', playerid: 'player-1', who: '저널 이름' });
+assert.strictEqual(attributeObjects.length, attributeCountBeforeUnknown, '없는 항목은 새로 만들면 안 됩니다.');
+hpAttribute.set('current', '12');
+sanAttribute.set('current', String(generalSanBefore));
+
 const unknownBangBang = runBangBang('!!없는 항목');
 assert(unknownBangBang.some((item) => item.who === '시트 헬퍼' && item.options && item.options.noarchive === true));
 const numericBefore = sent.length;
@@ -711,6 +731,8 @@ const luckBefore = luckObject ? luckObject.get('current') : defaults.luck;
 runtime.sheet_helper_setting.legacy_commands = false;
 events['chat:message']({ type: 'general', content: '행운-1', playerid: 'player-1', who: '테스트 탐사자' });
 assert.strictEqual(luckObject ? luckObject.get('current') : defaults.luck, luckBefore);
+events['chat:message']({ type: 'general', content: ':행운-1', playerid: 'player-1', who: '테스트 탐사자' });
+assert.strictEqual(luckObject ? luckObject.get('current') : defaults.luck, luckBefore);
 
 events['chat:message']({ type: 'api', content: '!시트 판정|없는 기능', playerid: 'player-1', who: '테스트 탐사자' });
 const adminMessage = sent.filter((item) => item.who === '시트 헬퍼').at(-1);
@@ -777,6 +799,30 @@ assert.strictEqual(
 let sanMessage = sent.filter((item) => item.who === `character|${characterId}` && item.content.includes('이성')).at(-1);
 assert(sanMessage.content.includes('30 / 70 (43%)'));
 assert(sanMessage.content.includes('25 / 70 (36%)'));
+events['chat:message'](inlineResultMessage(
+  { success: 35, hard: 17, extreme: 7, roll: 20 },
+  { token: latestPendingToken() },
+));
+let tempInsane = attributeObjects.find((item) => item.get('_characterid') === characterId && item.get('name') === 'temp_insane');
+assert(tempInsane && tempInsane.get('current') === '1', '지능 판정 성공 시 일시적 광기를 활성화해야 합니다.');
+
+tempInsane.set('current', '0');
+sanAttribute.set('current', '30');
+events['chat:message']({ type: 'api', content: '!시트 변경|이성|-5', playerid: 'player-1', who: '저널 이름' });
+events['chat:message'](inlineResultMessage(
+  { success: 35, hard: 17, extreme: 7, roll: 80 },
+  { token: latestPendingToken() },
+));
+assert.strictEqual(tempInsane.get('current'), '0', '지능 판정 실패 시 일시적 광기를 활성화하면 안 됩니다.');
+
+const manualInt = helper.roll(characterId, '지능', {});
+assert.strictEqual(manualInt.ok, true);
+events['chat:message'](inlineResultMessage(
+  { success: 35, hard: 17, extreme: 7, roll: 20 },
+  { token: latestPendingToken() },
+));
+assert.strictEqual(tempInsane.get('current'), '0', '일반 지능 판정 성공은 일시적 광기를 활성화하면 안 됩니다.');
+
 setCurrent('indef_insane', '1');
 const blockedIntRolls = sent.filter((item) => item.content && item.content.includes('{{subject=지능}}')).length;
 events['chat:message']({ type: 'api', content: '!시트 변경|이성|-5', playerid: 'player-1', who: '저널 이름' });
@@ -785,6 +831,7 @@ assert.strictEqual(
   blockedIntRolls,
   '장기 광기 상태에서는 지능 판정을 다시 실행하지 않아야 합니다.',
 );
+assert.strictEqual(tempInsane.get('current'), '0', '장기 광기 상태에서는 일시적 광기를 자동 활성화하면 안 됩니다.');
 
 runtime.state.KIBSheetHelper.managerCharacterId = characterId;
 const refreshedManager = helper.refresh();
