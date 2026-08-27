@@ -217,24 +217,30 @@ function narrate() {
       for (let i = 0; i < split.length; i++) {
         const element = split[i];
         const parsed = ntExtractCues(element);
+        const privateChat = /^\s*\/w(?:\s|$)/i.test(parsed.text);
         const typeEnabled = ntFeature('type', nt_setting.use_dialog_overlay);
         const context = {
           as: current.as,
           explicitAs: current.explicitAs === true,
           narrator: true,
-          chatType: /^\/desc(?:\s|$)/.test(parsed.text)
-            ? 'desc'
-            : /^\/em(?:\s|$)/.test(parsed.text)
-              ? 'emote'
-              : 'general',
-          text: parsed.text,
+          privateChat: privateChat,
+          chatType: privateChat
+            ? 'whisper'
+            : /^\/desc(?:\s|$)/.test(parsed.text)
+              ? 'desc'
+              : /^\/em(?:\s|$)/.test(parsed.text)
+                ? 'emote'
+                : 'general',
+          text: privateChat ? '' : parsed.text,
           visualDialogue: false,
         };
-        const preparedEvent = ntBroadcast('narrator:prepare', {
-          parsed: parsed,
-          context: context,
-          source: element,
-        });
+        const preparedEvent = privateChat
+          ? { ok: true, values: [] }
+          : ntBroadcast('narrator:prepare', {
+              parsed: parsed,
+              context: context,
+              source: element,
+            });
         if (!preparedEvent.ok) return ntCancelOnError(preparedEvent, element);
         preparedEvent.values.forEach(function (entry) {
           if (
@@ -247,6 +253,7 @@ function narrate() {
             parsed.cues.push(entry.value.cue);
         });
         if (
+          !privateChat &&
           parsed.text.trim().length > 0 &&
           ntHasPlugin('vd') &&
           ntFeature('vd', nt_setting.use_visual_dialogue)
@@ -259,6 +266,7 @@ function narrate() {
           context.visualDialogue = displayCheck.skipped !== true;
         }
         if (
+          !privateChat &&
           typeEnabled &&
           ntCentral('timing.typeAllLines', nt_setting.type_all_lines) &&
           !parsed.directType
@@ -274,6 +282,12 @@ function narrate() {
             return cue.type != 'type';
           });
         }
+        if (privateChat) {
+          parsed.directType = false;
+          parsed.cues = parsed.cues.filter(function (cue) {
+            return cue.type != 'type';
+          });
+        }
         const validation = ntValidateCues(parsed.cues, context);
         if (!validation.ok) return ntCancelOnError(validation, element);
         prepared.push({
@@ -283,10 +297,15 @@ function narrate() {
           source: element,
         });
       }
-      const lineEvent = ntBroadcast('narrator:line', {
-        current: current,
-        prepared: prepared,
+      const publicPrepared = prepared.filter(function (item) {
+        return !item.context.privateChat;
       });
+      const lineEvent = publicPrepared.length
+        ? ntBroadcast('narrator:line', {
+            current: current,
+            prepared: publicPrepared,
+          })
+        : { ok: true, values: [] };
       if (!lineEvent.ok) return ntCancelOnError(lineEvent, current.msg);
       for (let i = 0; i < prepared.length; i++) {
         const item = prepared[i];
@@ -297,7 +316,7 @@ function narrate() {
           sendChat(
             current.as,
             item.parsed.text +
-              (injected
+              (item.context.privateChat || injected
                 ? ''
                 : (!item.parsed.text.includes(state.api_tag)
                     ? state.api_tag
@@ -333,7 +352,12 @@ function narrate() {
 }
 
 function ntInjectVisualDialogue(item, current) {
-  if (!item.context.visualDialogue || !ntHasPlugin('vd')) return false;
+  if (
+    item.context.privateChat ||
+    !item.context.visualDialogue ||
+    !ntHasPlugin('vd')
+  )
+    return false;
   var text = String(item.parsed.text || '');
   if (item.context.chatType == 'desc')
     text = text.replace(/^\/desc(?:\s+|$)/, '');

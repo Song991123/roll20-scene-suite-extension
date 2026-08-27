@@ -289,6 +289,102 @@ const expressionCue = narratorRuntime.ntExtractCues('대사 @난감').cues[0];
 assert.strictEqual(expressionCue.type, 'avatar');
 assert.strictEqual(expressionCue.args[0], '난감');
 
+const narratorSent = [];
+const narratorInjected = [];
+const narratorExecuted = [];
+const narratorBroadcasts = [];
+narratorRuntime.sendChat = (as, content) => narratorSent.push({ as, content });
+narratorRuntime.KIBScene.adapters.type = {};
+narratorRuntime.KIBScene.get = (path, fallback) => fallback;
+narratorRuntime.KIBScene.isFeatureEnabled = () => true;
+narratorRuntime.KIBScene.validate = () => ({ ok: true });
+narratorRuntime.KIBScene.execute = (cue) => {
+  narratorExecuted.push(cue);
+  return { ok: true };
+};
+narratorRuntime.KIBScene.call = (name, method, args) => {
+  if (name === 'vd' && method === 'inject') {
+    narratorInjected.push(args[0]);
+    return true;
+  }
+};
+narratorRuntime.KIBScene.broadcast = (name, payload) => {
+  narratorBroadcasts.push({ name, payload });
+  return { ok: true, values: [] };
+};
+narratorRuntime.state.narration = [
+  { as: 'GM', msg: '/w HO4 비밀 지문 @스크립트', explicitAs: false },
+];
+narratorRuntime.state.is_narrating = 2;
+narratorRuntime.state.nt_linebreaker = 'Uk3jmApq-*QzfkMA';
+narratorRuntime.state.api_tag = '<a href="#vd-permitted-api-chat"></a>';
+narratorRuntime.state.vd_explicit_as_tag = '<a href="#vd-explicit-as"></a>';
+narratorRuntime.narrate();
+assert.strictEqual(narratorSent.length, 1);
+assert.strictEqual(narratorSent[0].content, '/w HO4 비밀 지문');
+assert.strictEqual(narratorInjected.length, 0);
+assert.strictEqual(
+  narratorExecuted.filter((cue) => cue.type === 'type').length,
+  0,
+);
+assert.strictEqual(
+  narratorBroadcasts.filter((event) =>
+    /narrator:(?:prepare|line)/.test(event.name),
+  ).length,
+  0,
+);
+assert.strictEqual(narratorRuntime.state.narration.length, 0);
+assert.strictEqual(narratorRuntime.state.is_narrating, 1);
+
+narratorSent.length = 0;
+narratorRuntime.state.narration = [
+  {
+    as: 'GM',
+    msg:
+      '/w HO1 첫 번째' +
+      narratorRuntime.state.nt_linebreaker +
+      '/w "공백 있는 대상" 두 번째',
+    explicitAs: false,
+  },
+];
+narratorRuntime.state.is_narrating = 2;
+narratorRuntime.narrate();
+assert.deepStrictEqual(
+  Array.from(narratorSent, (entry) => entry.content),
+  ['/w HO1 첫 번째', '/w "공백 있는 대상" 두 번째'],
+);
+
+narratorInjected.length = 0;
+narratorRuntime.state.narration = [
+  { as: '', msg: '/desc 공개 설명', explicitAs: false },
+  { as: '어린아이', msg: '/em 공개 행동', explicitAs: true },
+  { as: '어린아이', msg: '공개 대사', explicitAs: true },
+];
+narratorRuntime.state.is_narrating = 2;
+narratorRuntime.narrate();
+narratorRuntime.narrate();
+narratorRuntime.narrate();
+assert.deepStrictEqual(
+  Array.from(narratorInjected, (entry) => ({
+    text: entry.text,
+    type: entry.type,
+  })),
+  [
+    { text: '공개 설명', type: 'desc' },
+    { text: '공개 행동', type: 'emote' },
+    { text: '공개 대사', type: 'general' },
+  ],
+);
+
+assert.strictEqual(
+  vdRuntime.vdShouldCollectMessage({
+    type: 'whisper',
+    content: '비밀 지문',
+    playerid: 'player-1',
+  }),
+  false,
+);
+
 assert(!audioText.includes('RESTART_DELAY_MS'));
 assert(!/(?:처음부터|재시작|restart): 'restart'/.test(audioText));
 [
