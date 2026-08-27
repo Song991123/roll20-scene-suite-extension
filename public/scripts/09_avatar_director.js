@@ -1,5 +1,5 @@
 /*
- * Scene Suite 09 - Avatar Expression Director 1.0.1
+ * Scene Suite 09 - Avatar Expression Director 1.0.2
  * 제작 및 통합: @EOOOOORK
  */
 
@@ -374,21 +374,38 @@ function avHandleApi(msg) {
   )
     return { ok: true, handled: false };
   msg.kibAvatarExpressionHandled = true;
-  var character = avSpeakerCharacter(msg);
-  var expression = body;
-  var divider = body.lastIndexOf(':');
-  if (divider > -1 && (msg.playerid == 'API' || playerIsGM(msg.playerid))) {
-    character = avCharacter(body.substring(0, divider).trim());
-    expression = body.substring(divider + 1).trim();
-  }
+  var target = avCueTarget(
+    body,
+    avSpeakerCharacter(msg),
+    msg.playerid == 'API' || playerIsGM(msg.playerid),
+  );
   var result = avApplyChange({
-    characterId: character && character.id,
-    expression: expression,
+    characterId: target.character && target.character.id,
+    characterName: target.characterName,
+    expression: target.expression,
     playerId: msg.playerid,
     source: 'api',
   });
   result.handled = true;
   return result;
+}
+
+function avCueTarget(body, fallbackCharacter, allowNamed) {
+  var expression = String(body || '').trim();
+  var character = fallbackCharacter || null;
+  var characterName = '';
+  var divider = expression.lastIndexOf(':');
+  if (allowNamed && divider > -1) {
+    characterName = expression.substring(0, divider).trim();
+    character = avCharacter(characterName);
+    expression = expression.substring(divider + 1).trim();
+  }
+  return {
+    character: character,
+    characterName: characterName,
+    expression: expression,
+    named: allowNamed && divider > -1,
+  };
 }
 
 function avHandleInline(msg) {
@@ -459,26 +476,36 @@ function avHandleHiddenChat(msg) {
 }
 
 function avValidateCue(args, context) {
-  var character = avContextCharacter(context);
-  if (!character)
+  var target = avCueTarget(
+    (args || []).join('|'),
+    avContextCharacter(context),
+    true,
+  );
+  if (!target.character && !target.named)
     return {
       ok: false,
       error:
-        '표정 명령은 <code>!... /as "캐릭터명" 대사 @표정</code> 형식으로 입력하세요.',
+        '표정 명령은 <code>!... /as "캐릭터명" 대사 @표정</code> 또는 <code>@캐릭터명:표정</code> 형식으로 입력하세요.',
     };
   return avValidateChange({
-    characterId: character.id,
-    expression: (args || []).join('|').trim(),
+    characterId: target.character && target.character.id,
+    characterName: target.characterName,
+    expression: target.expression,
     playerId: 'API',
     source: 'narrator',
   });
 }
 
 function avRunCue(args, context) {
-  var character = avContextCharacter(context);
+  var target = avCueTarget(
+    (args || []).join('|'),
+    avContextCharacter(context),
+    true,
+  );
   return avApplyChange({
-    characterId: character && character.id,
-    expression: (args || []).join('|').trim(),
+    characterId: target.character && target.character.id,
+    characterName: target.characterName,
+    expression: target.expression,
     playerId: 'API',
     source: 'narrator',
   });
@@ -857,6 +884,7 @@ function avHelp() {
     '<b>캐릭터 이미지 명령어</b><br>' +
     '<code>!@웃음</code> 채팅 화자 캐릭터의 표정 변경<br>' +
     '<code>!... /as "홍길동" 대사 @웃음</code> 나레이터와 동시 변경<br>' +
+    '<code>!... /desc 지문 @홍길동:웃음</code> 지정한 캐릭터 표정 변경<br>' +
     '<code>!아바타 관리</code> 변경 대상과 제외 캐릭터 설정<br>' +
     '<code>!아바타 대상|홍길동|시트|켜기</code> 캐릭터 이미지 변경 사용<br>' +
     '<code>!아바타 제외|추가|홍길동</code> 자동 변경 제외'
@@ -886,6 +914,7 @@ on('ready', function () {
     },
     help: [
       '<code>!@표정명</code> 캐릭터 이미지, 맵 토큰, 비주얼 노벨 변경',
+      '<code>!... /desc 지문 @캐릭터명:표정</code> 지정한 캐릭터 표정 변경',
       '<code>!아바타 관리</code> 대상과 제외 캐릭터 설정',
     ],
   };

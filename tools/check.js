@@ -288,6 +288,38 @@ vm.runInContext(narratorText, narratorRuntime);
 const expressionCue = narratorRuntime.ntExtractCues('대사 @난감').cues[0];
 assert.strictEqual(expressionCue.type, 'avatar');
 assert.strictEqual(expressionCue.args[0], '난감');
+const namedExpression = narratorRuntime.ntExtractCues(
+  '/desc [ 정선은 아쉬운 듯 돌아봅니다. @박정선:불안 ](#" style="font-size:13px;")',
+);
+assert.strictEqual(namedExpression.cues.length, 1);
+assert.strictEqual(namedExpression.cues[0].type, 'avatar');
+assert.strictEqual(namedExpression.cues[0].args[0], '박정선:불안');
+assert(!namedExpression.text.includes('@박정선:불안'));
+assert(namedExpression.text.includes('](#" style="font-size:13px;")'));
+const multipleExpressions = narratorRuntime.ntExtractCues(
+  '/desc [ 정선은 아쉬운 듯 몇 번이나 당신을 돌아보지만 @박정선:불안 @박정수:기본 ](#" style="font-size:13px;")',
+);
+assert.deepStrictEqual(
+  Array.from(multipleExpressions.cues, (cue) => cue.args[0]),
+  ['박정선:불안', '박정수:기본'],
+);
+assert(!multipleExpressions.text.includes('@박정선:불안'));
+assert(!multipleExpressions.text.includes('@박정수:기본'));
+assert(multipleExpressions.text.includes('](#" style="font-size:13px;")'));
+const mixedExpressions = narratorRuntime.ntExtractCues(
+  '대사 @오디오 재생|BGM @APNG 재생|연출 @박정선:불안 @박정수:기본',
+);
+assert.deepStrictEqual(
+  Array.from(mixedExpressions.cues, (cue) => cue.type),
+  ['audio', 'apng', 'avatar', 'avatar'],
+);
+const expressionAndExit = narratorRuntime.ntExtractCues(
+  '대사 @박정선:불안 @퇴장:전원',
+);
+assert.deepStrictEqual(
+  Array.from(expressionAndExit.cues, (cue) => cue.type),
+  ['avatar', 'vd'],
+);
 
 const narratorSent = [];
 const narratorInjected = [];
@@ -448,7 +480,10 @@ const avatarRuntime = {
   on() {},
   findObjs(query) {
     if (query._type === 'deck') return query.name === 'avatars' ? [avatarDeck] : [];
-    if (query._type === 'character') return [avatarCharacter];
+    if (query._type === 'character')
+      return !query.name || query.name === avatarCharacter.get('name')
+        ? [avatarCharacter]
+        : [];
     if (query._type === 'card') return avatarCards;
     return [];
   },
@@ -519,6 +554,26 @@ assert.strictEqual(
   avatarRuntime.state.KIBSceneAvatar.selectedCards[avatarCharacter.id],
   'avatar-expression',
 );
+avatarResult = avatarRuntime.avValidateCue(
+  ['이경태:난감'],
+  { explicitAs: false, chatType: 'desc' },
+);
+assert.strictEqual(avatarResult.ok, true, '이름을 적은 표정 명령은 /as 없이 검증되어야 합니다.');
+avatarResult = avatarRuntime.avRunCue(
+  ['이경태:난감'],
+  { explicitAs: false, chatType: 'desc' },
+);
+assert.strictEqual(avatarResult.ok, true);
+avatarResult = avatarRuntime.avValidateCue(
+  ['난감'],
+  { explicitAs: true, as: 'character|' + avatarCharacter.id },
+);
+assert.strictEqual(avatarResult.ok, true, '기존 /as + @표정 형식을 유지해야 합니다.');
+avatarResult = avatarRuntime.avValidateCue(
+  ['없는 캐릭터:난감'],
+  { explicitAs: false, chatType: 'desc' },
+);
+assert.strictEqual(avatarResult.ok, false);
 
 assert(
   !releaseText.includes('·'),

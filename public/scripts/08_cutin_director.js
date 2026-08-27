@@ -1,5 +1,5 @@
 /*
- * Scene Suite 08 - Cutin Director 1.4.2
+ * Scene Suite 08 - Cutin Director 1.6.0
  * 제작 및 통합: @EOOOOORK
  * 연출 아이디어 참고: 젠트의 주사위 판정 컷인, 똣의 범용 컷인 API
  * https://lise1415622.tistory.com/52
@@ -38,6 +38,15 @@ KIBScene.adapters = KIBScene.adapters || {};
   var macroTimer = null;
   var managerTimer = null;
   var frontRetryTimer = null;
+  var SHEET_OUTCOMES = {
+    roll: '판정 실행',
+    critical: '대성공',
+    extreme: '극단적 성공',
+    hard: '어려운 성공',
+    success: '보통 성공',
+    failure: '실패',
+    fumble: '대실패',
+  };
 
   on('ready', function () {
     if (!SETTING.enabled) return;
@@ -158,6 +167,7 @@ KIBScene.adapters = KIBScene.adapters || {};
           return automaticCueForText(payload.parsed ? payload.parsed.text : '');
         },
         'narrator:line': advanceNarratorLine,
+        'sheet:result': playSheetResult,
       },
       onNarratorLine: advanceNarratorLine,
       status: function () {
@@ -170,12 +180,15 @@ KIBScene.adapters = KIBScene.adapters || {};
       handoutControls: handoutControls,
       saveHandoutSize: saveHandoutSize,
       bringToFront: bringActiveToFront,
+      sheetControls: sheetControlsHtml,
+      refreshSheetControls: refreshManagerSoon,
       help: [
         '<code>@컷인 카드명|3초</code>',
         '<code>@컷인 카드명|줄=3</code>',
         '<code>@컷인 핸드아웃|자료명|3초</code>',
         '<code>@컷인 URL|Roll20이미지주소|3초</code>',
         '<code>@컷인 중지</code>',
+        '<code>!컷인 시트연결목록</code>',
       ],
     };
     if (typeof KIBScene.register === 'function')
@@ -229,6 +242,9 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (action === '대사추가') return changeTextRules(parts, false);
     if (action === '대사삭제') return changeTextRules(parts, true);
     if (action === '대사목록') return whisper(ruleStatus(parts[0]));
+    if (action === '시트연결') return bindSheetCutin(parts);
+    if (action === '시트연결해제') return unbindSheetCutin(parts);
+    if (action === '시트연결목록') return whisper(sheetRuleStatus());
     if (action === '연결') return bindAudio(parts);
     if (action === '연결해제') return unbindAudio(parts);
     if (action === '연결목록') return whisper(linkStatus());
@@ -1545,6 +1561,179 @@ KIBScene.adapters = KIBScene.adapters || {};
         : source.key;
   }
 
+  function sheetItems(items) {
+    if (Array.isArray(items)) return items.slice();
+    var sheet = KIBScene.adapters && KIBScene.adapters.sheet;
+    return sheet && typeof sheet.cutinItems === 'function' ? sheet.cutinItems() : [];
+  }
+
+  function sheetRuleKey(itemKey, outcome) {
+    return trim(itemKey) + '|' + trim(outcome);
+  }
+
+  function sheetOutcomes() {
+    var sheet = KIBScene.adapters && KIBScene.adapters.sheet;
+    var provided = sheet && typeof sheet.outcomes === 'function' ? sheet.outcomes() : null;
+    return Object.assign({}, SHEET_OUTCOMES, provided || {});
+  }
+
+  function validSheetRule(rule) {
+    return !!rule && !Array.isArray(rule) && typeof rule === 'object' &&
+      trim(rule.itemKey) && trim(rule.outcome) && trim(rule.sourceKey) &&
+      isFinite(Number(rule.duration));
+  }
+
+  function sheetChoiceQuery(label, choices) {
+    if (!choices.length) return '';
+    if (choices.length === 1) return safeQuery(choices[0].value);
+    return '?{' + macroEscape(label) + choices.map(function (choice) {
+      return '|' + macroEscape(choice.label) + ',' + macroEscape(choice.value);
+    }).join('') + '}';
+  }
+
+  function sheetRulesForSource(sourceKey) {
+    initState();
+    return Object.keys(state.KIBSceneCutin.sheetRules).sort().map(function (key) {
+      return state.KIBSceneCutin.sheetRules[key];
+    }).filter(function (rule) {
+      return validSheetRule(rule) && (!sourceKey || rule.sourceKey === sourceKey);
+    });
+  }
+
+  function sheetUnbindButton(rule) {
+    return button(
+      '해제',
+      SETTING.command + ' 시트연결해제|' + safeQuery(rule.itemKey) + '|' + safeQuery(rule.outcome),
+      '#8b3940',
+    );
+  }
+
+  function sheetBindButton(source, items) {
+    var availableItems = sheetItems(items);
+    if (!source || !source.card) return '';
+    var itemQuery = sheetChoiceQuery('판정 항목', availableItems.map(function (item) {
+      return { label: item.label, value: item.key };
+    }));
+    var outcomes = sheetOutcomes();
+    var outcomeQuery = sheetChoiceQuery('판정 결과', Object.keys(outcomes).map(function (key) {
+      return { label: outcomes[key], value: key };
+    }));
+    var controls = button(
+      '판정 연결',
+      SETTING.command + ' 시트연결|*|' + outcomeQuery + '|' + safeQuery(source.key) + '|?{표시 시간|4초}',
+      '#7654a8',
+    );
+    if (itemQuery)
+      controls += ' ' + button(
+        '특정 판정 연결',
+        SETTING.command + ' 시트연결|' + itemQuery + '|' + outcomeQuery + '|' + safeQuery(source.key) + '|?{표시 시간|4초}',
+        '#53657d',
+      );
+    return controls;
+  }
+
+  function compactSheetRuleStatus(source) {
+    var rules = sheetRulesForSource(source.key);
+    var outcomes = sheetOutcomes();
+    return rules.length
+      ? '판정 연결:<br>' + rules.map(function (rule) {
+          return '<b>' + escapeHtml(rule.itemLabel || rule.itemKey) + '</b> / ' +
+            escapeHtml(outcomes[rule.outcome] || rule.outcome) + ' / ' +
+            formatSeconds(rule.duration) + ' ' + sheetUnbindButton(rule);
+        }).join('<br>')
+      : '판정 연결: 없음';
+  }
+
+  function bindSheetCutin(parts) {
+    initState();
+    var itemKey = trim(parts[0]);
+    var outcome = trim(parts[1]).toLowerCase();
+    var sourceKey = trim(parts[2]);
+    var duration = parseDuration(parts[3] || '4초');
+    var item = itemKey === '*'
+      ? { key: '*', label: '모든 판정' }
+      : sheetItems().filter(function (candidate) { return candidate.key === itemKey; })[0];
+    var outcomes = sheetOutcomes();
+    if (!item) return whisper('연결할 판정 항목을 찾지 못했습니다.');
+    if (!outcomes[outcome]) return whisper('판정 결과를 확인해 주세요.');
+    var source = sourceByKey(sourceKey);
+    if (!source) return whisper('연결할 컷인 카드를 찾지 못했습니다.');
+    if (duration === null || duration < 100 || duration > 600000)
+      return whisper('표시 시간은 0.1초 이상 600초 이하로 입력해 주세요.');
+    state.KIBSceneCutin.sheetRules[sheetRuleKey(itemKey, outcome)] = {
+      itemKey: itemKey,
+      itemLabel: item.label,
+      outcome: outcome,
+      sourceKey: source.key,
+      duration: duration,
+    };
+    refreshLinkedManagers();
+    whisper('<b>' + escapeHtml(item.label) + '</b> ' + outcomes[outcome] + ' → ' + escapeHtml(sourceLabel(source)));
+  }
+
+  function unbindSheetCutin(parts) {
+    initState();
+    var key = sheetRuleKey(parts[0], parts[1]);
+    if (!state.KIBSceneCutin.sheetRules[key]) return whisper('등록된 판정 컷인 연결이 없습니다.');
+    delete state.KIBSceneCutin.sheetRules[key];
+    refreshLinkedManagers();
+    whisper('판정 컷인 연결을 해제했습니다.');
+  }
+
+  function refreshLinkedManagers() {
+    refreshManager();
+    var sheet = KIBScene.adapters && KIBScene.adapters.sheet;
+    if (sheet && typeof sheet.refresh === 'function') sheet.refresh();
+    refreshHelp();
+  }
+
+  function playSheetResult(payload) {
+    initState();
+    if (typeof KIBScene.isFeatureEnabled === 'function' &&
+        (!KIBScene.isFeatureEnabled('sheet') || !KIBScene.isFeatureEnabled('cutin')))
+      return { ok: true };
+    if (!payload || payload.secret) return { ok: true };
+    var itemKey = trim(payload.cutinKey);
+    var rule =
+      (itemKey && payload.outcome && state.KIBSceneCutin.sheetRules[sheetRuleKey(itemKey, payload.outcome)]) ||
+      (itemKey && state.KIBSceneCutin.sheetRules[sheetRuleKey(itemKey, 'roll')]) ||
+      (payload.outcome && state.KIBSceneCutin.sheetRules[sheetRuleKey('*', payload.outcome)]) ||
+      state.KIBSceneCutin.sheetRules[sheetRuleKey('*', 'roll')];
+    if (!validSheetRule(rule)) return { ok: true };
+    var source = sourceByKey(rule.sourceKey);
+    if (!source) {
+      whisper('판정에 연결된 컷인 카드가 없습니다: ' + escapeHtml(rule.itemLabel));
+      return { ok: true };
+    }
+    var args = source.handout
+      ? ['핸드아웃', 'id:' + source.handout.id, formatSeconds(rule.duration)]
+      : ['id:' + source.card.id, formatSeconds(rule.duration)];
+    var cutin = KIBScene.adapters && KIBScene.adapters.cutin;
+    var shown = cutin && typeof cutin.cue === 'function'
+      ? cutin.cue(args, { source: 'sheet', result: payload })
+      : { ok: false, error: '컷인 기능을 불러오지 못했습니다.' };
+    if (!shown.ok) whisper(shown.error);
+    return { ok: true };
+  }
+
+  function sheetControlsHtml() {
+    initState();
+    var outcomes = sheetOutcomes();
+    var rows = sheetRulesForSource('').map(function (rule) {
+      var source = sourceByKey(rule.sourceKey);
+      return '<div style="margin-top:6px;padding:6px;border:1px solid #bbb"><b>' +
+        escapeHtml(rule.itemLabel || rule.itemKey) + '</b> / ' + escapeHtml(outcomes[rule.outcome] || rule.outcome) +
+        '<br>' + escapeHtml(source ? sourceLabel(source) : '삭제된 컷인') + ' / ' + formatSeconds(rule.duration) + ' ' +
+        sheetUnbindButton(rule) +
+        '</div>';
+    }).join('');
+    return rows || '<div style="margin-top:6px;color:#777">연결 없음</div>';
+  }
+
+  function sheetRuleStatus() {
+    return '<b>판정 컷인</b><br>' + sheetControlsHtml();
+  }
+
   function ruleStatus(reference) {
     if (reference) {
       var source = resolveRuleSource(reference);
@@ -1680,6 +1869,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       '<div style="font-family:Arial,sans-serif;color:#111;background:#fff;line-height:1.4">' +
       '<div style="padding:12px;background:#111;color:#fff"><b style="font-size:18px">🎬 컷인 관리</b></div>' +
       captionManagerHtml() +
+      sheetManagerHtml() +
       cardManagerHtml() +
       '</div>';
     var handled = false;
@@ -1740,6 +1930,14 @@ KIBScene.adapters = KIBScene.adapters || {};
     );
   }
 
+  function sheetManagerHtml() {
+    return KIBScene.adapters && KIBScene.adapters.sheet
+      ? '<div style="margin-top:10px;background:#fff;border:1px solid #111">' +
+          '<div style="padding:6px 9px;background:#111;color:#fff;font-weight:bold">판정 컷인</div>' +
+          '<div style="padding:9px">' + sheetControlsHtml() + '</div></div>'
+      : '';
+  }
+
   function cardManagerHtml() {
     initState();
     var decks = findObjs({ _type: 'deck', name: SETTING.deckName }) || [];
@@ -1751,6 +1949,7 @@ KIBScene.adapters = KIBScene.adapters || {};
             })
             .sort(byName)
         : [];
+    var availableSheetItems = cards.length ? sheetItems() : [];
     var groups = {};
     cards.forEach(function (card) {
       var group = cardInfo(card).group;
@@ -1795,7 +1994,7 @@ KIBScene.adapters = KIBScene.adapters || {};
                 '<div style="padding:7px;margin-top:7px;background:#fff;border:1px solid #bbb"><b>' +
                 escapeHtml(info.shortName) +
                 '</b><br>' +
-                sourceButtons(source) +
+                sourceButtons(source, availableSheetItems) +
                 '<div style="font-size:11px;color:#111;margin-top:4px">' +
                 compactRuleStatus(source) +
                 '</div></div>'
@@ -1849,7 +2048,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     );
   }
 
-  function sourceButtons(source) {
+  function sourceButtons(source, availableSheetItems) {
     var key = source.key;
     var target = safeQuery(sourceLabel(source));
     var textRules = state.KIBSceneCutin.textRules[key] || [];
@@ -1886,6 +2085,8 @@ KIBScene.adapters = KIBScene.adapters || {};
             SETTING.command + ' 연결해제|' + target,
             '#8b3940',
           );
+      var sheetButton = sheetBindButton(source, availableSheetItems);
+      if (sheetButton) controls += ' ' + sheetButton;
     }
     if (textRules.length)
       controls +=
@@ -1903,20 +2104,17 @@ KIBScene.adapters = KIBScene.adapters || {};
   }
 
   function compactRuleStatus(source) {
-    var textCount = (state.KIBSceneCutin.textRules[source.key] || []).length;
     var trackId = source.card && state.KIBSceneCutin.audioLinks[source.card.id];
     var track = trackId ? getObj('jukeboxtrack', trackId) : null;
-    var automatic = textCount
-      ? '자동 대사: ' + textCount + '개'
-      : '자동 대사: 없음';
     return (
-      automatic +
+      ruleStatusBySource(source) +
       '<br>효과음: ' +
       (track
         ? escapeHtml(track.get('title'))
         : trackId
           ? '(삭제된 음원)'
-          : '없음')
+          : '없음') +
+      '<br>' + compactSheetRuleStatus(source)
     );
   }
 
@@ -2084,7 +2282,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function initState() {
     state.KIBSceneCutin = state.KIBSceneCutin || {};
-    state.KIBSceneCutin.version = '1.4.1';
+    state.KIBSceneCutin.version = '1.6.0';
     state.KIBSceneCutin.durations = state.KIBSceneCutin.durations || {};
     state.KIBSceneCutin.audioLinks = state.KIBSceneCutin.audioLinks || {};
     state.KIBSceneCutin.sourceRatios = state.KIBSceneCutin.sourceRatios || {};
@@ -2114,6 +2312,14 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (state.KIBSceneHandout) delete state.KIBSceneHandout.handoutMeta;
     delete state.KIBSceneCutin.handoutMeta;
     state.KIBSceneCutin.textRules = state.KIBSceneCutin.textRules || {};
+    state.KIBSceneCutin.sheetRules = state.KIBSceneCutin.sheetRules || {};
+    state.KIBSceneCutin.legacySheetRules = state.KIBSceneCutin.legacySheetRules || {};
+    Object.keys(state.KIBSceneCutin.sheetRules).forEach(function (key) {
+      if (!Array.isArray(state.KIBSceneCutin.sheetRules[key])) return;
+      if (!state.KIBSceneCutin.legacySheetRules[key])
+        state.KIBSceneCutin.legacySheetRules[key] = state.KIBSceneCutin.sheetRules[key];
+      delete state.KIBSceneCutin.sheetRules[key];
+    });
     state.KIBSceneCutin.managerId = state.KIBSceneCutin.managerId || '';
     delete state.KIBSceneCutin.folderSelected;
     delete state.KIBSceneCutin.activeFolderId;

@@ -74,7 +74,7 @@ on('chat:message', function (msg) {
     ) {
       sendChat(
         '나레이터',
-        '/w GM <b>나레이터 도움말</b><br><code>!... 대사</code> 차례대로 출력<br><code>!... /as "홍길동" 대사</code> 캐릭터 대사<br><code>!... /desc 설명</code> 강조문<br><code>!... /emas "홍길동" 행동</code> 행동문<br><code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 추가<br><code>!. 동시에 출력할 줄</code> 같은 차례에 함께 출력<br><code>!,</code> 일시정지 또는 다시 시작<br><code>!/</code> 전체 취소<br>줄 끝에 <code>@표정</code>, <code>@오디오</code>, <code>@비주얼</code>, <code>@APNG</code>, <code>@핸드아웃</code>, <code>@컷인</code> 명령을 붙일 수 있습니다.',
+        '/w GM <b>나레이터 도움말</b><br><code>!... 대사</code> 차례대로 출력<br><code>!... /as "홍길동" 대사</code> 캐릭터 대사<br><code>!... /desc 설명</code> 강조문<br><code>!... /emas "홍길동" 행동</code> 행동문<br><code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 추가<br><code>!. 동시에 출력할 줄</code> 같은 차례에 함께 출력<br><code>!,</code> 일시정지 또는 다시 시작<br><code>!/</code> 전체 취소<br>줄 끝에 <code>@표정</code>, <code>@캐릭터명:표정</code>, <code>@오디오</code>, <code>@비주얼</code>, <code>@APNG</code>, <code>@핸드아웃</code>, <code>@컷인</code> 명령을 붙일 수 있습니다.',
         null,
         { noarchive: true },
       );
@@ -411,15 +411,19 @@ function ntExtractCues(source) {
     rollDecorationSuffix = rollDecorationMatch[1];
     text = text.substring(0, text.length - rollDecorationSuffix.length);
   }
-  let expressionCue = null;
-  const expressionMatch = text.match(/(^|\s)!?@([^\s@|{}]*)\s*$/);
-  if (expressionMatch && !ntKnownCue(ntCueHead(expressionMatch[2]).type)) {
-    expressionCue = {
+  const expressionCues = [];
+  let expressionMatch = text.match(/(^|\s)!?@([^\s@|{}]*)\s*$/);
+  while (
+    expressionMatch &&
+    !ntKnownCue(ntCueHead(expressionMatch[2]).type)
+  ) {
+    expressionCues.unshift({
       type: ntExpressionCueType(expressionMatch[2]),
       args: [expressionMatch[2]],
       raw: '@' + expressionMatch[2],
-    };
+    });
     text = text.substring(0, expressionMatch.index) + expressionMatch[1];
+    expressionMatch = text.match(/(^|\s)!?@([^\s@|{}]*)\s*$/);
   }
   const names = ntCueAliases()
     .map(ntRegexEscape)
@@ -453,8 +457,10 @@ function ntExtractCues(source) {
     cues.push({ type: type, args: args, raw: all.substring(prefix.length) });
     return prefix;
   });
-  if (expressionCue) cues.push(expressionCue);
-  if (removedBareCue || expressionCue) text = text.replace(/\s+$/, '');
+  expressionCues.forEach(function (cue) {
+    cues.push(cue);
+  });
+  if (removedBareCue || expressionCues.length) text = text.replace(/\s+$/, '');
   if (rollDecorationSuffix) text += rollDecorationSuffix;
   return { text: text, cues: cues, directType: directType };
 }

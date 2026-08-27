@@ -1,5 +1,5 @@
 /*
- * Scene Suite 00 - Scene Director 3.4.1
+ * Scene Suite 00 - Scene Director 3.5.0
  * 제작 및 통합: @EOOOOORK
  */
 var KIBScene = KIBScene || {};
@@ -8,7 +8,7 @@ var KIBScene = KIBScene || {};
 
   // ===== 기본 설정 =====
   var DEFAULTS = {
-    version: '3.4.1',
+    version: '3.5.0',
     command: '!sd',
     features: {
       audio: true,
@@ -19,6 +19,7 @@ var KIBScene = KIBScene || {};
       handout: true,
       cutin: true,
       avatar: true,
+      sheet: true,
       page: false,
     },
     timing: {
@@ -483,6 +484,7 @@ var KIBScene = KIBScene || {};
       handout: '핸드아웃',
       cutin: '컷인',
       avatar: '캐릭터 이미지',
+      sheet: '시트 헬퍼',
     };
     var featureButtons = names
       .filter(function (name) {
@@ -521,6 +523,9 @@ var KIBScene = KIBScene || {};
       (hasPlugin('avatar')
         ? actionButton('캐릭터 이미지', '!아바타 관리', '#7654a8') + ' '
         : '') +
+      (hasPlugin('sheet')
+        ? actionButton('시트 헬퍼', '!!관리', '#7654a8') + ' '
+        : '') +
       actionButton('도움말 갱신', '!sd handout', '#9b6b20');
     var sections = [];
     sections.push(
@@ -555,6 +560,7 @@ var KIBScene = KIBScene || {};
     if (hasPlugin('handout')) sections.push(handoutHelpSection());
     if (hasPlugin('cutin')) sections.push(cutinHelpSection());
     if (hasPlugin('avatar')) sections.push(avatarHelpSection());
+    if (hasPlugin('sheet')) sections.push(sheetHelpSection());
     return (
       '<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;background:#fff">' +
       '<div style="background:#111;color:#fff;padding:14px">' +
@@ -905,6 +911,32 @@ var KIBScene = KIBScene || {};
       setup +
         '<div style="margin:7px 0">' +
         actionButton('캐릭터 이미지', '!아바타 관리', '#7654a8') +
+        '</div><table style="width:100%;border-collapse:collapse">' +
+        rows +
+        '</table>',
+    );
+  }
+
+  function sheetHelpSection() {
+    var setup = setupSteps([
+      '화자를 사용할 캐릭터로 선택하거나 토큰 하나를 선택',
+      '<code>!!관리</code>에서 인식된 판정과 시트 항목 확인',
+      '08 컷인을 함께 쓰면 모든 판정 결과 또는 특정 항목에 컷인 연결',
+    ]);
+    var rows =
+      commandRow('!!관찰력', '시트 값으로 판정') +
+      commandRow('!!비밀 관찰력', 'GM에게 판정') +
+      commandRow('!!판정 관찰력 보너스1', '보너스 주사위 지정') +
+      commandRow('!!무기명', '시트 무기 사용') +
+      commandRow('!!일시적광기', '일시적 광기 굴림') +
+      commandRow('!!장기적광기', '장기적 광기 굴림') +
+      commandRow('!!상태', '인식된 항목 확인');
+    return moduleHelpSection(
+      'sheet',
+      '10 시트 헬퍼',
+      setup +
+        '<div style="margin:7px 0">' +
+        actionButton('시트 헬퍼 관리', '!!관리', '#7654a8') +
         '</div><table style="width:100%;border-collapse:collapse">' +
         rows +
         '</table>',
@@ -1331,6 +1363,7 @@ var KIBScene = KIBScene || {};
       handout: '핸드아웃',
       cutin: '컷인',
       avatar: '캐릭터 이미지',
+      sheet: '시트 헬퍼',
     };
     return String(
       (adapter && adapter.meta && adapter.meta.title) ||
