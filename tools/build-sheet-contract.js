@@ -51,6 +51,7 @@ function readTranslationInputs(inputPath, requestedPaths) {
 }
 
 function findCssInput(inputPath, requestedPath) {
+  if (requestedPath === '-') return null;
   if (requestedPath) {
     const resolved = path.resolve(requestedPath);
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile())
@@ -66,7 +67,8 @@ function findCssInput(inputPath, requestedPath) {
   return siblings.length === 1 ? siblings[0] : null;
 }
 
-function buildSheetContract(inputPath, outputPath, cssPath, translationPaths) {
+function readSheetSourceInputs(inputPath, cssPath, translationPaths) {
+  inputPath = path.resolve(inputPath);
   const source = fs.readFileSync(inputPath, 'utf8');
   const translationInputs = readTranslationInputs(inputPath, translationPaths);
   const stylesheetPath = findCssInput(inputPath, cssPath);
@@ -75,6 +77,12 @@ function buildSheetContract(inputPath, outputPath, cssPath, translationPaths) {
   translationInputs.forEach((entry) => digest.update(`\0${entry.relative}\0`).update(entry.source));
   if (stylesheetPath) digest.update('\0stylesheet\0').update(stylesheet);
   const sourceHash = digest.digest('hex');
+  return { source, translationInputs, stylesheetPath, stylesheet, sourceHash };
+}
+
+function buildSheetContract(inputPath, outputPath, cssPath, translationPaths) {
+  const { source, translationInputs, stylesheetPath, stylesheet, sourceHash } =
+    readSheetSourceInputs(inputPath, cssPath, translationPaths);
   const name = path.basename(inputPath, path.extname(inputPath));
   const contract = parseSheetContract(source, {
     name,
@@ -110,4 +118,11 @@ if (require.main === module) {
   }
 }
 
-module.exports = { buildSheetContract, parseSheetContract, readTranslationInputs, findCssInput, translationManifestName };
+module.exports = {
+  buildSheetContract,
+  parseSheetContract,
+  readTranslationInputs,
+  findCssInput,
+  readSheetSourceInputs,
+  translationManifestName,
+};

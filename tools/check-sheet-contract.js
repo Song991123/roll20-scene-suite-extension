@@ -3,8 +3,10 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const vm = require('vm');
 const { parseSheetContract } = require('../public/assets/sheet-contract-parser');
 const { buildSheetContract, readTranslationInputs } = require('./build-sheet-contract');
+const { readSheet, render } = require('./embed-sheet-recognition');
 
 const html = `
 <div class="madness-control">
@@ -71,6 +73,16 @@ const html = `
 </fieldset>`;
 
 const contract = parseSheetContract(html, { name: '합성 시트', id: 'fixture', sourceHash: 'abc123' });
+
+const sharedModeRuntime = { KIBSheetContracts: [] };
+vm.runInNewContext(render([{ id: 'shared-modes', rolls: [
+  { name: 'first', modes: [{ overrides: { mode: 'normal' } }] },
+  { name: 'second', modes: [{ overrides: { mode: 'normal' } }] },
+] }]), sharedModeRuntime);
+const sharedModeRolls = sharedModeRuntime.KIBSheetContracts[0].rolls;
+assert.notStrictEqual(sharedModeRolls[0].modes, sharedModeRolls[1].modes);
+assert.notStrictEqual(sharedModeRolls[0].modes[0], sharedModeRolls[1].modes[0],
+  '같은 선택 방식 묶음을 쓰는 굴림도 실행 중에는 서로 독립적이어야 합니다.');
 
 assert.strictEqual(contract.version, 1);
 assert.strictEqual(contract.id, 'fixture');
@@ -156,6 +168,40 @@ assert.strictEqual(Object.prototype.hasOwnProperty.call(damage, 'refs'), false);
 assert(contract.signature.includes('bonus_count'));
 const fixtureModeCount = contract.rolls.reduce((count, roll) => count + roll.modes.length, 0);
 assert(fixtureModeCount <= 24);
+
+// 성공 수준의 경계는 특정 시트 변수명을 추측하지 않고 원본 rolltemplate의
+// Mustache 조건과 표시 문구에서 읽어야 합니다.
+const resultRuleContract = parseSheetContract(`
+  <input name="attr_marker_one"><input name="attr_marker_two"><input name="attr_marker_three">
+  <button type="roll" name="roll_source_result"
+    value="&{template:source-result} {{goal=[[60]]}} {{die=[[1d100]]}}">원본 결과</button>
+  <rolltemplate class="sheet-rolltemplate-source-result">
+    <table>
+      <tr><td class="template_label">0:</td><td>
+        {{#die}}{{#rollTotal() die 1}}<span class="sheet-critical">대성공</span>{{/rollTotal() die 1}}{{/die}}
+        {{#rollGreater() die goal}}{{#rollGreater() goal 49}}{{#rollTotal() die 100}}
+          <b data-i18n="fumble">Fumble</b>
+        {{/rollTotal() die 100}}{{/rollGreater() goal 49}}{{/rollGreater() die goal}}
+        {{#rollGreater() die goal}}{{#^rollGreater() goal 49}}{{#rollGreater() die 95}}
+          <b>Fumble</b>
+        {{/rollGreater() die 95}}{{/^rollGreater() goal 49}}{{/rollGreater() die goal}}
+      </td></tr>
+      <tr><td class="template_label">+1:</td><td>
+        {{#rollTotal() die 1}}<span class="sheet-critical">대성공</span>{{/rollTotal() die 1}}
+      </td></tr>
+    </table>
+  </rolltemplate>
+`, { name: '원본 결과 규칙', id: 'source-result-rules' });
+const sourceResultRules = resultRuleContract.resultTemplates['source-result'].rules;
+assert(sourceResultRules.some((rule) => rule.outcome === 'critical' && rule.valueField === 'die' && rule.group === '0'),
+  'class 표시와 순차 Mustache 조건에서 대성공 규칙을 읽지 못했습니다.');
+assert(sourceResultRules.some((rule) => rule.outcome === 'fumble' &&
+  rule.conditions.some((condition) => condition.not)),
+  'data-i18n/표시 텍스트 또는 역조건에서 대실패 규칙을 읽지 못했습니다.');
+assert(sourceResultRules.some((rule) => rule.group === '+1'),
+  '원본 rolltemplate의 +1 결과 그룹을 보존하지 못했습니다.');
+assert(!JSON.stringify(resultRuleContract.resultTemplates).includes('skill_value'),
+  '결과 규칙에 다른 시트의 고정 변수명을 섞으면 안 됩니다.');
 
 const malformed = '<input name="attr_kind" class="sheet-switch"">' +
   '<button type="roll" name="roll_test" value="&{template:test} {{kind=@{kind}}}">검사</button>';
@@ -320,6 +366,12 @@ try {
   assert.strictEqual(translated.contract.rolls.find((roll) => roll.name === 'numeric_row').label, '51');
   assert.strictEqual(translated.contract.rolls.find((roll) => roll.name === 'kanji').label, '知覚');
   assert(fs.readFileSync(translationOutput, 'utf8').includes('실시간'));
+  const embeddedRuntime = { KIBSheetContracts: [] };
+  vm.runInNewContext(render([readSheet('번역 시트', translationHtml, '-')]), embeddedRuntime);
+  const embeddedLive = embeddedRuntime.KIBSheetContracts[0].rolls.find((roll) => roll.name === 'live');
+  assert.strictEqual(embeddedRuntime.KIBSheetContracts[0].sourceHash, translated.contract.sourceHash);
+  assert(embeddedLive.label === '실시간' && embeddedLive.aliases.includes('Real-Time'),
+    '임베딩한 시트에서도 번역된 굴림명과 원문 별칭을 함께 유지해야 합니다.');
   const jaPath = path.join(translationRoot, 'translations', 'ja.json');
   fs.writeFileSync(jaPath, JSON.stringify({ 'appraise-label': '鑑定' }));
   const multilingual = buildSheetContract(

@@ -1399,6 +1399,164 @@
     return fields;
   }
 
+  function resultOutcomeFromAttributes(node) {
+    var i18n = normalizeText(node && node.attrs && node.attrs['data-i18n']).toLowerCase();
+    if (i18n === 'critical') return 'critical';
+    if (i18n === 'fumble') return 'fumble';
+    var classes = normalizeText(node && node.attrs && node.attrs['class']).toLowerCase().split(/\s+/);
+    for (var i = 0; i < classes.length; i += 1) {
+      var name = classes[i].replace(/^sheet-/, '');
+      if (name === 'critical') return 'critical';
+      if (name === 'fumble') return 'fumble';
+    }
+    return null;
+  }
+
+  function resultOutcomeFromText(value) {
+    var text = normalizeText(value).toLowerCase().replace(/[.!:：]+$/g, '');
+    if (text === 'critical' || text === 'critical success' || text === '대성공') return 'critical';
+    if (text === 'fumble' || text === '대실패') return 'fumble';
+    return null;
+  }
+
+  function rollTemplateName(node) {
+    var classes = normalizeText(node && node.attrs && node.attrs['class']).split(/\s+/);
+    for (var i = 0; i < classes.length; i += 1) {
+      var match = classes[i].match(/^sheet-rolltemplate-(.+)$/i);
+      if (match) return normalizeText(match[1]);
+    }
+    return '';
+  }
+
+  function resultGroup(node, templateNode) {
+    var current = node && node.tag === '#text' ? node.parent : node;
+    while (current && current !== templateNode) {
+      if (current.tag === 'tr') {
+        var children = elementChildren(current);
+        for (var i = 0; i < children.length; i += 1) {
+          var classes = normalizeText(children[i].attrs && children[i].attrs['class']).toLowerCase().split(/\s+/);
+          if (!classes.some(function (name) { return name.replace(/^sheet-/, '') === 'template_label'; })) continue;
+          var match = nodeText(children[i]).replace(/[\s:：]+/g, '').match(/^([+-]?\d+)$/);
+          if (match) return match[1];
+        }
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  function resultConditionToken(raw) {
+    var body = normalizeText(raw);
+    var marker = body.charAt(0);
+    if (marker !== '#' && marker !== '^' && marker !== '/') return null;
+    body = normalizeText(body.slice(1));
+    var inverted = marker === '^';
+    if (body.charAt(0) === '^') {
+      inverted = true;
+      body = normalizeText(body.slice(1));
+    }
+    var nameMatch = body.match(/^([^\s(]+)(?:\(\))?/);
+    if (!nameMatch) return { close: marker === '/', name: '', unsupported: true };
+    var name = nameMatch[1];
+    if (marker === '/') return { close: true, name: name.toLowerCase() };
+    var rest = normalizeText(body.slice(nameMatch[0].length));
+    var args = rest ? rest.split(/\s+/).map(function (value) {
+      return value.replace(/^(['"])([\s\S]*)\1$/, '$2');
+    }) : [];
+    var helper = name.toLowerCase();
+    var condition = null;
+    if (!args.length) condition = { op: 'present', args: [name], not: inverted };
+    else if (helper === 'rolltotal' && args.length === 2) condition = { op: 'eq', args: args, not: inverted };
+    else if (helper === 'rollbetween' && args.length === 3) condition = { op: 'between', args: args, not: inverted };
+    else if (helper === 'rollgreater' && args.length === 2) condition = { op: 'gt', args: args, not: inverted };
+    else if (helper === 'rollless' && args.length === 2) condition = { op: 'lt', args: args, not: inverted };
+    return {
+      close: false,
+      name: helper,
+      condition: condition,
+      unsupported: !condition
+    };
+  }
+
+  function collectResultTemplates(root, rolls) {
+    var used = dictionary();
+    (rolls || []).forEach(function (roll) {
+      var name = normalizeText(roll && roll.template);
+      if (name) used[name.toLowerCase()] = name;
+    });
+    var result = dictionary();
+    walk(root, function (templateNode) {
+      if (templateNode.tag !== 'rolltemplate') return;
+      var sourceName = rollTemplateName(templateNode);
+      var template = used[sourceName.toLowerCase()];
+      if (!template) return;
+      var stack = [];
+      var rules = [];
+      var seen = dictionary();
+
+      function capture(outcome, markerNode) {
+        if (!outcome || !stack.length || stack.some(function (entry) { return entry.unsupported; })) return;
+        var conditions = stack.map(function (entry) { return entry.condition; }).filter(Boolean);
+        if (!conditions.length) return;
+        var valueField = '';
+        for (var index = conditions.length - 1; index >= 0; index -= 1) {
+          var args = conditions[index].args || [];
+          if (conditions[index].op !== 'present' && args.length && !/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(args[0])) {
+            valueField = args[0];
+            break;
+          }
+        }
+        if (!valueField) return;
+        var rule = {
+          outcome: outcome,
+          valueField: valueField,
+          conditions: conditions
+        };
+        var group = resultGroup(markerNode, templateNode);
+        if (group !== null) rule.group = group;
+        var key = JSON.stringify(rule);
+        if (!seen[key]) {
+          seen[key] = true;
+          rules.push(rule);
+        }
+      }
+
+      function processText(textNode) {
+        var text = String(textNode.text || '');
+        var pattern = /\{\{\s*([\s\S]*?)\s*\}\}/g;
+        var cursor = 0;
+        var match;
+        while ((match = pattern.exec(text))) {
+          capture(resultOutcomeFromText(text.slice(cursor, match.index)), textNode);
+          var token = resultConditionToken(match[1]);
+          if (token && token.close) {
+            for (var index = stack.length - 1; index >= 0; index -= 1) {
+              if (stack[index].name === token.name) {
+                stack.splice(index, 1);
+                break;
+              }
+            }
+          } else if (token) stack.push(token);
+          cursor = pattern.lastIndex;
+        }
+        capture(resultOutcomeFromText(text.slice(cursor)), textNode);
+      }
+
+      function visit(node) {
+        if (node.tag === '#text') {
+          processText(node);
+          return;
+        }
+        capture(resultOutcomeFromAttributes(node), node);
+        for (var i = 0; i < node.children.length; i += 1) visit(node.children[i]);
+      }
+
+      for (var i = 0; i < templateNode.children.length; i += 1) visit(templateNode.children[i]);
+      if (rules.length) result[template] = { rules: rules };
+    });
+    return result;
+  }
+
   function directRef(value) {
     var match = String(value).match(/^@\{([^{}]+)\}$/);
     return match ? parseRefContent(match[1]) : null;
@@ -1572,6 +1730,7 @@
     var rollNodes = collectRollNodes(tree);
     var visibility = buildRollVisibility(tree, rollNodes, opts.css);
     var rolls = collectRolls(rollNodes, controlScopes, translations, visibility);
+    var resultTemplates = collectResultTemplates(tree, rolls);
     var signature = compactSignature(globalControls, rolls);
     var attributes = dictionary();
     var globalAttributes = dictionary();
@@ -1606,7 +1765,7 @@
       if (globalControls[name]) controls[name] = globalControls[name];
     });
     var name = normalizeText(opts.name || 'sheet');
-    return {
+    var contract = {
       version: 1,
       id: normalizeText(opts.id || slug(name) || ('sheet-' + shortHash(html))),
       name: name,
@@ -1618,6 +1777,8 @@
       controls: controls,
       rolls: rolls
     };
+    if (Object.keys(resultTemplates).length) contract.resultTemplates = resultTemplates;
+    return contract;
   }
 
   return {

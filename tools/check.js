@@ -845,12 +845,8 @@ assert(
     appText.includes('data-setting-key'),
   '각 코드 안에 세팅법, 설정, 코드 보기가 필요합니다.',
 );
-assert(
-  indexText.includes('assets/sheet-contract-parser.js') &&
-    indexText.indexOf('assets/sheet-contract-parser.js') <
-      indexText.indexOf('assets/app.js'),
-  '시트 계약 분석기는 설치 페이지 코드보다 먼저 불러와야 합니다.',
-);
+assert(!indexText.includes('assets/sheet-contract-parser.js'),
+  '사용자 설치 페이지에서 시트별 보조 JS 생성기를 불러오면 안 됩니다.');
 assert(
   appText.includes("id: '10'") &&
     appText.includes("file: '10_sheet_helper.js'") &&
@@ -858,32 +854,10 @@ assert(
   '10 시트 헬퍼를 설치기에 노출하고 00 기능 설정과 연결해야 합니다.',
 );
 assert(
-  appText.includes('id="sheet-contract-file" type="file" accept=".html,.htm,.txt,text/html,text/plain"') &&
-    appText.includes('id="sheet-contract-css" type="file" accept=".css,text/css,text/plain"') &&
-    appText.includes('id="sheet-contract-default-translation" type="file" accept=".json,application/json"') &&
-    appText.includes('id="sheet-contract-translations" type="file" accept=".json,application/json" multiple') &&
-    appText.includes('서버로 전송하지 않습니다.') &&
-    appText.includes('role="status" aria-live="polite"') &&
-    appText.includes('window.KIBSheetContractParser'),
-  '10 설정 카드에는 로컬 HTML 선택과 접근 가능한 처리 상태가 필요합니다.',
-);
-assert(
-  appText.includes("window.crypto.subtle.digest('SHA-256', bytes)") &&
-    appText.includes("hashParts.push(new TextEncoder().encode(`\\0${relative}\\0`)") &&
-    appText.includes("hashParts.push(new TextEncoder().encode('\\0stylesheet\\0')") &&
-    appText.indexOf("hashParts.push(new TextEncoder().encode(`\\0${relative}\\0`)") <
-      appText.indexOf("hashParts.push(new TextEncoder().encode('\\0stylesheet\\0')") &&
-    appText.includes('translations,') &&
-    appText.includes('css: stylesheet,') &&
-    appText.includes("downloadText(sheetContractSource(contract), 'sheet_contract.js')"),
-  '시트 계약에는 원본 SHA-256을 넣고 별도 파일로 내려받아야 합니다.',
-);
-assert(
-  appText.includes(".replace(/</g, '\\\\u003c')") &&
-    appText.includes('var KIBSheetContracts = KIBSheetContracts || [];') &&
-    appText.includes("typeof KIBSheetHelper.registerContract === 'function'") &&
-    !appText.includes("sourceCache.set('sheet_contract.js'"),
-  '시트 계약은 안전한 JSON으로 직렬화하고 통합 코드와 분리해야 합니다.',
+  !appText.includes('contractBuilder: true') &&
+    !appText.includes('bindSheetContractBuilder();') &&
+    appText.includes('이 10번 코드 하나를 Roll20 Mod Scripts에 넣고 저장합니다.'),
+  '사용자는 시트별 보조 JS 없이 배포용 10번 하나만 설치해야 합니다.',
 );
 assert(
   !/(?:define:|\/define:|on\.ready|\/on\.|✅|option:)/.test(scriptText),

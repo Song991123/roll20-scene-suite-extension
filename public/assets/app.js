@@ -178,15 +178,14 @@ const MODULES = [
     id: '10',
     file: '10_sheet_helper.js',
     title: '시트 헬퍼',
-    description: '공개 또는 커스텀 시트 HTML에서 굴림 항목을 읽어 실행(인식 가능한 CoC 7판 성공 단계는 08 컷인 연결)',
+    description: '지원되는 공개 및 커스텀 시트의 원본 굴림을 읽어 실행(인식 가능한 CoC 7판 성공 단계는 08 컷인 연결)',
     setup: [
-      '현재 사용하는 Roll20 시트 HTML을 선택합니다. 화면에서 숨기는 롤이 있는 시트라면 같은 시트 CSS도 선택하고, 번역된 이름으로 찾으려면 translation.json과 필요한 translations/*.json도 함께 선택합니다.',
-      '이 코드와 sheet_contract.js를 Roll20 Mod Scripts에 각각 넣고 저장합니다.',
+      '이 10번 코드 하나를 Roll20 Mod Scripts에 넣고 저장합니다.',
       '채팅에 !!관리를 입력해 인식된 항목을 확인합니다.',
+      '비슷한 시트가 여러 개로 표시되면 관리 화면에서 현재 사용하는 시트를 한 번 선택합니다.',
       '!!굴릴항목이름으로 실행하고, !!검색 이름으로 현재 수치와 굴림 버튼을 찾습니다.',
-      '시트 HTML을 바꿨다면 같은 시트의 이전 인식 파일과 새 인식 파일을 동시에 두지 말고 기존 sheet_contract.js 탭 내용을 교체합니다.',
+      '현재 시트를 인식하지 못하면 별도 JS를 만들지 말고 지원 시트 추가를 요청합니다.',
     ],
-    contractBuilder: true,
     settings: [
       { id: 'legacyCommands', group: '명령어', label: '!! 간편 명령어 사용', type: 'checkbox', value: true, codeKey: 'legacy_commands' },
       { id: 'manager', group: '핸드아웃', label: 'GM 관리 핸드아웃 이름', type: 'text', value: '[GM] 시트 헬퍼 관리', codeKey: 'manager_name' },
@@ -283,40 +282,7 @@ function settingsHtml(module) {
     <fieldset>
       <legend>${escapeHtml(group)}</legend>
       <div class="setting-grid">${settings.map((setting) => settingHtml(module, setting)).join('')}</div>
-    </fieldset>`).join('') + contractBuilderHtml(module);
-}
-
-function contractBuilderHtml(module) {
-  if (!module.contractBuilder) return '';
-  return `
-    <fieldset>
-      <legend>시트 연결 파일</legend>
-      <div class="setting-grid">
-        <label for="sheet-contract-file">
-          <span>Roll20 시트 HTML</span>
-          <input id="sheet-contract-file" type="file" accept=".html,.htm,.txt,text/html,text/plain">
-          <small>파일은 이 브라우저 안에서만 분석하며 서버로 전송하지 않습니다.</small>
-        </label>
-        <label for="sheet-contract-css">
-          <span>같은 시트 CSS (선택)</span>
-          <input id="sheet-contract-css" type="file" accept=".css,text/css,text/plain">
-          <small>표시 조건을 저장하고, 실행할 때 현재 캐릭터에서 확실히 숨겨진 굴림만 제외합니다.</small>
-        </label>
-        <label for="sheet-contract-default-translation">
-          <span>기본 translation.json (선택)</span>
-          <input id="sheet-contract-default-translation" type="file" accept=".json,application/json">
-        </label>
-        <label for="sheet-contract-translations">
-          <span>추가 translations/*.json (선택)</span>
-          <input id="sheet-contract-translations" type="file" accept=".json,application/json" multiple>
-          <small>선택하면 시트에 실제로 연결된 번역 라벨만 명령 별칭에 추가합니다.</small>
-        </label>
-        <div>
-          <button type="button" id="download-sheet-contract" disabled>sheet_contract.js 받기</button>
-          <small id="sheet-contract-status" role="status" aria-live="polite">HTML 파일을 선택해 주세요.</small>
-        </div>
-      </div>
-    </fieldset>`;
+    </fieldset>`).join('');
 }
 
 function settingHtml(module, setting) {
@@ -486,136 +452,6 @@ function downloadText(source, filename) {
   URL.revokeObjectURL(url);
 }
 
-async function sha256(bytes) {
-  if (!window.crypto?.subtle)
-    throw new Error('SHA-256을 사용할 수 없습니다. HTTPS 설치 페이지에서 다시 시도해 주세요.');
-  const digest = await window.crypto.subtle.digest('SHA-256', bytes);
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function concatBytes(parts) {
-  const size = parts.reduce((total, part) => total + part.byteLength, 0);
-  const joined = new Uint8Array(size);
-  let offset = 0;
-  parts.forEach((part) => {
-    joined.set(new Uint8Array(part.buffer || part, part.byteOffset || 0, part.byteLength), offset);
-    offset += part.byteLength;
-  });
-  return joined;
-}
-
-function sheetContractSource(contract) {
-  const json = JSON.stringify(contract)
-    .replace(/</g, '\\u003c')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
-  return [
-    '/* Scene Suite sheet contract */',
-    'var KIBSheetContracts = KIBSheetContracts || [];',
-    `KIBSheetContracts.push(${json});`,
-    "if (typeof KIBSheetHelper !== 'undefined' && typeof KIBSheetHelper.registerContract === 'function') {",
-    '  KIBSheetHelper.registerContract(KIBSheetContracts[KIBSheetContracts.length - 1]);',
-    '}',
-    '',
-  ].join('\n');
-}
-
-function bindSheetContractBuilder() {
-  const input = document.querySelector('#sheet-contract-file');
-  const cssInput = document.querySelector('#sheet-contract-css');
-  const defaultTranslationInput = document.querySelector('#sheet-contract-default-translation');
-  const translationsInput = document.querySelector('#sheet-contract-translations');
-  const button = document.querySelector('#download-sheet-contract');
-  const status = document.querySelector('#sheet-contract-status');
-  if (!input || !cssInput || !defaultTranslationInput || !translationsInput || !button || !status) return;
-  function updateContractStatus() {
-    const file = input.files?.[0];
-    button.disabled = !file;
-    const translations = [defaultTranslationInput.files?.[0]].concat(Array.from(translationsInput.files || [])).filter(Boolean);
-    const stylesheet = cssInput.files?.[0];
-    status.textContent = file ? `${file.name} 선택됨${stylesheet ? ' / CSS 1개' : ''}${translations.length ? ` / 번역 ${translations.length}개` : ''}` : 'HTML 파일을 선택해 주세요.';
-  }
-  [input, cssInput, defaultTranslationInput, translationsInput].forEach((field) => field.addEventListener('change', updateContractStatus));
-  button.addEventListener('click', async () => {
-    const file = input.files?.[0];
-    if (!file) return;
-    button.disabled = true;
-    status.textContent = '시트 분석 중';
-    try {
-      if (file.size > 10 * 1024 * 1024)
-        throw new Error('10MB 이하의 시트 HTML을 선택해 주세요.');
-      const bytes = await file.arrayBuffer();
-      const html = new TextDecoder().decode(bytes);
-      if (!html.trim()) throw new Error('빈 HTML 파일은 사용할 수 없습니다.');
-      const stylesheetFile = cssInput.files?.[0];
-      let stylesheet = '';
-      let stylesheetBytes = null;
-      const translationFiles = Array.from(translationsInput.files || []).map((translationFile) => [
-        `translations/${translationFile.name}`,
-        translationFile,
-      ]).concat([
-        ['translation.json', defaultTranslationInput.files?.[0]],
-      ]).filter((entry) => entry[1]);
-      const translationManifest = new Set();
-      translationFiles.forEach(([relative]) => {
-        const key = relative.toLowerCase();
-        if (translationManifest.has(key))
-          throw new Error(`같은 이름의 번역 파일을 두 번 선택할 수 없습니다: ${relative}`);
-        translationManifest.add(key);
-      });
-      const translations = [];
-      const hashParts = [new Uint8Array(bytes)];
-      if (stylesheetFile) {
-        if (stylesheetFile.size > 5 * 1024 * 1024)
-          throw new Error('시트 CSS는 5MB 이하로 선택해 주세요.');
-        stylesheetBytes = await stylesheetFile.arrayBuffer();
-        stylesheet = new TextDecoder().decode(stylesheetBytes);
-      }
-      for (const [relative, translationFile] of translationFiles) {
-        if (translationFile.size > 5 * 1024 * 1024)
-          throw new Error('번역 JSON은 파일당 5MB 이하로 선택해 주세요.');
-        const translationBytes = await translationFile.arrayBuffer();
-        const translationText = new TextDecoder().decode(translationBytes);
-        let messages;
-        try {
-          messages = JSON.parse(translationText.replace(/^\uFEFF/, ''));
-        } catch (error) {
-          throw new Error(`${translationFile.name}: 올바른 JSON 파일이 아닙니다.`);
-        }
-        if (!messages || typeof messages !== 'object' || Array.isArray(messages))
-          throw new Error(`${translationFile.name}: JSON 최상위 값은 객체여야 합니다.`);
-        translations.push(messages);
-        hashParts.push(new TextEncoder().encode(`\0${relative}\0`), new Uint8Array(translationBytes));
-      }
-      // Keep the browser builder's ID stable with the CLI: HTML, translations, then CSS.
-      if (stylesheetFile)
-        hashParts.push(new TextEncoder().encode('\0stylesheet\0'), new Uint8Array(stylesheetBytes));
-      const parser = window.KIBSheetContractParser;
-      if (!parser || typeof parser.parseSheetContract !== 'function')
-        throw new Error('시트 분석기를 불러오지 못했습니다.');
-      const sourceHash = await sha256(concatBytes(hashParts));
-      const name = file.name.replace(/\.[^.]+$/, '') || 'sheet';
-      const contract = parser.parseSheetContract(html, {
-        id: `sheet-${sourceHash.slice(0, 16)}`,
-        name,
-        sourceHash,
-        translations,
-        css: stylesheet,
-      });
-      if (!contract.rolls.length && !contract.attributes.length)
-        throw new Error('시트 속성이나 주사위 버튼을 찾지 못했습니다.');
-      downloadText(sheetContractSource(contract), 'sheet_contract.js');
-      status.textContent = `완료: 속성 ${contract.attributes.length}개, 주사위 버튼 ${contract.rolls.length}개`;
-    } catch (error) {
-      status.textContent = error.message || '시트 연결 파일을 만들지 못했습니다.';
-    } finally {
-      button.disabled = false;
-    }
-  });
-}
-
 function setBusy(busy, message) {
   copyButton.disabled = busy;
   downloadButton.disabled = busy;
@@ -636,4 +472,3 @@ document.querySelector('#clear-selection').addEventListener('click', () => {
 copyButton.addEventListener('click', copyBundle);
 downloadButton.addEventListener('click', downloadBundle);
 renderModules();
-bindSheetContractBuilder();
