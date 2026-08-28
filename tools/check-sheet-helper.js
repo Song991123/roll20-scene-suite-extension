@@ -2,11 +2,33 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { parseSheetContract } = require('../public/assets/sheet-contract-parser');
 
 const source = fs.readFileSync(
   path.resolve(__dirname, '../public/scripts/10_sheet_helper.js'),
   'utf8',
 );
+
+const contractFixture = parseSheetContract(`
+  <input name="attr_contract_marker" value="fixture">
+  <input name="attr_character_name">
+  <input name="attr_skill_value">
+  <select name="attr_bonus_mode"><option value="0">기본</option><option value="10">보너스 개 1</option></select>
+  <button type="roll" value="&{template:fixture} {{character_name=@{character_name}}} {{subject=정밀 관찰}} {{roll=[[@{skill_value}+@{bonus_mode}]]}}"></button>
+  <input name="attr_free_expression" value="1d6">
+  <button type="roll" value="&{template:fixture} {{character_name=@{character_name}}} {{subject=계약 자유 주사위}} {{formula=@{free_expression}}} {{roll=[[@{free_expression}]]}}"></button>
+  <button type="roll" value="&{template:fixture} {{subject=질의 판정}} {{roll=[[?{대상|현재,@{skill_value}|고정,20}]]}}"></button>
+  <button type="roll" value="&{template:fixture} {{subject=Double}} {{roll=[[?{Difficulty|Easy,1|Hard,2}+?{Size|Small,10|Large,20}]]}}"></button>
+  <button type="roll" value="&{template:fixture} {{subject=Twin}} {{roll=[[?{Pick|A,1|B,2}+?{Pick|A,1|B,2}]]}}"></button>
+  <fieldset class="repeating_weapon">
+    <input name="attr_weapon_name"><input name="attr_weapon_value">
+    <button type="roll" value="&{template:fixture} {{character_name=@{character_name}}} {{subject=@{weapon_name}}} {{roll=[[@{weapon_value}]]}}"></button>
+  </fieldset>
+  <button type="roll" value="&{template:fixture} {{subject=겹친 판정}} {{roll=[[1d100]]}}"></button>
+  <button type="roll" value="&{template:fixture} {{subject=겹친 판정}} {{roll=[[1d20]]}}"></button>
+  <button type="roll" value="&{template:fixture} {{subject=이름 충돌}} {{roll=[[1d12]]}}"></button>
+  <button type="roll" value="&{template:fixture} {{subject=다른 롤}} {{roll=[[?{자세|이름 충돌,1d6|기본,1d8}]]}}"></button>
+`, { id: 'fixture-contract', name: '계약 시험 시트', sourceHash: 'fixture-v1' });
 
 function roll20Object(id, values) {
   const data = { ...values };
@@ -169,10 +191,15 @@ const sparseCharacter = roll20Object(sparseCharacterId, {
   name: '특수 주사위 없는 탐사자',
   controlledby: 'player-1',
 });
+const contractCharacterId = 'character-contract';
+const contractCharacter = roll20Object(contractCharacterId, {
+  name: '계약 탐사자',
+  controlledby: 'player-1',
+});
 const gmCharacter = roll20Object('character-gm', { name: '이경태', controlledby: '' });
 const playerCharacter = roll20Object('character-player', { name: '이경호', controlledby: 'player-2' });
 const gmSpeakerCharacter = roll20Object('character-gm-speaker', { name: 'GM', controlledby: '' });
-const characters = [character, officialCharacter, ildCharacter, sparseCharacter, gmCharacter, playerCharacter, gmSpeakerCharacter];
+const characters = [character, officialCharacter, ildCharacter, sparseCharacter, contractCharacter, gmCharacter, playerCharacter, gmSpeakerCharacter];
 const players = {
   gm: roll20Object('gm', { _displayname: '마렌 (GM)', speakingas: '' }),
   'player-1': roll20Object('player-1', { _displayname: '테스터', speakingas: '' }),
@@ -202,6 +229,20 @@ let attributeObjects = Object.entries({ ...enteredValues, ...attributeValues }).
     max: '',
   }),
 );
+Object.entries({
+  contract_marker: 'fixture', character_name: '계약 탐사자', skill_value: '55', bonus_mode: '0', free_expression: '1d6', appraise: '55',
+  hp: '6', hp_max: '12', san: '30',
+  defense_name_02: '계약에 없는 방어구', defense_pice_02: '몸통', defense_value_02: '1', defense_desc_02: '구형 스캔 오염 검사용',
+  repeating_weapon_rowZ_weapon_name: '쇠파이프', repeating_weapon_rowZ_weapon_value: '45',
+}).forEach(([name, current], index) => {
+  attributeObjects.push(roll20Object(`contract-attribute-${index}`, {
+    _characterid: contractCharacterId,
+    characterid: contractCharacterId,
+    name,
+    current,
+    max: '',
+  }));
+});
 Object.entries({
   showskills: '2', character_name: '공개 시트 탐사자', dice_type: '0', toggledr: '1', dice_roll: '1d100',
   pulp_bomtoggle: '0', mixedbom: '0', current_mental_condition: '안정', phobias_manias: '없음',
@@ -259,6 +300,7 @@ const created = [];
 const getAttrByNameCalls = [];
 
 const runtime = {
+  KIBSheetContracts: [contractFixture],
   state: {
     hide_tracking: true,
     KIBSheetHelper: {
@@ -437,7 +479,7 @@ const expectedCutinKinds = [
 expectedCutinKinds.forEach(([kind, label]) => {
   assert(
     cutinItems.some((item) => item.kind === kind && item.label === label && item.key),
-    `${label} 컷인 항목의 kind/key가 없습니다.`,
+    `${label} 컷인 항목의 kind/key가 없습니다: ${JSON.stringify(cutinItems.filter((item) => item.label === label))}`,
   );
 });
 assert.strictEqual(
@@ -481,18 +523,20 @@ assert.strictEqual(manager.get('inplayerjournals'), '');
 const playerHelp = created.find((item) => item.get('name') === '[PL] 시트 헬퍼 사용법');
 assert(playerHelp, 'PL 사용법 핸드아웃을 만들지 못했습니다.');
 assert.strictEqual(playerHelp.get('inplayerjournals'), 'all');
-assert(playerHelp.get('notes').includes('!!관찰력'));
-assert(playerHelp.get('notes').includes('!!관찰력 보너스1'));
+assert(playerHelp.get('notes').includes('!!원본 버튼 이름'));
+assert(playerHelp.get('notes').includes('!!원본 버튼 이름 원본 선택지 이름'));
 assert(playerHelp.get('notes').includes('!!광기실시간'));
 assert(playerHelp.get('notes').includes('!!광기요약'));
 assert(!playerHelp.get('notes').includes('!!일시적광기'));
 assert(!playerHelp.get('notes').includes('!!장기적광기'));
+assert(playerHelp.get('notes').includes('!!r 2d6+3'));
+assert(playerHelp.get('notes').includes('검정 선택 버튼'));
 assert(!playerHelp.get('notes').includes('!!운결정'));
 assert(!playerHelp.get('notes').includes('!시트 관리'), 'PL 사용법에 GM 명령이 들어가면 안 됩니다.');
 
-function runBangBang(content) {
+function runBangBang(content, who = '저널 이름') {
   const before = sent.length;
-  events['chat:message']({ type: 'api', content, playerid: 'player-1', who: '저널 이름' });
+  events['chat:message']({ type: 'api', content, playerid: 'player-1', who });
   return sent.slice(before);
 }
 
@@ -563,9 +607,314 @@ const conflictBangBang = runBangBang('!!관찰력');
 conflictScan.spells[0].label = originalSpellLabel;
 const conflictError = conflictBangBang.find((item) => item.who === '시트 헬퍼');
 assert(
-  conflictError && conflictError.content.includes('!!판정 관찰력') && conflictError.content.includes('!!주문 관찰력'),
+  conflictError && conflictError.content.includes('관찰력 / 판정') && conflictError.content.includes('관찰력 / 주문') &&
+    conflictError.content.includes('background:#111') && conflictError.content.includes('!시트 선택|'),
   JSON.stringify(conflictBangBang),
 );
+assert(!conflictBangBang.some((item) => item.content && item.content.includes('kib_sheet_result=')));
+const checkChoice = conflictError.content.match(/href="([^"]+\|check\|[^"]+)"/);
+assert(checkChoice, conflictError.content);
+const chosenBefore = sent.length;
+events['chat:message']({ type: 'api', content: checkChoice[1], playerid: 'player-1', who: '저널 이름' });
+assert(sent.slice(chosenBefore).some((item) => item.content && item.content.includes('{{subject=관찰력}}')));
+
+const parsedContractScan = helper.scan(contractCharacterId, true);
+assert.strictEqual(parsedContractScan.contractMatch.status, 'matched', JSON.stringify(parsedContractScan.contractMatch.matches && parsedContractScan.contractMatch.matches.map((item) => ({ id: item.id, score: item.score, ratio: item.ratio }))));
+assert.strictEqual(parsedContractScan.profileMatched, false);
+assert.strictEqual(parsedContractScan.resources.length, 0);
+assert.strictEqual(parsedContractScan.armors.length, 0);
+assert.strictEqual(typeof helper.registerContract, 'function');
+helper.registerContract(contractFixture);
+assert.strictEqual(helper.sheetContracts().filter((contract) => contract.id === contractFixture.id).length, 1);
+const parsedContractRolls = helper.contractRolls(contractCharacterId);
+const parsedCheck = parsedContractRolls.find((item) => item.label === '정밀 관찰');
+const parsedRepeating = parsedContractRolls.find((item) => item.row);
+assert(parsedCheck, 'character_name보다 원본 시트의 정적 판정명이 우선되어야 합니다.');
+assert(parsedRepeating && parsedRepeating.label === '쇠파이프', '반복 행의 원본 이름을 판정명으로 사용해야 합니다.');
+const qualifiedRepeating = helper.qualifyContractMacro(contractCharacterId, parsedRepeating, null);
+assert.strictEqual(qualifiedRepeating.ok, true);
+assert(qualifiedRepeating.content.includes(`@{${contractCharacterId}|repeating_weapon_rowZ_weapon_value}`));
+
+const modeResult = helper.resolveContractAction(contractCharacter, '정밀관찰 보너스1', false);
+assert(modeResult.handled && modeResult.result.ok, '공백과 한국어 단위가 다른 모드 이름도 원본 선택지에 매칭되어야 합니다.');
+assert.strictEqual(modeResult.result.payload.modeLabel, '보너스 개 1');
+assert(sent.at(-1).content.includes(`{{roll=[[@{${contractCharacterId}|skill_value}+10]]}}`));
+const secretContract = helper.resolveContractAction(contractCharacter, '정밀관찰 보너스1', true);
+assert(secretContract.handled && secretContract.result.ok && sent.at(-1).content.startsWith('/w gm '));
+assert(helper.resolveContractAction(contractCharacter, '정밀관찰', false).result.ok, '선택형 속성은 현재 시트 값을 그대로 써야 합니다.');
+const nestedQuery = helper.resolveContractAction(contractCharacter, '질의판정 현재', false);
+assert(nestedQuery.handled && nestedQuery.result.ok);
+assert(!sent.at(-1).content.includes('?{대상'));
+assert(sent.at(-1).content.includes(`@{${contractCharacterId}|skill_value}`));
+const doubleQuery = helper.resolveContractAction(contractCharacter, 'Double Easy Large', false);
+assert(doubleQuery.handled && doubleQuery.result.ok);
+assert(!sent.at(-1).content.includes('?{') && sent.at(-1).content.includes('[[1+20]]'));
+const twinQuery = helper.resolveContractAction(contractCharacter, 'Twin A B', false);
+assert(twinQuery.handled && twinQuery.result.ok);
+assert(!sent.at(-1).content.includes('?{') && sent.at(-1).content.includes('[[1+2]]'));
+assert(runBangBang('!!r 4d6+2', '계약 탐사자').some((item) => item.content && item.content.includes('{{roll=[[4d6+2]]}}')));
+assert(!runBangBang('!!r 1d6]]', '계약 탐사자').some((item) => item.content && item.content.includes('kib_sheet_result=')));
+const noLegacyFallback = runBangBang('!!감정', '계약 탐사자');
+assert(noLegacyFallback.some((item) => item.who === '시트 헬퍼' && item.content.includes('원본 계약')));
+assert(!noLegacyFallback.some((item) => item.content && item.content.includes('kib_sheet_result=')), '계약 미매칭 롤을 기존 CoC 하드코딩으로 실행하면 안 됩니다.');
+
+const publicContractRoll = helper.roll(contractCharacterId, '정밀 관찰', { mode: '보너스1' });
+assert(publicContractRoll.ok && sent.at(-1).content.includes('&{template:fixture}'), '공개 roll API도 원본 계약 롤을 실행해야 합니다.');
+assert.strictEqual(publicContractRoll.payload.system, 'contract-fixture-contract');
+const publicFallbackBefore = sent.length;
+assert.strictEqual(helper.roll(contractCharacterId, '감정', {}).ok, false);
+assert.strictEqual(helper.rollWeapon(contractCharacterId, '리볼버', false).ok, false);
+assert.strictEqual(helper.showSpell(contractCharacterId, '문 열기', false).ok, false);
+assert.strictEqual(helper.rollArmor(contractCharacterId, '계약에 없는 방어구', false).ok, false);
+assert.strictEqual(helper.rollMadness(contractCharacterId, '', false).ok, false);
+assert.strictEqual(helper.rollHitLocation(contractCharacterId, false).ok, false);
+assert.strictEqual(sent.length, publicFallbackBefore, '공개 API가 계약에 없는 CoC 매크로를 만들면 안 됩니다.');
+assert(helper.rollFree(contractCharacterId, false, '3d6').ok && sent.at(-1).content.includes('{{roll=[[3d6]]}}'));
+assert(!helper.cutinItems().some((item) => item.label === '계약에 없는 방어구'), '계약 컷인 목록에 구형 CoC 스캔 항목이 섞이면 안 됩니다.');
+assert(helper.cutinItems().some((item) => item.label === '정밀 관찰' && item.system === 'contract-fixture-contract'));
+const contractHp = attributeObjects.find((item) => item.get('_characterid') === contractCharacterId && item.get('name') === 'hp');
+const contractMessagesBefore = sent.filter((item) => item.who === `character|${contractCharacterId}`).length;
+events['change:attribute'](contractHp, { current: '12' });
+assert.strictEqual(sent.filter((item) => item.who === `character|${contractCharacterId}`).length, contractMessagesBefore);
+assert(!attributeObjects.some((item) => item.get('_characterid') === contractCharacterId && /major.?wound/i.test(item.get('name'))));
+events['chat:message']({ type: 'general', content: ':hp+3', playerid: 'player-1', who: '계약 탐사자' });
+assert.strictEqual(contractHp.get('current'), '6');
+
+const weakContract = parseSheetContract(`
+  <input name="attr_shared_a"><input name="attr_shared_b"><input name="attr_shared_c">
+  <button type="roll" value="&{template:weak} {{roll=[[1d20]]}}">약한 계약</button>
+`, { id: 'weak-contract', name: '약한 계약' });
+helper.registerContract(weakContract);
+const weakCharacter = roll20Object('character-weak', { name: '다른 시트', controlledby: 'player-1' });
+characters.push(weakCharacter);
+['shared_a', 'shared_b', 'shared_c'].concat(Array.from({ length: 20 }, (_, index) => `other_${index}`)).forEach((name, index) => {
+  attributeObjects.push(roll20Object(`weak-attribute-${index}`, {
+    _characterid: weakCharacter.id, characterid: weakCharacter.id, name, current: '1', max: '',
+  }));
+});
+assert.strictEqual(helper.inspectContracts(weakCharacter.id).status, 'none', '일부 공통 속성만으로 다른 시트를 확정하면 안 됩니다.');
+const smallOverlapCharacter = roll20Object('character-small-overlap', { name: '작은 다른 시트', controlledby: 'player-1' });
+characters.push(smallOverlapCharacter);
+['shared_a', 'shared_b', 'shared_c', 'other_a', 'other_b', 'other_c', 'other_d'].forEach((name, index) => {
+  attributeObjects.push(roll20Object(`small-overlap-attribute-${index}`, {
+    _characterid: smallOverlapCharacter.id, characterid: smallOverlapCharacter.id, name, current: '1', max: '',
+  }));
+});
+assert.strictEqual(helper.inspectContracts(smallOverlapCharacter.id).status, 'none', '작은 시트도 공통 속성 3개만으로 다른 계약에 매칭하면 안 됩니다.');
+
+const repeatingScopeContract = parseSheetContract(`
+  <fieldset class="repeating_scoped">
+    <input name="attr_scope_only_a"><input name="attr_scope_only_b"><input name="attr_scope_only_c">
+    <button type="roll" value="&{template:test} {{first=@{scope_only_a}}} {{second=@{scope_only_b}}} {{third=@{scope_only_c}}} {{roll=[[1d20]]}}">Scoped</button>
+  </fieldset>
+`, { id: 'repeating-scope-contract', name: '반복 범위 계약' });
+helper.registerContract(repeatingScopeContract);
+const globalScopeCharacter = roll20Object('character-global-scope', { name: '전역 범위 시험', controlledby: 'player-1' });
+characters.push(globalScopeCharacter);
+['scope_only_a', 'scope_only_b', 'scope_only_c'].forEach((name, index) => {
+  attributeObjects.push(roll20Object(`global-scope-attribute-${index}`, {
+    _characterid: globalScopeCharacter.id, characterid: globalScopeCharacter.id, name, current: '1', max: '',
+  }));
+});
+assert.strictEqual(helper.inspectContracts(globalScopeCharacter.id).status, 'none', '반복 행 필드를 같은 이름의 전역 속성으로 오인하면 안 됩니다.');
+const repeatingScopeCharacter = roll20Object('character-repeating-scope', { name: '반복 범위 시험', controlledby: 'player-1' });
+characters.push(repeatingScopeCharacter);
+['scope_only_a', 'scope_only_b', 'scope_only_c'].forEach((field, index) => {
+  attributeObjects.push(roll20Object(`repeating-scope-attribute-${index}`, {
+    _characterid: repeatingScopeCharacter.id, characterid: repeatingScopeCharacter.id,
+    name: `repeating_scoped_rowR_${field}`, current: '1', max: '',
+  }));
+});
+assert.strictEqual(helper.inspectContracts(repeatingScopeCharacter.id).status, 'matched');
+assert.strictEqual(helper.contractRolls(repeatingScopeCharacter.id).length, 1);
+
+const prototypeContract = parseSheetContract(`
+  <fieldset class="repeating___proto__">
+    <input name="attr_constructor"><input name="attr___proto__"><input name="attr_toString">
+    <button type="roll" value="&{template:test} {{a=@{constructor}}} {{b=@{__proto__}}} {{c=@{toString}}} {{roll=[[1d20]]}}">Prototype</button>
+  </fieldset>
+`, { id: 'prototype-contract', name: '프로토타입 계약' });
+assert.doesNotThrow(() => helper.registerContract(prototypeContract));
+const prototypeCharacter = roll20Object('character-prototype', { name: '프로토타입 시험', controlledby: 'player-1' });
+characters.push(prototypeCharacter);
+['constructor', '__proto__', 'toString'].forEach((field, index) => {
+  attributeObjects.push(roll20Object(`prototype-attribute-${index}`, {
+    _characterid: prototypeCharacter.id, characterid: prototypeCharacter.id,
+    name: `repeating___proto___constructor_${field}`, current: '1', max: '',
+  }));
+});
+assert.strictEqual(helper.inspectContracts(prototypeCharacter.id).status, 'matched');
+assert.strictEqual(helper.contractRolls(prototypeCharacter.id).length, 1);
+
+const cacheContract = parseSheetContract(`
+  <input name="attr_cache_marker_a"><input name="attr_cache_marker_b"><input name="attr_cache_marker_c">
+  <button type="roll" value="&{template:test} {{roll=[[1d20]]}}">Cache</button>
+`, { id: 'cache-contract', name: '계약 캐시 시험' });
+helper.registerContract(cacheContract);
+const cacheCharacter = roll20Object('character-contract-cache', { name: '계약 캐시 시험', controlledby: 'player-1' });
+characters.push(cacheCharacter);
+['cache_marker_a', 'cache_marker_b', 'cache_marker_c'].forEach((name, index) => {
+  attributeObjects.push(roll20Object(`cache-marker-${index}`, {
+    _characterid: cacheCharacter.id, characterid: cacheCharacter.id, name, current: '1', max: '',
+  }));
+});
+assert.strictEqual(helper.inspectContracts(cacheCharacter.id).status, 'matched');
+const cacheNoise = Array.from({ length: 4 }, (_, index) => roll20Object(`cache-noise-${index}`, {
+  _characterid: cacheCharacter.id, characterid: cacheCharacter.id, name: `cache_noise_${index}`, current: '1', max: '',
+}));
+cacheNoise.forEach((attribute) => {
+  attributeObjects.push(attribute);
+  events['add:attribute'](attribute);
+});
+assert.strictEqual(helper.inspectContracts(cacheCharacter.id).status, 'none', '속성 추가 후 계약 매칭 캐시를 갱신해야 합니다.');
+cacheNoise.forEach((attribute) => {
+  attributeObjects.splice(attributeObjects.indexOf(attribute), 1);
+  events['destroy:attribute'](attribute);
+});
+assert.strictEqual(helper.inspectContracts(cacheCharacter.id).status, 'matched', '속성 삭제 후 계약 매칭 캐시를 갱신해야 합니다.');
+const renamedMarker = attributeObjects.find((attribute) =>
+  attribute.get('_characterid') === cacheCharacter.id && attribute.get('name') === 'cache_marker_a');
+renamedMarker.set('name', 'cache_marker_renamed');
+events['change:attribute'](renamedMarker, { name: 'cache_marker_a', current: '1' });
+assert.strictEqual(helper.inspectContracts(cacheCharacter.id).status, 'none', '속성 이름 변경 후 계약 매칭 캐시를 갱신해야 합니다.');
+renamedMarker.set('name', 'cache_marker_a');
+events['change:attribute'](renamedMarker, { name: 'cache_marker_renamed', current: '1' });
+assert.strictEqual(helper.inspectContracts(cacheCharacter.id).status, 'matched');
+
+const repeatingOnlyContract = parseSheetContract(`
+  <input name="attr_global_roll" value="1d20">
+  <fieldset class="repeating_notes"><input name="attr_note_title"><button type="roll" value="&{template:test} {{roll=[[@{global_roll}]]}}"></button></fieldset>
+`, { id: 'repeating-only-contract', name: '반복 전용 계약' });
+assert.doesNotThrow(() => helper.registerContract(repeatingOnlyContract));
+
+const sharedRepeatingContract = parseSheetContract(`
+  <input name="attr_scope_a"><input name="attr_scope_b"><input name="attr_scope_c">
+  <input name="attr_scope_d"><input name="attr_scope_e"><input name="attr_scope_f">
+  <fieldset class="repeating_weapons">
+    <input name="attr_name"><input name="attr_value">
+    <select name="attr_mode"><option value="slash">Slash</option><option value="thrust">Thrust</option></select>
+    <button type="roll" name="roll_use" value="&{template:test} {{name=@{name}}} {{mode=@{mode}}} {{roll=[[@{value}]]}}">Weapon</button>
+  </fieldset>
+  <fieldset class="repeating_spells">
+    <input name="attr_name"><input name="attr_value">
+    <select name="attr_mode"><option value="fire">Fire</option><option value="ice">Ice</option></select>
+    <button type="roll" name="roll_use" value="&{template:test} {{name=@{name}}} {{mode=@{mode}}} {{roll=[[@{value}]]}}">Spell</button>
+  </fieldset>
+`, { id: 'shared-repeating-contract', name: '반복 이름 중복 계약' });
+helper.registerContract(sharedRepeatingContract);
+const sharedRepeatingCharacter = roll20Object('character-shared-repeating', { name: '반복 시험', controlledby: 'player-1' });
+characters.push(sharedRepeatingCharacter);
+Object.entries({
+  scope_a: '1', scope_b: '1', scope_c: '1', scope_d: '1', scope_e: '1', scope_f: '1',
+  repeating_weapons_rowW_name: 'Sword', repeating_weapons_rowW_value: '45', repeating_weapons_rowW_mode: 'slash',
+  repeating_spells_rowS_name: 'Fireball', repeating_spells_rowS_value: '60', repeating_spells_rowS_mode: 'fire',
+}).forEach(([name, current], index) => {
+  attributeObjects.push(roll20Object(`shared-repeating-attribute-${index}`, {
+    _characterid: sharedRepeatingCharacter.id, characterid: sharedRepeatingCharacter.id, name, current, max: '',
+  }));
+});
+assert.strictEqual(helper.inspectContracts(sharedRepeatingCharacter.id).status, 'matched');
+assert.strictEqual(helper.contractRolls(sharedRepeatingCharacter.id).length, 2);
+assert(helper.resolveContractAction(sharedRepeatingCharacter, 'Sword Thrust', false).result.ok);
+assert(sent.at(-1).content.includes('{{name=@{character-shared-repeating|repeating_weapons_rowW_name}}}') && sent.at(-1).content.includes('{{mode=thrust}}'));
+assert(helper.resolveContractAction(sharedRepeatingCharacter, 'Fireball Ice', false).result.ok);
+assert(sent.at(-1).content.includes('{{name=@{character-shared-repeating|repeating_spells_rowS_name}}}') && sent.at(-1).content.includes('{{mode=ice}}'));
+
+const suffixContract = parseSheetContract(`
+  <fieldset class="repeating_inventory">
+    <input name="attr_name"><input name="attr_value"><input name="attr_weapon_name"><input name="attr_weapon_value">
+    <button type="roll" name="roll_use" value="&{template:test} {{roll=[[1d20]]}}">Inventory</button>
+  </fieldset>
+`, { id: 'suffix-contract', name: '반복 접미사 계약' });
+helper.registerContract(suffixContract);
+const suffixCharacter = roll20Object('character-suffix', { name: '접미사 시험', controlledby: 'player-1' });
+characters.push(suffixCharacter);
+['name', 'value', 'weapon_name', 'weapon_value'].forEach((field, index) => {
+  attributeObjects.push(roll20Object(`suffix-attribute-${index}`, {
+    _characterid: suffixCharacter.id, characterid: suffixCharacter.id,
+    name: `repeating_inventory_rowI_${field}`, current: String(index + 1), max: '',
+  }));
+});
+const suffixInspection = helper.inspectContracts(suffixCharacter.id);
+assert.strictEqual(suffixInspection.status, 'matched');
+assert.strictEqual(suffixInspection.match.score, 4);
+assert.strictEqual(helper.contractRolls(suffixCharacter.id).length, 1);
+const globalSuffixCharacter = roll20Object('character-global-suffix', { name: '전역 접미사 시험', controlledby: 'player-1' });
+characters.push(globalSuffixCharacter);
+['name', 'value', 'weapon_name', 'weapon_value'].forEach((name, index) => {
+  attributeObjects.push(roll20Object(`global-suffix-attribute-${index}`, {
+    _characterid: globalSuffixCharacter.id, characterid: globalSuffixCharacter.id, name, current: String(index + 1), max: '',
+  }));
+});
+assert.strictEqual(helper.inspectContracts(globalSuffixCharacter.id).status, 'none', '반복 필드와 이름만 같은 전역 속성은 계약 증거가 아닙니다.');
+
+const noRollSectionContract = parseSheetContract(`
+  <input name="attr_note_marker_a"><input name="attr_note_marker_b"><input name="attr_note_marker_c">
+  <button type="roll" name="roll_check" value="&{template:test} {{roll=[[1d20]]}}">Check</button>
+  <fieldset class="repeating_notes"><input name="attr_title"><textarea name="attr_text"></textarea></fieldset>
+`, { id: 'no-roll-section-contract', name: '롤 없는 반복 섹션 계약' });
+helper.registerContract(noRollSectionContract);
+const noRollSectionCharacter = roll20Object('character-no-roll-section', { name: '메모 시험', controlledby: 'player-1' });
+characters.push(noRollSectionCharacter);
+['note_marker_a', 'note_marker_b', 'note_marker_c'].forEach((name, index) => {
+  attributeObjects.push(roll20Object(`no-roll-marker-${index}`, {
+    _characterid: noRollSectionCharacter.id, characterid: noRollSectionCharacter.id, name, current: '1', max: '',
+  }));
+});
+for (let row = 0; row < 5; row += 1) {
+  ['title', 'text'].forEach((field) => {
+    attributeObjects.push(roll20Object(`no-roll-row-${row}-${field}`, {
+      _characterid: noRollSectionCharacter.id, characterid: noRollSectionCharacter.id,
+      name: `repeating_notes_row${row}_${field}`, current: `${field}-${row}`, max: '',
+    }));
+  });
+}
+const noRollSectionInspection = helper.inspectContracts(noRollSectionCharacter.id);
+assert.strictEqual(noRollSectionInspection.status, 'matched');
+assert.strictEqual(noRollSectionInspection.match.score, 5);
+assert.strictEqual(noRollSectionInspection.match.ratio, 1);
+assert.strictEqual(helper.contractRolls(noRollSectionCharacter.id).length, 1);
+
+const prefixSectionContract = parseSheetContract(`
+  <input name="attr_prefix_marker_a"><input name="attr_prefix_marker_b"><input name="attr_prefix_marker_c">
+  <fieldset class="repeating_item">
+    <input name="attr_name"><input name="attr_value">
+    <button type="roll" name="roll_use" value="&{template:test} {{name=@{name}}} {{roll=[[@{value}]]}}">Item</button>
+  </fieldset>
+  <fieldset class="repeating_item_details">
+    <input name="attr_name"><input name="attr_value">
+    <button type="roll" name="roll_use" value="&{template:test} {{name=@{name}}} {{roll=[[@{value}]]}}">Detail</button>
+  </fieldset>
+`, { id: 'prefix-section-contract', name: '반복 섹션 접두사 계약' });
+helper.registerContract(prefixSectionContract);
+const prefixSectionCharacter = roll20Object('character-prefix-section', { name: '반복 접두사 시험', controlledby: 'player-1' });
+characters.push(prefixSectionCharacter);
+Object.entries({
+  prefix_marker_a: '1', prefix_marker_b: '1', prefix_marker_c: '1',
+  repeating_item_rowI_name: 'Sword', repeating_item_rowI_value: '45',
+  repeating_item_details_rowD_name: 'Gem', repeating_item_details_rowD_value: '60',
+}).forEach(([name, current], index) => {
+  attributeObjects.push(roll20Object(`prefix-section-attribute-${index}`, {
+    _characterid: prefixSectionCharacter.id, characterid: prefixSectionCharacter.id, name, current, max: '',
+  }));
+});
+assert.strictEqual(helper.inspectContracts(prefixSectionCharacter.id).status, 'matched');
+const prefixSectionRolls = helper.contractRolls(prefixSectionCharacter.id);
+assert.strictEqual(prefixSectionRolls.length, 2);
+assert(prefixSectionRolls.some((item) => item.row.id === 'rowI' && item.aliases.includes('Sword')));
+assert(prefixSectionRolls.some((item) => item.row.id === 'rowD' && item.aliases.includes('Gem')));
+assert(!prefixSectionRolls.some((item) => item.row.id === 'details_rowD'));
+
+const ambiguousContractBefore = sent.length;
+const ambiguousContract = helper.resolveContractAction(contractCharacter, '겹친판정', false);
+assert(ambiguousContract.handled && ambiguousContract.result.reason === 'conflict' && ambiguousContract.result.choices.length === 2);
+assert.strictEqual(sent.length, ambiguousContractBefore, '모호한 계약 항목을 임의 실행하면 안 됩니다.');
+const nameModeConflict = helper.resolveContractAction(contractCharacter, '이름충돌', false);
+assert(nameModeConflict.handled && nameModeConflict.result.reason === 'conflict' && nameModeConflict.result.choices.length === 2,
+  '원본 롤 이름과 다른 롤의 모드명이 겹치면 선택 버튼을 보여야 합니다.');
+const tamperedContract = helper.executeContract(contractCharacterId, '다른-계약', parsedCheck.roll.key, '', '', false, '');
+assert.strictEqual(tamperedContract.ok, false);
+assert.strictEqual(sent.length, ambiguousContractBefore, '변조된 계약 선택을 실행하면 안 됩니다.');
 
 assert.strictEqual(helper.roll(characterId, '관찰력', { mode: '보너스1' }).ok, true);
 let last = sent.filter((item) => item.content).at(-1).content;
@@ -972,6 +1321,12 @@ assert.strictEqual(helper.rollFree(characterId, false).ok, true);
 last = sent.filter((item) => item.content).at(-1).content;
 assert(last.includes('&{template:cocOther}'));
 assert(last.includes('{{subject=2d6+3}} {{free_roll=[[2d6+3]]}}'));
+assert(runBangBang('!!r 4d6+2').some((item) => item.content && item.content.includes('{{subject=4d6+2}} {{free_roll=[[4d6+2]]}}')));
+['!!r', '!!r 1d6+', '!!r 1dd6', '!!r (', '!!r 1d6]] {{subject=침입'].forEach((command) => {
+  const output = runBangBang(command);
+  assert(output.some((item) => item.who === '시트 헬퍼'), `${command} 오류 안내가 없습니다.`);
+  assert(!output.some((item) => item.content && item.content.includes('kib_sheet_result=')), `${command}가 굴림을 보내면 안 됩니다.`);
+});
 assert.strictEqual(helper.rollMadness(characterId, '', false).ok, true);
 events['chat:message']({ type: 'api', content: '!!관찰력 보너스1', playerid: 'player-1', who: '저널 이름' });
 last = sent.filter((item) => item.content).at(-1).content;

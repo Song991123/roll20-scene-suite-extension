@@ -937,19 +937,16 @@ var KIBScene = KIBScene || {};
   }
 
   function sheetHelpSection() {
-    var setup = setupSteps([
+    var setupItems = [
       '화자를 사용할 캐릭터로 선택하거나 토큰 하나를 선택',
-      '<code>!!관리</code>에서 인식된 판정과 시트 항목 확인',
-      '08 컷인을 함께 쓰면 모든 판정 결과 또는 특정 항목에 컷인 연결',
-    ]);
+      '<code>!!관리</code>에서 계약 매칭과 원본 롤 버튼 확인',
+    ];
+    if (hasPlugin('cutin')) setupItems.push('08 컷인에서 지원되는 판정 결과 또는 특정 항목에 컷인 연결');
+    var setup = setupSteps(setupItems);
     var rows =
-      commandRow('!!관찰력', '시트 값으로 판정') +
-      commandRow('!!비밀 관찰력', 'GM에게 판정') +
-      commandRow('!!관찰력 보너스1', '보너스 주사위 지정') +
-      commandRow('!!무기명', '시트 무기 사용') +
-      commandRow(':hp+3', '일반 채팅에서 수치 변경') +
-      commandRow('!!광기실시간', '광기 발작 실시간') +
-      commandRow('!!광기요약', '광기 발작 요약') +
+      commandRow('!!원본 버튼 이름', '현재 시트의 롤 실행') +
+      commandRow('!!비밀 원본 버튼 이름', '현재 시트의 롤을 GM에게 실행') +
+      commandRow('!!원본 버튼 이름 선택지 이름', '현재 시트의 선택 모드로 실행') +
       commandRow('!!상태', '인식된 항목 확인');
     return moduleHelpSection(
       'sheet',

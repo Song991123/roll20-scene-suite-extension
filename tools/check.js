@@ -9,22 +9,25 @@ const root = path.resolve(__dirname, '..');
 const publicRoot = path.join(root, 'public');
 const scriptsRoot = path.join(publicRoot, 'scripts');
 const sourcesFile = path.join(publicRoot, 'assets', 'sources.js');
-const scripts = Array.from({ length: 10 }, (_, index) =>
+const contractParserFile = path.join(publicRoot, 'assets', 'sheet-contract-parser.js');
+const scripts = Array.from({ length: 11 }, (_, index) =>
   fs
     .readdirSync(scriptsRoot)
     .find((name) => name.startsWith(`${String(index).padStart(2, '0')}_`)),
 );
 
-assert(scripts.every(Boolean), '00부터 09까지 스크립트가 모두 있어야 합니다.');
+assert(scripts.every(Boolean), '00부터 10까지 스크립트가 모두 있어야 합니다.');
 scripts.forEach((name) =>
   execFileSync(process.execPath, ['--check', path.join(scriptsRoot, name)]),
 );
+execFileSync(process.execPath, ['--check', contractParserFile]);
 
 const publicTextFiles = [
   path.join(root, 'README.md'),
   path.join(root, 'THIRD_PARTY_NOTICE.md'),
   path.join(publicRoot, 'index.html'),
   path.join(publicRoot, 'assets', 'app.js'),
+  contractParserFile,
   path.join(publicRoot, 'assets', 'styles.css'),
 ];
 const publicText = publicTextFiles
@@ -68,6 +71,9 @@ const scriptText = scripts
   .join('\n');
 const releaseText = `${publicText}\n${scriptText}`;
 new Function(scriptText);
+execFileSync(process.execPath, [path.join(root, 'tools', 'check-sheet-contract.js')], {
+  stdio: 'inherit',
+});
 
 const vdRuntime = {
   state: { KIBSceneVD: { config: { font_family: 'Candal' } } },
@@ -772,8 +778,8 @@ assert(
   '기능 브랜치의 08은 10 시트 헬퍼 결과를 연결해야 합니다.',
 );
 assert(
-  appText.includes('각종 여러 시트 호환은 아직 미개발. 추후 업뎃 예정'),
-  '컷인 시트 호환 예정 안내가 필요합니다.',
+  appText.includes('10번과 함께 쓰면 지원되는 판정 결과 연결'),
+  '컷인과 시트 헬퍼의 선택적 연결 안내가 필요합니다.',
 );
 assert(
   cutinText.includes('state.KIBSceneCutin.overlayImages[pageId] = imgsrc;') &&
@@ -807,6 +813,37 @@ assert(
     appText.includes('<summary>코드 보기</summary>') &&
     appText.includes('data-setting-key'),
   '각 코드 안에 세팅법, 설정, 코드 보기가 필요합니다.',
+);
+assert(
+  indexText.includes('assets/sheet-contract-parser.js') &&
+    indexText.indexOf('assets/sheet-contract-parser.js') <
+      indexText.indexOf('assets/app.js'),
+  '시트 계약 분석기는 설치 페이지 코드보다 먼저 불러와야 합니다.',
+);
+assert(
+  appText.includes("id: '10'") &&
+    appText.includes("file: '10_sheet_helper.js'") &&
+    appText.includes("sheet: '10'"),
+  '10 시트 헬퍼를 설치기에 노출하고 00 기능 설정과 연결해야 합니다.',
+);
+assert(
+  appText.includes('id="sheet-contract-file" type="file" accept=".html,.htm,.txt,text/html,text/plain"') &&
+    appText.includes('서버로 전송하지 않습니다.') &&
+    appText.includes('role="status" aria-live="polite"') &&
+    appText.includes('window.KIBSheetContractParser'),
+  '10 설정 카드에는 로컬 HTML 선택과 접근 가능한 처리 상태가 필요합니다.',
+);
+assert(
+  appText.includes("window.crypto.subtle.digest('SHA-256', bytes)") &&
+    appText.includes("downloadText(sheetContractSource(contract), 'sheet_contract.js')"),
+  '시트 계약에는 원본 SHA-256을 넣고 별도 파일로 내려받아야 합니다.',
+);
+assert(
+  appText.includes(".replace(/</g, '\\\\u003c')") &&
+    appText.includes('var KIBSheetContracts = KIBSheetContracts || [];') &&
+    appText.includes("typeof KIBSheetHelper.registerContract === 'function'") &&
+    !appText.includes("sourceCache.set('sheet_contract.js'"),
+  '시트 계약은 안전한 JSON으로 직렬화하고 통합 코드와 분리해야 합니다.',
 );
 assert(
   !/(?:define:|\/define:|on\.ready|\/on\.|✅|option:)/.test(scriptText),

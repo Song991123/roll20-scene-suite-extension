@@ -144,7 +144,7 @@ const MODULES = [
     id: '08',
     file: '08_cutin_director.js',
     title: '컷인',
-    description: '이미지와 핸드아웃 표지를 화면 위에 표시(각종 여러 시트 호환은 아직 미개발. 추후 업뎃 예정)',
+    description: '이미지와 핸드아웃 표지를 화면 위에 표시(10번과 함께 쓰면 지원되는 판정 결과 연결)',
     setup: ['cutin 덱을 만들고 카드 앞면에 컷인 이미지를 넣습니다.', '채팅에 !컷인 관리를 입력합니다.', '지정 영역을 쓸 때 GM 레이어에 cutin_area를 놓습니다.', '어두운 배경을 쓸 때 GM 레이어에 cutin_overlay를 놓습니다. 이미지를 저장한 토큰은 자동으로 사라집니다.'],
     settings: [
       { id: 'command', group: '기본', label: '명령어', type: 'text', value: '!컷인', codeKey: 'command' },
@@ -172,6 +172,25 @@ const MODULES = [
       { id: 'character', group: '변경 대상', label: '캐릭터 시트 이미지', type: 'checkbox', value: true, codeKey: 'update_character_avatar' },
       { id: 'token', group: '변경 대상', label: '맵 토큰 이미지', type: 'checkbox', value: false, codeKey: 'update_map_tokens' },
       { id: 'vd', group: '변경 대상', label: '비주얼 노벨 표정', type: 'checkbox', value: true, codeKey: 'update_visual_dialogue' },
+    ],
+  },
+  {
+    id: '10',
+    file: '10_sheet_helper.js',
+    title: '시트 헬퍼',
+    description: '공개 또는 커스텀 시트 HTML에서 원본 롤을 읽어 실행(인식 가능한 CoC 7판 성공 단계는 08 컷인 연결)',
+    setup: [
+      '현재 사용하는 Roll20 시트 HTML을 선택하고 sheet_contract.js를 받습니다.',
+      '이 코드와 sheet_contract.js를 Roll20 Mod Scripts에 각각 넣고 저장합니다.',
+      '채팅에 !!관리를 입력해 인식된 항목을 확인합니다.',
+      '시트 HTML을 바꿨다면 같은 시트의 이전 계약과 새 계약을 동시에 두지 말고 기존 sheet_contract.js 탭 내용을 교체합니다.',
+    ],
+    contractBuilder: true,
+    settings: [
+      { id: 'legacyCommands', group: '명령어', label: '!! 간편 명령어 사용', type: 'checkbox', value: true, codeKey: 'legacy_commands' },
+      { id: 'manager', group: '핸드아웃', label: 'GM 관리 핸드아웃 이름', type: 'text', value: '[GM] 시트 헬퍼 관리', codeKey: 'manager_name' },
+      { id: 'playerHelp', group: '핸드아웃', label: 'PL 도움말 핸드아웃 이름', type: 'text', value: '[PL] 시트 헬퍼 사용법', codeKey: 'player_help_name' },
+      { id: 'refreshDelay', group: '갱신', label: '변경 감지 대기(ms)', type: 'number', value: 700, min: 0, codeKey: 'refresh_delay' },
     ],
   },
 ];
@@ -263,7 +282,26 @@ function settingsHtml(module) {
     <fieldset>
       <legend>${escapeHtml(group)}</legend>
       <div class="setting-grid">${settings.map((setting) => settingHtml(module, setting)).join('')}</div>
-    </fieldset>`).join('');
+    </fieldset>`).join('') + contractBuilderHtml(module);
+}
+
+function contractBuilderHtml(module) {
+  if (!module.contractBuilder) return '';
+  return `
+    <fieldset>
+      <legend>시트 연결 파일</legend>
+      <div class="setting-grid">
+        <label for="sheet-contract-file">
+          <span>Roll20 시트 HTML</span>
+          <input id="sheet-contract-file" type="file" accept=".html,.htm,.txt,text/html,text/plain">
+          <small>파일은 이 브라우저 안에서만 분석하며 서버로 전송하지 않습니다.</small>
+        </label>
+        <div>
+          <button type="button" id="download-sheet-contract" disabled>sheet_contract.js 받기</button>
+          <small id="sheet-contract-status" role="status" aria-live="polite">HTML 파일을 선택해 주세요.</small>
+        </div>
+      </div>
+    </fieldset>`;
 }
 
 function settingHtml(module, setting) {
@@ -334,7 +372,7 @@ function configuredSource(module, source) {
     source = replaceCodeValue(source, setting.codeKey, settingValue(module, setting), setting);
   });
   if (module.id === '00') {
-    const flags = { audio: '02', vd: '03', image: '04', type: '05', apng: '06', handout: '07', cutin: '08', avatar: '09' };
+    const flags = { audio: '02', vd: '03', image: '04', type: '05', apng: '06', handout: '07', cutin: '08', avatar: '09', sheet: '10' };
     Object.keys(flags).forEach((key) => {
       source = replaceCodeValue(source, key, selected.has(flags[key]), { type: 'checkbox' });
     });
@@ -415,18 +453,90 @@ async function downloadBundle() {
   setBusy(true, '파일 만드는 중');
   try {
     const bundle = await buildBundle();
-    const url = URL.createObjectURL(new Blob([bundle], { type: 'text/javascript;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'scene-suite-extension.js';
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadText(bundle, 'scene-suite-extension.js');
     buildStatus.textContent = '파일 받기 완료';
   } catch (error) {
     buildStatus.textContent = window.location.protocol === 'file:' ? '웹 주소로 연 설치 페이지에서 다시 시도' : error.message;
   } finally {
     setBusy(false);
   }
+}
+
+function downloadText(source, filename) {
+  const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function sha256(bytes) {
+  if (!window.crypto?.subtle)
+    throw new Error('SHA-256을 사용할 수 없습니다. HTTPS 설치 페이지에서 다시 시도해 주세요.');
+  const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function sheetContractSource(contract) {
+  const json = JSON.stringify(contract)
+    .replace(/</g, '\\u003c')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  return [
+    '/* Scene Suite sheet contract */',
+    'var KIBSheetContracts = KIBSheetContracts || [];',
+    `KIBSheetContracts.push(${json});`,
+    "if (typeof KIBSheetHelper !== 'undefined' && typeof KIBSheetHelper.registerContract === 'function') {",
+    '  KIBSheetHelper.registerContract(KIBSheetContracts[KIBSheetContracts.length - 1]);',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function bindSheetContractBuilder() {
+  const input = document.querySelector('#sheet-contract-file');
+  const button = document.querySelector('#download-sheet-contract');
+  const status = document.querySelector('#sheet-contract-status');
+  if (!input || !button || !status) return;
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    button.disabled = !file;
+    status.textContent = file ? `${file.name} 선택됨` : 'HTML 파일을 선택해 주세요.';
+  });
+  button.addEventListener('click', async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    button.disabled = true;
+    status.textContent = '시트 분석 중';
+    try {
+      if (file.size > 10 * 1024 * 1024)
+        throw new Error('10MB 이하의 시트 HTML을 선택해 주세요.');
+      const bytes = await file.arrayBuffer();
+      const html = new TextDecoder().decode(bytes);
+      if (!html.trim()) throw new Error('빈 HTML 파일은 사용할 수 없습니다.');
+      const parser = window.KIBSheetContractParser;
+      if (!parser || typeof parser.parseSheetContract !== 'function')
+        throw new Error('시트 분석기를 불러오지 못했습니다.');
+      const sourceHash = await sha256(bytes);
+      const name = file.name.replace(/\.[^.]+$/, '') || 'sheet';
+      const contract = parser.parseSheetContract(html, {
+        id: `sheet-${sourceHash.slice(0, 16)}`,
+        name,
+        sourceHash,
+      });
+      if (!contract.rolls.length && !contract.attributes.length)
+        throw new Error('시트 속성이나 주사위 버튼을 찾지 못했습니다.');
+      downloadText(sheetContractSource(contract), 'sheet_contract.js');
+      status.textContent = `완료: 속성 ${contract.attributes.length}개, 주사위 버튼 ${contract.rolls.length}개`;
+    } catch (error) {
+      status.textContent = error.message || '시트 연결 파일을 만들지 못했습니다.';
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
 
 function setBusy(busy, message) {
@@ -449,3 +559,4 @@ document.querySelector('#clear-selection').addEventListener('click', () => {
 copyButton.addEventListener('click', copyBundle);
 downloadButton.addEventListener('click', downloadBundle);
 renderModules();
+bindSheetContractBuilder();
