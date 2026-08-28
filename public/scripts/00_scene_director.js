@@ -603,19 +603,33 @@ var KIBScene = KIBScene || {};
   function narratorHelpSection() {
     var rows =
       commandRow('!... 대사', '줄을 차례대로 출력') +
+      commandRow('!,,, 다음 줄', '이전 항목에 줄바꿈으로 이어쓰기') +
+      commandRow('!. 동시에 출력할 줄', '직전 항목과 같은 차례에 출력') +
       commandRow(
         '!... 대사 @다음줄 1.2초',
         '이 줄만 다음 줄까지 1.2초 대기',
       ) +
+      (hasPlugin('apng') && hasPlugin('vd')
+        ? commandRow(
+            '!... @APNG 카드명|1회|영역|1.2초 @퇴장:전원 @다음줄 1.2초',
+            '연출만 실행하고 1.2초 뒤 다음 줄 출력',
+          )
+        : '') +
       commandRow('!,', '일시정지 / 다시 시작') +
       commandRow('!/', '전체 취소') +
-      commandRow('!... /as "홍길동" 대사 @웃음', '캐릭터 대사와 표정 변경') +
+      (hasPlugin('vd') || hasPlugin('avatar')
+        ? commandRow('!... /as "홍길동" 대사 @웃음', '캐릭터 대사와 표정 변경')
+        : commandRow('!... /as "홍길동" 대사', '캐릭터 대사')) +
       commandRow('!... /desc 설명', '강조 설명 출력') +
       commandRow('!... /emas "홍길동" 행동', '캐릭터 행동 출력');
-    var setup = setupSteps([
+    var setupItems = [
       '화자: <code>/as</code> 또는 <code>/emas</code> 이름과 캐릭터 저널 이름 일치',
-      '연출: 줄 끝에 <code>@오디오</code>, <code>@APNG</code> 입력',
-    ]);
+    ];
+    var cueNames = [];
+    if (hasPlugin('audio')) cueNames.push('<code>@오디오</code>');
+    if (hasPlugin('apng')) cueNames.push('<code>@APNG</code>');
+    if (cueNames.length) setupItems.push('연출: 줄 끝에 ' + cueNames.join(', ') + ' 입력');
+    var setup = setupSteps(setupItems);
     return moduleHelpSection(
       'narrator',
       '01 나레이터',
@@ -646,7 +660,7 @@ var KIBScene = KIBScene || {};
     var rows =
       commandRow('!오디오 재생|제목|반복|볼륨=30|페이드=2초', '페이드인 재생') +
       commandRow('!오디오 중지|제목|페이드=2초', '페이드아웃 후 중지') +
-      commandRow('!오디오 전체중지', '모든 음원과 예약 동작 중지') +
+      commandRow('!오디오 전체중지|페이드=3초', '모든 음원을 페이드아웃하고 예약 동작 중지') +
       commandRow(
         '!오디오 분류|자동',
         '제목 첫 이모지가 있는 음원을 BGM으로 분류',
@@ -760,8 +774,15 @@ var KIBScene = KIBScene || {};
         '!비주얼 설정|창구성|패널 하나 또는 분리',
         '창 사용 방식 변경',
       ) +
-      commandRow('!@웃음', '현재 캐릭터 표정 변경') +
+      commandRow('!@배경 장면명', '배경 전환') +
+      commandRow('!@웃음', '현재 화자 표정 변경') +
       commandRow('!@', '기본 표정으로 변경') +
+      (hasPlugin('narrator')
+        ? commandRow(
+            '!... /desc 지문 @박정선:불안 @박정수:기본',
+            '한 줄에서 여러 캐릭터 표정 변경',
+          )
+        : '') +
       commandRow('!비주얼 제외|추가|화자명', '해당 화자 숨김') +
       commandRow(
         '!비주얼 순서|맵시트등록',
@@ -939,15 +960,23 @@ var KIBScene = KIBScene || {};
   function sheetHelpSection() {
     var setupItems = [
       '화자를 사용할 캐릭터로 선택하거나 토큰 하나를 선택',
-      '<code>!!관리</code>에서 계약 매칭과 원본 롤 버튼 확인',
+      '<code>!!관리</code>에서 시트에서 인식한 굴림 확인',
     ];
     if (hasPlugin('cutin')) setupItems.push('08 컷인에서 지원되는 판정 결과 또는 특정 항목에 컷인 연결');
     var setup = setupSteps(setupItems);
     var rows =
-      commandRow('!!원본 버튼 이름', '현재 시트의 롤 실행') +
-      commandRow('!!비밀 원본 버튼 이름', '현재 시트의 롤을 GM에게 실행') +
-      commandRow('!!원본 버튼 이름 선택지 이름', '현재 시트의 선택 모드로 실행') +
-      commandRow('!!상태', '인식된 항목 확인');
+      commandRow('!!도움말', 'PL용 명령어와 GM용 명령어 확인') +
+      commandRow('!!굴릴항목이름', '현재 시트의 굴림 실행') +
+      commandRow('!!비밀 굴릴항목이름', '현재 시트의 굴림을 GM에게 실행') +
+      commandRow('!!굴릴항목이름 선택할이름', '현재 시트의 선택 방식으로 실행') +
+      commandRow('!!검색 이름', '항목과 현재 수치 검색') +
+      commandRow('!!상태', 'PL용 현재 캐릭터의 굴림과 수치 확인') +
+      commandRow('!!점검', 'GM용 시트 인식 점검') +
+      commandRow('!!화자 이름', 'GM용 채팅 화자 전환') +
+      commandRow('!!화자 본인', 'GM용 내 화자로 복귀') +
+      commandRow('!!명령대상 이름', 'GM용 시트 명령 대상 변경') +
+      commandRow('!!추적 공개', 'GM용 수치 변화 표시 설정') +
+      commandRow('!!GM전용추적 켜기', 'GM 전용 캐릭터 변화 표시');
     return moduleHelpSection(
       'sheet',
       '10 시트 헬퍼',
@@ -965,8 +994,15 @@ var KIBScene = KIBScene || {};
     var rows =
       commandRow('!컷인 재생|카드명|3초', '카드 컷인 표시') +
       commandRow('!컷인 핸드아웃|자료명|3초', '핸드아웃 표지 컷인 표시') +
+      commandRow('!컷인 URL|Roll20이미지주소|3초', '주소의 이미지 컷인 표시') +
       commandRow('!컷인 중지', '현재 컷인과 연결 음원 중지') +
-      commandRow('!... 대사 @컷인 카드명|3초', '나레이터 줄과 함께 표시') +
+      (hasPlugin('narrator')
+        ? commandRow('!... 대사 @컷인 카드명|3초', '나레이터 줄과 함께 표시') +
+          commandRow('!... 대사 @컷인 카드명|줄=3', '현재 줄부터 나레이터 3줄 동안 표시')
+        : '') +
+      (hasPlugin('sheet')
+        ? commandRow('!컷인 시트연결목록', '시트 판정과 연결한 컷인 확인')
+        : '') +
       commandRow(
         '!컷인 대사추가|컷인명|문구1,문구2',
         '정확히 같은 대사와 자동 연결',
@@ -987,7 +1023,7 @@ var KIBScene = KIBScene || {};
       '덱: <code>cutin</code>, 카드 앞면에 컷인 이미지 등록',
       '그룹: <code>다이스-성공</code>, <code>다이스-실패</code>는 <code>다이스</code> 크기 공유',
       '표시 영역(선택): GM 레이어 <code>cutin_area</code>',
-      '배경(선택): 맵 전체 크기의 GM 레이어 <code>cutin_overlay</code>',
+      '배경(선택): GM 레이어에 <code>cutin_overlay</code>를 한 번 배치하면 이미지 저장 후 안내 토큰 자동 제거',
       '핸드아웃 표지 크기: 07 핸드아웃 관리에서 등록',
     ]);
     return moduleHelpSection(

@@ -737,6 +737,37 @@ assert(
     !sceneDirectorText.includes('처음 세팅'),
   '사용법 핸드아웃의 세팅 용어를 통일해야 합니다.',
 );
+[
+  '!,,, 다음 줄',
+  '!. 동시에 출력할 줄',
+  '@다음줄 1.2초',
+  '!@배경 장면명',
+  '@박정선:불안 @박정수:기본',
+  '!컷인 URL|Roll20이미지주소|3초',
+  '@컷인 카드명|줄=3',
+  '!!도움말',
+  '!!검색 이름',
+  '!!점검',
+].forEach((command) =>
+  assert(
+    sceneDirectorText.includes(command),
+    `00 통합 도움말에 확장 명령이 필요합니다: ${command}`,
+  ),
+);
+assert(
+  sceneDirectorText.includes("hasPlugin('apng') && hasPlugin('vd')") &&
+    sceneDirectorText.includes("hasPlugin('vd') || hasPlugin('avatar')") &&
+    /hasPlugin\('narrator'\)[\s\S]+?@박정선:불안/.test(sceneDirectorText) &&
+    /hasPlugin\('narrator'\)[\s\S]+?@컷인 카드명\|줄=3/.test(sceneDirectorText),
+  '결합 기능의 도움말은 필요한 모듈이 설치됐을 때만 보여야 합니다.',
+);
+assert(
+  /hasPlugin\('audio'\)[\s\S]+?cueNames\.push\('<code>@오디오<\/code>'\)/.test(sceneDirectorText) &&
+    /hasPlugin\('apng'\)[\s\S]+?cueNames\.push\('<code>@APNG<\/code>'\)/.test(sceneDirectorText) &&
+    /ntHasPlugin\('audio'\)[\s\S]+?@오디오/.test(narratorText) &&
+    /ntHasPlugin\('cutin'\)[\s\S]+?@컷인/.test(narratorText),
+  '선택 연출 명령은 해당 모듈이 있을 때만 도움말에 보여야 합니다.',
+);
 assert(
   appText.includes("codeKey: 'dialogue_panel_mode'") &&
     sceneDirectorText.includes('!비주얼 설정|창구성|') &&
@@ -828,6 +859,9 @@ assert(
 );
 assert(
   appText.includes('id="sheet-contract-file" type="file" accept=".html,.htm,.txt,text/html,text/plain"') &&
+    appText.includes('id="sheet-contract-css" type="file" accept=".css,text/css,text/plain"') &&
+    appText.includes('id="sheet-contract-default-translation" type="file" accept=".json,application/json"') &&
+    appText.includes('id="sheet-contract-translations" type="file" accept=".json,application/json" multiple') &&
     appText.includes('서버로 전송하지 않습니다.') &&
     appText.includes('role="status" aria-live="polite"') &&
     appText.includes('window.KIBSheetContractParser'),
@@ -835,6 +869,12 @@ assert(
 );
 assert(
   appText.includes("window.crypto.subtle.digest('SHA-256', bytes)") &&
+    appText.includes("hashParts.push(new TextEncoder().encode(`\\0${relative}\\0`)") &&
+    appText.includes("hashParts.push(new TextEncoder().encode('\\0stylesheet\\0')") &&
+    appText.indexOf("hashParts.push(new TextEncoder().encode(`\\0${relative}\\0`)") <
+      appText.indexOf("hashParts.push(new TextEncoder().encode('\\0stylesheet\\0')") &&
+    appText.includes('translations,') &&
+    appText.includes('css: stylesheet,') &&
     appText.includes("downloadText(sheetContractSource(contract), 'sheet_contract.js')"),
   '시트 계약에는 원본 SHA-256을 넣고 별도 파일로 내려받아야 합니다.',
 );

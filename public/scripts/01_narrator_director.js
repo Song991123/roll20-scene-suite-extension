@@ -57,6 +57,8 @@ on('ready', function () {
     extract: ntExtractCues,
     help: [
       '<code>!... 대사</code> 차례대로 출력',
+      '<code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 이어쓰기',
+      '<code>!. 동시에 출력할 줄</code> 직전 항목과 같은 차례에 출력',
       '<code>!... 대사 @다음줄 1.2초</code> 이 줄만 다음 줄까지 1.2초 대기',
       '<code>!,</code> 일시정지 또는 다시 시작',
       '<code>!/</code> 전체 취소',
@@ -73,9 +75,18 @@ on('chat:message', function (msg) {
       /^!나레이터(?:\s+(?:help|도움말))?$/i.test(String(msg.content || '')) &&
       playerIsGM(msg.playerid)
     ) {
+      var cueHelp = [];
+      if (ntHasPlugin('vd') || ntHasPlugin('avatar'))
+        cueHelp.push('<code>@표정</code>', '<code>@캐릭터명:표정</code>');
+      if (ntHasPlugin('audio')) cueHelp.push('<code>@오디오</code>');
+      if (ntHasPlugin('vd')) cueHelp.push('<code>@비주얼</code>');
+      if (ntHasPlugin('apng')) cueHelp.push('<code>@APNG</code>');
+      if (ntHasPlugin('handout')) cueHelp.push('<code>@핸드아웃</code>');
+      if (ntHasPlugin('cutin')) cueHelp.push('<code>@컷인</code>');
       sendChat(
         '나레이터',
-        '/w GM <b>나레이터 도움말</b><br><code>!... 대사</code> 차례대로 출력<br><code>!... 대사 @다음줄 1.2초</code> 이 줄만 다음 줄까지 1.2초 대기<br><code>!... /as "홍길동" 대사</code> 캐릭터 대사<br><code>!... /desc 설명</code> 강조문<br><code>!... /emas "홍길동" 행동</code> 행동문<br><code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 추가<br><code>!. 동시에 출력할 줄</code> 같은 차례에 함께 출력<br><code>!,</code> 일시정지 또는 다시 시작<br><code>!/</code> 전체 취소<br>줄 끝에 <code>@표정</code>, <code>@캐릭터명:표정</code>, <code>@오디오</code>, <code>@비주얼</code>, <code>@APNG</code>, <code>@핸드아웃</code>, <code>@컷인</code> 명령을 붙일 수 있습니다.',
+        '/w GM <b>나레이터 도움말</b><br><code>!... 대사</code> 차례대로 출력<br><code>!... 대사 @다음줄 1.2초</code> 이 줄만 다음 줄까지 1.2초 대기<br><code>!... /as "홍길동" 대사</code> 캐릭터 대사<br><code>!... /desc 설명</code> 강조문<br><code>!... /emas "홍길동" 행동</code> 행동문<br><code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 추가<br><code>!. 동시에 출력할 줄</code> 같은 차례에 함께 출력<br><code>!,</code> 일시정지 또는 다시 시작<br><code>!/</code> 전체 취소' +
+          (cueHelp.length ? '<br>줄 끝에 ' + cueHelp.join(', ') + ' 명령을 붙일 수 있습니다.' : ''),
         null,
         { noarchive: true },
       );

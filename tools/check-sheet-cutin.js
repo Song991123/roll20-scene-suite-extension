@@ -134,6 +134,9 @@ const runtime = {
             { key: 'coc7:광기실시간', label: '광기 발작 실시간', system: 'coc7', kind: 'madness' },
             { key: 'coc7:광기요약', label: '광기 발작 요약', system: 'coc7', kind: 'madness' },
             { key: 'coc7:명중부위', label: '명중부위', system: 'coc7', kind: 'hit-location' },
+            { key: 'sheet:translated', label: '사용자 판정', aliases: ['Custom Check'], system: 'sheet', kind: 'contract' },
+            { key: 'sheet:shared-a', label: '공유 판정 A', aliases: ['Shared Old'], system: 'sheet', kind: 'contract' },
+            { key: 'sheet:shared-b', label: '공유 판정 B', aliases: ['Shared Old'], system: 'sheet', kind: 'contract' },
           ];
         },
         refresh() {},
@@ -346,6 +349,88 @@ check(
   '비밀 판정은 컷인을 표시하지 않음',
   graphicCount() === beforeSecretGraphics && cueCalls.length === beforeSecretCueCalls,
   'secret 결과가 adapter.cue 또는 show를 실행했습니다.',
+);
+
+runtime.state.KIBSceneCutin.sheetRules['contractoldhash:alien|success'] = {
+  itemKey: 'contractoldhash:alien', itemLabel: 'Alien', outcome: 'success',
+  sourceKey: `card:${exactCard.id}`, duration: 4000,
+};
+listener({ ...basePayload, cutinKey: 'sheet:alien', label: 'Alien', outcome: 'success' });
+check(
+  '구형 해시 기반 시트 연결을 안정 키로 자동 이전',
+  activeGraphic() && activeGraphic().get('imgsrc') === exactCard.get('avatar') &&
+    runtime.state.KIBSceneCutin.sheetRules['sheet:alien|success'] &&
+    runtime.state.KIBSceneCutin.sheetRules['sheet:alien|success'].itemKey === 'sheet:alien' &&
+    !runtime.state.KIBSceneCutin.sheetRules['contractoldhash:alien|success'],
+  '기존 시트 컷인 연결이 재생되지 않거나 새 안정 키로 이전되지 않았습니다.',
+);
+runtime.state.KIBSceneCutin.sheetRules['contractnewhash:alien|success'] = {
+  itemKey: 'contractnewhash:alien', itemLabel: 'Alien old', outcome: 'success',
+  sourceKey: `card:${exactCard.id}`, duration: 4000,
+};
+runtime.state.KIBSceneCutin.sheetRules['sheet:alien|success'] = {
+  itemKey: 'sheet:alien', itemLabel: 'Alien new', outcome: 'success',
+  sourceKey: `card:${globalExactCard.id}`, duration: 4000,
+};
+listener({ ...basePayload, cutinKey: 'sheet:alien', label: 'Alien', outcome: 'success' });
+check(
+  '새 안정 키가 남은 구형 키보다 우선',
+  activeGraphic() && activeGraphic().get('imgsrc') === globalExactCard.get('avatar') &&
+    runtime.state.KIBSceneCutin.sheetRules['contractnewhash:alien|success'],
+  '새 연결이 있는데 구형 해시 연결을 다시 가져오면 안 됩니다.',
+);
+runtime.state.KIBSceneCutin.sheetRules['sheet:Custom%20Check|hard'] = {
+  itemKey: 'sheet:Custom%20Check', itemLabel: 'Custom Check', outcome: 'hard',
+  sourceKey: `card:${exactCard.id}`, duration: 4000,
+};
+listener({
+  ...basePayload,
+  cutinKey: 'sheet:translated',
+  label: '사용자 판정',
+  aliases: ['Custom Check'],
+  outcome: 'hard',
+});
+check(
+  '번역 전 label 기반 시트 연결을 현재 롤 키로 이전',
+  activeGraphic() && activeGraphic().get('imgsrc') === exactCard.get('avatar') &&
+    runtime.state.KIBSceneCutin.sheetRules['sheet:translated|hard'] &&
+    runtime.state.KIBSceneCutin.sheetRules['sheet:translated|hard'].itemLabel === '사용자 판정' &&
+    !runtime.state.KIBSceneCutin.sheetRules['sheet:Custom%20Check|hard'],
+  '이전 표시 이름이 aliases에 있는데도 안정 키로 이전되지 않았습니다.',
+);
+runtime.state.KIBSceneCutin.sheetRules['contract-a:Shared%20Old|extreme'] = {
+  itemKey: 'contract-a:Shared%20Old', itemLabel: 'Shared Old', outcome: 'extreme',
+  sourceKey: `card:${exactCard.id}`, duration: 4000,
+};
+runtime.state.KIBSceneCutin.sheetRules['contract-b:Shared%20Old|extreme'] = {
+  itemKey: 'contract-b:Shared%20Old', itemLabel: 'Shared Old', outcome: 'extreme',
+  sourceKey: `card:${genericCard.id}`, duration: 4000,
+};
+listener({
+  ...basePayload,
+  cutinKey: 'sheet:shared-a',
+  label: '공유 판정 A',
+  aliases: ['Shared Old'],
+  outcome: 'extreme',
+});
+check(
+  '모호한 구형 시트 연결은 임의 이전하지 않음',
+  activeGraphic() && activeGraphic().get('imgsrc') === globalRollCard.get('avatar') &&
+    runtime.state.KIBSceneCutin.sheetRules['contract-a:Shared%20Old|extreme'] &&
+    runtime.state.KIBSceneCutin.sheetRules['contract-b:Shared%20Old|extreme'] &&
+    !runtime.state.KIBSceneCutin.sheetRules['sheet:shared-a|extreme'],
+  '후보 또는 현재 항목이 모호한 구형 연결을 한 항목에 임의로 옮겼습니다.',
+);
+runtime.state.KIBSceneCutin.sheetRules['contractoldhash:관찰력|failure'] = {
+  itemKey: 'contractoldhash:관찰력', itemLabel: '관찰력', outcome: 'failure',
+  sourceKey: `card:${exactCard.id}`, duration: 4000,
+};
+listener({ ...basePayload, outcome: 'failure' });
+check(
+  'CoC 고정 키는 구형 시트 키 이전 대상에서 제외',
+  activeGraphic() && activeGraphic().get('imgsrc') === globalRollCard.get('avatar') &&
+    runtime.state.KIBSceneCutin.sheetRules['contractoldhash:관찰력|failure'],
+  'coc7 연결이 일반 시트의 구형 키를 잘못 가져왔습니다.',
 );
 
 (events['chat:message'] || []).forEach((callback) => callback({

@@ -1347,10 +1347,13 @@ on('ready', function () {
       events: { 'expression:changed': vdApplyExternalExpression },
       status: vdPluginStatus,
       help: [
-        '<code>@비주얼 background 배경카드명</code>',
-        '<code>@비주얼 캐릭터:표정</code>',
-        '<code>@비주얼 exit:캐릭터</code>',
-      ],
+        '<code>!@배경 장면명</code> 배경 전환',
+        '<code>!@표정명</code> 현재 화자 표정 변경',
+        KIBScene.adapters.narrator
+          ? '<code>!... /desc 지문 @박정선:불안 @박정수:기본</code> 여러 캐릭터 표정 변경'
+          : '',
+        '<code>!@퇴장:캐릭터명</code> 캐릭터 퇴장',
+      ].filter(Boolean),
     };
     if (typeof KIBScene.register === 'function')
       KIBScene.register('vd', adapter);

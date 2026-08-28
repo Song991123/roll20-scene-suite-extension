@@ -13,10 +13,25 @@ const contractFixture = parseSheetContract(`
   <input name="attr_contract_marker" value="fixture">
   <input name="attr_character_name">
   <input name="attr_skill_value">
-  <select name="attr_bonus_mode"><option value="0">기본</option><option value="10">보너스 개 1</option></select>
-  <button type="roll" value="&{template:fixture} {{character_name=@{character_name}}} {{subject=정밀 관찰}} {{roll=[[@{skill_value}+@{bonus_mode}]]}}"></button>
-  <input name="attr_free_expression" value="1d6">
+  <input name="attr_nested_value"><input name="attr_nested_mod">
+  <input name="attr_cycle_a"><input name="attr_cycle_b">
+  <input name="attr_external_ref">
+  <div class="max-control">
+    <select name="attr_max_value"><option value="5">현재</option><option value="99">임시</option></select>
+    <button type="roll" value="&{template:fixture} {{subject=최대 식}} {{current=@{max_value}}} {{roll=[[@{max_value|max}]]}}"></button>
+  </div>
+  <div class="bonus-control">
+    <select name="attr_bonus_mode"><option value="0">기본</option><option value="10">보너스 개 1</option></select>
+    <button type="roll" value="&{template:fixture} {{character_name=@{character_name}}} {{subject=정밀 관찰}} {{roll=[[@{skill_value}+@{bonus_mode}]]}}"></button>
+  </div>
+  <select name="attr_family"><option value="0">가족 기본</option><option value="5">가족 추가</option></select>
+  <button type="roll" value="&{template:fixture} {{subject=중첩 식}} {{roll=[[@{nested_value}]]}}"></button>
+  <button type="roll" value="&{template:fixture} {{subject=순환 식}} {{roll=[[@{cycle_a}]]}}"></button>
+  <button type="roll" value="&{template:fixture} {{subject=외부 참조}} {{value=@{external_ref}}}"></button>
+  <input type="text" name="attr_free_expression" value="1d6">
   <button type="roll" value="&{template:fixture} {{character_name=@{character_name}}} {{subject=계약 자유 주사위}} {{formula=@{free_expression}}} {{roll=[[@{free_expression}]]}}"></button>
+  <input type="number" name="attr_ordinary_value" value="55">
+  <button type="roll" value="&{template:fixture} {{subject=일반 수치 판정}} {{target=@{ordinary_value}}} {{roll=[[@{ordinary_value}]]}}"></button>
   <button type="roll" value="&{template:fixture} {{subject=질의 판정}} {{roll=[[?{대상|현재,@{skill_value}|고정,20}]]}}"></button>
   <button type="roll" value="&{template:fixture} {{subject=Double}} {{roll=[[?{Difficulty|Easy,1|Hard,2}+?{Size|Small,10|Large,20}]]}}"></button>
   <button type="roll" value="&{template:fixture} {{subject=Twin}} {{roll=[[?{Pick|A,1|B,2}+?{Pick|A,1|B,2}]]}}"></button>
@@ -28,6 +43,20 @@ const contractFixture = parseSheetContract(`
   <button type="roll" value="&{template:fixture} {{subject=겹친 판정}} {{roll=[[1d20]]}}"></button>
   <button type="roll" value="&{template:fixture} {{subject=이름 충돌}} {{roll=[[1d12]]}}"></button>
   <button type="roll" value="&{template:fixture} {{subject=다른 롤}} {{roll=[[?{자세|이름 충돌,1d6|기본,1d8}]]}}"></button>
+  <button type="roll" value="&{template:fixture} {{subject=우선 판정}} {{roll=[[1d100+@{family}]]}}"></button>
+  <button type="roll" value="&{template:fixture} {{subject=우선 판정}} {{roll=[[1d100+?{보너스 주사위|1개,1|2개,2}+@{family}]]}}"></button>
+  <button type="roll" value="&{template:fixture} {{subject=우선 판정}} {{roll=[[1d100+?{패널티 주사위|1개,-1|2개,-2}+@{family}]]}}"></button>
+  <button type="roll" name="roll_kanji" value="&{template:fixture} {{subject=知覚}} {{roll=[[1d100]]}}">知覚</button>
+  <button type="roll" name="roll_year_madness" value="&{template:fixture} {{subject=1920년 광기}} {{roll=[[1d10]]}}"></button>
+  <button type="roll" name="roll_status" value="&{template:fixture} {{subject=상태}} {{roll=[[1d8]]}}"></button>
+  <button type="roll" name="roll_prefixed_check" value="&{template:fixture} {{subject=판정 정밀 관찰}} {{roll=[[1d4]]}}"></button>
+  <button type="roll" name="roll_observe_exact" value="&{template:fixture} {{subject=관찰력}} {{roll=[[1d6]]}}"></button>
+  <button type="roll" name="roll_prefixed_extended" value="&{template:fixture} {{subject=판정 관찰력 강화}} {{roll=[[1d10]]}}"></button>
+  <button type="roll" name="roll_numeric_label" value="&{template:fixture} {{subject=51}} {{roll=[[1d100]]}}">51</button>
+  <button type="roll" name="roll_long_dice_label" value="&{template:fixture} {{subject=자유 1d100}} {{roll=[[1d100]]}}"></button>
+  <button type="roll" name="roll_fire" value="&{template:fixture} {{subject=화염}} {{roll=[[1d6]]}}"></button>
+  <button type="roll" name="roll_fire_dice" value="&{template:fixture} {{subject=화염 주사위}} {{roll=[[1d8]]}}"></button>
+  <button type="roll" name="roll_translated" value="&{template:fixture} {{subject=번역 판정}} {{roll=[[1d6]]}}">Custom Check</button>
 `, { id: 'fixture-contract', name: '계약 시험 시트', sourceHash: 'fixture-v1' });
 
 function roll20Object(id, values) {
@@ -230,7 +259,9 @@ let attributeObjects = Object.entries({ ...enteredValues, ...attributeValues }).
   }),
 );
 Object.entries({
-  contract_marker: 'fixture', character_name: '계약 탐사자', skill_value: '55', bonus_mode: '0', free_expression: '1d6', appraise: '55',
+  contract_marker: 'fixture', character_name: '계약 탐사자', skill_value: '55', bonus_mode: '0', family: '0', free_expression: '1d6', ordinary_value: '55', appraise: '55',
+  nested_value: 'floor(@{nested_mod})', nested_mod: '42', cycle_a: '@{cycle_b}', cycle_b: '@{cycle_a}', external_ref: '@{victim|secret}',
+  max_value: '5',
   hp: '6', hp_max: '12', san: '30',
   defense_name_02: '계약에 없는 방어구', defense_pice_02: '몸통', defense_value_02: '1', defense_desc_02: '구형 스캔 오염 검사용',
   repeating_weapon_rowZ_weapon_name: '쇠파이프', repeating_weapon_rowZ_weapon_value: '45',
@@ -243,6 +274,8 @@ Object.entries({
     max: '',
   }));
 });
+attributeObjects.find((item) => item.get('_characterid') === contractCharacterId && item.get('name') === 'max_value')
+  .set('max', 'floor(@{nested_mod})');
 Object.entries({
   showskills: '2', character_name: '공개 시트 탐사자', dice_type: '0', toggledr: '1', dice_roll: '1d100',
   pulp_bomtoggle: '0', mixedbom: '0', current_mental_condition: '안정', phobias_manias: '없음',
@@ -523,8 +556,12 @@ assert.strictEqual(manager.get('inplayerjournals'), '');
 const playerHelp = created.find((item) => item.get('name') === '[PL] 시트 헬퍼 사용법');
 assert(playerHelp, 'PL 사용법 핸드아웃을 만들지 못했습니다.');
 assert.strictEqual(playerHelp.get('inplayerjournals'), 'all');
-assert(playerHelp.get('notes').includes('!!원본 버튼 이름'));
-assert(playerHelp.get('notes').includes('!!원본 버튼 이름 원본 선택지 이름'));
+assert(playerHelp.get('notes').includes('!!굴릴항목이름'));
+assert(playerHelp.get('notes').includes('!!굴릴항목이름 선택할이름'));
+assert(playerHelp.get('notes').includes('!!검색 이름'));
+assert(playerHelp.get('notes').includes('내 상태 보기'));
+assert(playerHelp.get('notes').includes('<table'));
+assert(!playerHelp.get('notes').includes('원본 시트 계약'));
 assert(playerHelp.get('notes').includes('!!광기실시간'));
 assert(playerHelp.get('notes').includes('!!광기요약'));
 assert(!playerHelp.get('notes').includes('!!일시적광기'));
@@ -547,9 +584,18 @@ assert(runBangBang('!!철제 투구').some((item) => item.content && item.conten
 assert(runBangBang('!!비밀 관찰력').some((item) => item.content && item.content.indexOf('/w gm ') === 0));
 assert(runBangBang('!!판정관찰력 보너스1').some((item) => item.content && item.content.includes('{{subject=관찰력}}') && item.content.includes('{{dice_type=[[1]]}}')));
 const statusMessages = runBangBang('!!상태');
-assert(statusMessages.some((item) => item.content && item.content.includes('광기 관련 기록') && item.content.includes('어둠 공포증')));
-assert(statusMessages.some((item) => item.content && item.content.includes('&#64;{cthulhu_mythos}')));
-assert(!statusMessages.some((item) => item.content && item.content.includes('@{cthulhu_mythos}')));
+assert(statusMessages.some((item) => item.content && item.content.includes('굴릴 항목') && item.content.includes('관찰력')));
+assert(statusMessages.some((item) => item.content && item.content.includes('기록') && item.content.includes('어둠 공포증')));
+assert(!statusMessages.some((item) => item.content && (item.content.includes('@{') || item.content.includes('&#64;{'))));
+assert(statusMessages.some((item) => item.content && item.content.includes('최대 이성') && item.content.includes(`<b>${99 - Number(defaults.cthulhu_mythos)}</b>`)));
+const searchMessages = runBangBang('!!검색 관찰');
+assert(searchMessages.some((item) => item.content && item.content.includes('관찰력') && item.content.includes('현재 55')));
+assert(searchMessages.some((item) => item.content && item.content.includes('background:#111') && item.content.includes('굴리기')));
+const playerInspection = runBangBang('!!점검');
+assert(playerInspection.some((item) => item.content && item.content.includes('GM 전용 명령입니다.')));
+const gmInspectionBefore = sent.length;
+events['chat:message']({ type: 'api', content: '!!점검', playerid: 'gm', who: '저널 이름 (GM)' });
+assert(sent.slice(gmInspectionBefore).some((item) => item.content && item.content.includes('GM 인식 점검') && item.content.includes('확인할 항목')));
 const madnessNote = runtime.createObj('attribute', {
   _characterid: characterId, characterid: characterId, name: 'phobias_manias', current: '폐소공포증', max: '',
 });
@@ -633,19 +679,42 @@ assert(parsedCheck, 'character_name보다 원본 시트의 정적 판정명이 �
 assert(parsedRepeating && parsedRepeating.label === '쇠파이프', '반복 행의 원본 이름을 판정명으로 사용해야 합니다.');
 const qualifiedRepeating = helper.qualifyContractMacro(contractCharacterId, parsedRepeating, null);
 assert.strictEqual(qualifiedRepeating.ok, true);
-assert(qualifiedRepeating.content.includes(`@{${contractCharacterId}|repeating_weapon_rowZ_weapon_value}`));
+assert(qualifiedRepeating.content.includes('{{roll=[[45]]}}'));
 
 const modeResult = helper.resolveContractAction(contractCharacter, '정밀관찰 보너스1', false);
 assert(modeResult.handled && modeResult.result.ok, '공백과 한국어 단위가 다른 모드 이름도 원본 선택지에 매칭되어야 합니다.');
 assert.strictEqual(modeResult.result.payload.modeLabel, '보너스 개 1');
-assert(sent.at(-1).content.includes(`{{roll=[[@{${contractCharacterId}|skill_value}+10]]}}`));
+assert(sent.at(-1).content.includes('{{roll=[[55+10]]}}'));
 const secretContract = helper.resolveContractAction(contractCharacter, '정밀관찰 보너스1', true);
 assert(secretContract.handled && secretContract.result.ok && sent.at(-1).content.startsWith('/w gm '));
 assert(helper.resolveContractAction(contractCharacter, '정밀관찰', false).result.ok, '선택형 속성은 현재 시트 값을 그대로 써야 합니다.');
+const nestedFormula = helper.resolveContractAction(contractCharacter, '중첩식', false);
+assert(nestedFormula.handled && nestedFormula.result.ok, '속성 안의 원본 시트 식도 실행할 수 있어야 합니다.');
+assert(sent.at(-1).content.includes('[[floor(42)]]'));
+assert(!sent.at(-1).content.includes('@{nested_'));
+const cyclicFormula = helper.resolveContractAction(contractCharacter, '순환식', false);
+assert(cyclicFormula.handled && !cyclicFormula.result.ok && cyclicFormula.result.error.includes('순환'), '순환 속성은 샌드박스를 멈추지 않고 거절해야 합니다.');
+const externalReference = helper.resolveContractAction(contractCharacter, '외부참조', false);
+assert(externalReference.handled && !externalReference.result.ok && externalReference.result.error.includes('현재 캐릭터 외'), '속성값에 숨은 다른 캐릭터 참조를 실행하면 안 됩니다.');
+const maxFormulaInstance = parsedContractRolls.find((item) => item.label === '최대 식');
+const maxFormula = helper.qualifyContractMacro(contractCharacterId, maxFormulaInstance, { overrides: { max_value: '99' } });
+assert(maxFormula.ok && maxFormula.content.includes('{{current=99}}') && maxFormula.content.includes('[[floor(42)]]'), JSON.stringify(maxFormula));
+for (let depth = 0; depth < 7; depth += 1) {
+  attributeObjects.push(roll20Object(`contract-explosion-${depth}`, {
+    _characterid: contractCharacterId, characterid: contractCharacterId, name: `explode_${depth}`,
+    current: depth === 6 ? '1' : Array(8).fill(`@{explode_${depth + 1}}`).join('+'), max: '',
+  }));
+}
+const expansionBomb = helper.qualifyContractMacro(contractCharacterId, {
+  contract: contractFixture,
+  roll: { key: 'expansion-bomb', raw: '&{template:fixture} {{roll=[[@{explode_0}]]}}' },
+  row: null,
+}, null);
+assert(!expansionBomb.ok && expansionBomb.error.includes('복잡'), '분기형 속성은 제한 안에서 즉시 거절해야 합니다.');
 const nestedQuery = helper.resolveContractAction(contractCharacter, '질의판정 현재', false);
 assert(nestedQuery.handled && nestedQuery.result.ok);
 assert(!sent.at(-1).content.includes('?{대상'));
-assert(sent.at(-1).content.includes(`@{${contractCharacterId}|skill_value}`));
+assert(sent.at(-1).content.includes('[[55]]'));
 const doubleQuery = helper.resolveContractAction(contractCharacter, 'Double Easy Large', false);
 assert(doubleQuery.handled && doubleQuery.result.ok);
 assert(!sent.at(-1).content.includes('?{') && sent.at(-1).content.includes('[[1+20]]'));
@@ -654,13 +723,54 @@ assert(twinQuery.handled && twinQuery.result.ok);
 assert(!sent.at(-1).content.includes('?{') && sent.at(-1).content.includes('[[1+2]]'));
 assert(runBangBang('!!r 4d6+2', '계약 탐사자').some((item) => item.content && item.content.includes('{{roll=[[4d6+2]]}}')));
 assert(!runBangBang('!!r 1d6]]', '계약 탐사자').some((item) => item.content && item.content.includes('kib_sheet_result=')));
+assert(!runBangBang('!!r 55', '계약 탐사자').some((item) => item.content && item.content.includes('kib_sheet_result=')),
+  '자유 주사위 명령은 상수만 있는 식을 실행하면 안 됩니다.');
+const ordinaryContractRoll = helper.contractRolls(contractCharacterId).find((item) => item.label === '일반 수치 판정');
+assert(ordinaryContractRoll && ordinaryContractRoll.roll.expressionRefs.length === 0,
+  '숫자 판정값을 그대로 굴리는 원본 롤을 !!r 식 입력 롤로 분류하면 안 됩니다.');
+const freeExpressionAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === contractCharacterId && item.get('name') === 'free_expression');
+freeExpressionAttribute.set('current', '55');
+const nonDiceExpression = runBangBang('!!r 2d6', '계약 탐사자');
+assert(nonDiceExpression.some((item) => item.who === '시트 헬퍼' && item.content.includes('굴릴 수 있는 항목이 없습니다')),
+  '현재 source 입력값이 주사위 식이 아니면 !!r 후보에서 제외해야 합니다.');
+assert(!nonDiceExpression.some((item) => item.content && item.content.includes('{{roll=[[2d6]]}}')));
+freeExpressionAttribute.set('current', '1d6');
+attributeObjects.push(roll20Object('contract-nested-dice', {
+  _characterid: contractCharacterId, characterid: contractCharacterId, name: 'nested_dice', current: '1d10', max: '',
+}));
+freeExpressionAttribute.set('current', '@{nested_dice}');
+assert(runBangBang('!!r 2d8', '계약 탐사자').some((item) => item.content && item.content.includes('{{roll=[[2d8]]}}')),
+  '다른 시트 입력값으로 주사위 식을 구성한 자유 굴림도 인식해야 합니다.');
+freeExpressionAttribute.set('current', '1d6');
 const noLegacyFallback = runBangBang('!!감정', '계약 탐사자');
-assert(noLegacyFallback.some((item) => item.who === '시트 헬퍼' && item.content.includes('원본 계약')));
+assert(noLegacyFallback.some((item) => item.who === '시트 헬퍼' && item.content.includes('현재 시트에서 감정 굴림을 찾지 못했습니다')));
 assert(!noLegacyFallback.some((item) => item.content && item.content.includes('kib_sheet_result=')), '계약 미매칭 롤을 기존 CoC 하드코딩으로 실행하면 안 됩니다.');
+assert(runBangBang('!!知覚', '계약 탐사자').some((item) => item.content && item.content.includes('{{subject=知覚}}')),
+  '원본 시트의 일본어 및 한자 라벨도 그대로 매칭해야 합니다.');
+assert(runBangBang('!!1920년 광기', '계약 탐사자').some((item) => item.content && item.content.includes('{{subject=1920년 광기}}')),
+  '숫자로 시작하는 원본 라벨을 일반 주사위 식으로 오인하면 안 됩니다.');
+assert(runBangBang('!!51', '계약 탐사자').some((item) => item.content && item.content.includes('{{subject=51}}')),
+  '숫자만 있는 원본 라벨도 일반 주사위 식보다 먼저 정확히 매칭해야 합니다.');
+const contractSearch = runBangBang('!!검색 정밀', '계약 탐사자');
+assert(contractSearch.some((item) => item.content && item.content.includes('정밀 관찰') && item.content.includes('현재 55')),
+  '검색은 특정 게임 이름을 하드코딩하지 않고 시트가 참조한 현재 수치를 보여야 합니다.');
+assert(contractSearch.some((item) => item.content && item.content.includes('background:#111') && item.content.includes('굴리기')));
+const contractDicePassBefore = sent.length;
+runBangBang('!!1d100', '계약 탐사자');
+assert.strictEqual(sent.length, contractDicePassBefore,
+  '주사위 식은 더 긴 원본 라벨에 부분일치시키지 말고 다른 주사위 스크립트로 넘겨야 합니다.');
+assert(runBangBang('!!원본 상태', '계약 탐사자').some((item) => item.content && item.content.includes('{{subject=상태}}')),
+  '관리 명령과 같은 원본 라벨은 원본 접두어로 실행할 수 있어야 합니다.');
+assert(runBangBang('!!비밀원본 상태', '계약 탐사자').some((item) => item.content && item.content.startsWith('/w gm ') && item.content.includes('{{subject=상태}}')));
+assert(runBangBang('!!판정 정밀 관찰', '계약 탐사자').some((item) => item.content && item.content.includes('{{subject=판정 정밀 관찰}}')),
+  '명령 접두어까지 포함한 원본 라벨이 있으면 잘라낸 이름보다 먼저 매칭해야 합니다.');
+assert(runBangBang('!!판정 관찰력', '계약 탐사자').some((item) => item.content && item.content.includes('{{subject=관찰력}}') && !item.content.includes('강화')),
+  '접두어 포함 부분일치보다 접두어를 뺀 원본 정확 일치를 우선해야 합니다.');
 
 const publicContractRoll = helper.roll(contractCharacterId, '정밀 관찰', { mode: '보너스1' });
 assert(publicContractRoll.ok && sent.at(-1).content.includes('&{template:fixture}'), '공개 roll API도 원본 계약 롤을 실행해야 합니다.');
-assert.strictEqual(publicContractRoll.payload.system, 'contract-fixture-contract');
+assert.strictEqual(publicContractRoll.payload.system, 'sheet');
 const publicFallbackBefore = sent.length;
 assert.strictEqual(helper.roll(contractCharacterId, '감정', {}).ok, false);
 assert.strictEqual(helper.rollWeapon(contractCharacterId, '리볼버', false).ok, false);
@@ -671,7 +781,48 @@ assert.strictEqual(helper.rollHitLocation(contractCharacterId, false).ok, false)
 assert.strictEqual(sent.length, publicFallbackBefore, '공개 API가 계약에 없는 CoC 매크로를 만들면 안 됩니다.');
 assert(helper.rollFree(contractCharacterId, false, '3d6').ok && sent.at(-1).content.includes('{{roll=[[3d6]]}}'));
 assert(!helper.cutinItems().some((item) => item.label === '계약에 없는 방어구'), '계약 컷인 목록에 구형 CoC 스캔 항목이 섞이면 안 됩니다.');
-assert(helper.cutinItems().some((item) => item.label === '정밀 관찰' && item.system === 'contract-fixture-contract'));
+assert(helper.cutinItems().some((item) => item.label === '정밀 관찰' && item.system === 'sheet'));
+const stableCutinKey = publicContractRoll.payload.cutinKey;
+const originalContractId = contractFixture.id;
+const originalSourceHash = contractFixture.sourceHash;
+contractFixture.id = 'fixture-contract-updated';
+contractFixture.sourceHash = 'fixture-v2';
+helper.refresh();
+const refreshedContractRoll = helper.roll(contractCharacterId, '정밀 관찰', {});
+assert(refreshedContractRoll.ok && refreshedContractRoll.payload.cutinKey === stableCutinKey,
+  '시트 HTML·CSS·번역 파일을 다시 만들 때 기존 컷인 연결 키가 바뀌면 안 됩니다.');
+contractFixture.id = originalContractId;
+contractFixture.sourceHash = originalSourceHash;
+helper.refresh();
+const translatedRoll = contractFixture.rolls.find((roll) => roll.name === 'translated');
+const translatedCutinBefore = helper.roll(contractCharacterId, 'Custom Check', {});
+const translatedCutinKey = translatedCutinBefore.payload.cutinKey;
+translatedRoll.label = '사용자 판정';
+translatedRoll.aliases = ['Custom Check'];
+helper.refresh();
+const translatedCutinAfter = helper.roll(contractCharacterId, '사용자 판정', {});
+assert(translatedCutinAfter.ok && translatedCutinAfter.payload.cutinKey === translatedCutinKey,
+  '같은 시트 롤의 번역 라벨만 바뀔 때 판정 컷인 연결 키가 바뀌면 안 됩니다.');
+assert(helper.cutinItems().some((item) => item.key === translatedCutinKey && item.aliases.includes('Custom Check')),
+  '컷인 관리 목록과 실행 payload가 같은 안정 키와 이전 표시 이름을 공유해야 합니다.');
+translatedRoll.label = 'Custom Check';
+translatedRoll.aliases = [];
+helper.refresh();
+const duplicateRowStart = attributeObjects.length;
+[
+  ['repeating_weapon_rowY_weapon_name', '쇠파이프'],
+  ['repeating_weapon_rowY_weapon_value', '50'],
+].forEach(([name, current], index) => attributeObjects.push(roll20Object(`contract-duplicate-${index}`, {
+  _characterid: contractCharacterId, characterid: contractCharacterId, name, current, max: '',
+})));
+helper.refresh();
+const duplicateCutinItems = helper.cutinItems().filter((item) => item.label === '쇠파이프');
+assert.strictEqual(duplicateCutinItems.length, 2);
+assert.notStrictEqual(duplicateCutinItems[0].key, duplicateCutinItems[1].key);
+assert(duplicateCutinItems.every((item) => item.displayLabel && item.displayLabel.includes('계약 탐사자')),
+  '같은 이름의 반복 굴림은 내부 키를 노출하지 않고 컷인 선택지에서 구분되어야 합니다.');
+attributeObjects.splice(duplicateRowStart);
+helper.refresh();
 const contractHp = attributeObjects.find((item) => item.get('_characterid') === contractCharacterId && item.get('name') === 'hp');
 const contractMessagesBefore = sent.filter((item) => item.who === `character|${contractCharacterId}`).length;
 events['change:attribute'](contractHp, { current: '12' });
@@ -682,6 +833,8 @@ assert.strictEqual(contractHp.get('current'), '6');
 
 const weakContract = parseSheetContract(`
   <input name="attr_shared_a"><input name="attr_shared_b"><input name="attr_shared_c">
+  <input name="attr_weak_d"><input name="attr_weak_e"><input name="attr_weak_f"><input name="attr_weak_g">
+  <input name="attr_weak_h"><input name="attr_weak_i"><input name="attr_weak_j">
   <button type="roll" value="&{template:weak} {{roll=[[1d20]]}}">약한 계약</button>
 `, { id: 'weak-contract', name: '약한 계약' });
 helper.registerContract(weakContract);
@@ -766,7 +919,8 @@ cacheNoise.forEach((attribute) => {
   attributeObjects.push(attribute);
   events['add:attribute'](attribute);
 });
-assert.strictEqual(helper.inspectContracts(cacheCharacter.id).status, 'none', '속성 추가 후 계약 매칭 캐시를 갱신해야 합니다.');
+assert.strictEqual(helper.inspectContracts(cacheCharacter.id).status, 'matched',
+  '관계없는 런타임 속성이 늘어도 계약-side 시그니처 매칭은 유지해야 합니다.');
 cacheNoise.forEach((attribute) => {
   attributeObjects.splice(attributeObjects.indexOf(attribute), 1);
   events['destroy:attribute'](attribute);
@@ -816,9 +970,9 @@ Object.entries({
 assert.strictEqual(helper.inspectContracts(sharedRepeatingCharacter.id).status, 'matched');
 assert.strictEqual(helper.contractRolls(sharedRepeatingCharacter.id).length, 2);
 assert(helper.resolveContractAction(sharedRepeatingCharacter, 'Sword Thrust', false).result.ok);
-assert(sent.at(-1).content.includes('{{name=@{character-shared-repeating|repeating_weapons_rowW_name}}}') && sent.at(-1).content.includes('{{mode=thrust}}'));
+assert(sent.at(-1).content.includes('{{name=Sword}}') && sent.at(-1).content.includes('{{mode=thrust}}') && sent.at(-1).content.includes('{{roll=[[45]]}}'));
 assert(helper.resolveContractAction(sharedRepeatingCharacter, 'Fireball Ice', false).result.ok);
-assert(sent.at(-1).content.includes('{{name=@{character-shared-repeating|repeating_spells_rowS_name}}}') && sent.at(-1).content.includes('{{mode=ice}}'));
+assert(sent.at(-1).content.includes('{{name=Fireball}}') && sent.at(-1).content.includes('{{mode=ice}}') && sent.at(-1).content.includes('{{roll=[[60]]}}'));
 
 const suffixContract = parseSheetContract(`
   <fieldset class="repeating_inventory">
@@ -871,7 +1025,7 @@ for (let row = 0; row < 5; row += 1) {
 }
 const noRollSectionInspection = helper.inspectContracts(noRollSectionCharacter.id);
 assert.strictEqual(noRollSectionInspection.status, 'matched');
-assert.strictEqual(noRollSectionInspection.match.score, 5);
+assert.strictEqual(noRollSectionInspection.match.score, 3);
 assert.strictEqual(noRollSectionInspection.match.ratio, 1);
 assert.strictEqual(helper.contractRolls(noRollSectionCharacter.id).length, 1);
 
@@ -905,16 +1059,57 @@ assert(prefixSectionRolls.some((item) => item.row.id === 'rowI' && item.aliases.
 assert(prefixSectionRolls.some((item) => item.row.id === 'rowD' && item.aliases.includes('Gem')));
 assert(!prefixSectionRolls.some((item) => item.row.id === 'details_rowD'));
 
+const literalFire = helper.resolveContractAction(contractCharacter, '화염', false);
+assert(literalFire.handled && literalFire.result.ok && sent.at(-1).content.includes('{{subject=화염}}') && sent.at(-1).content.includes('[[1d6]]'),
+  '원본 literal exact를 주사위 단어 제거 호환 매칭보다 먼저 실행해야 합니다.');
+const literalFireDice = helper.resolveContractAction(contractCharacter, '화염주사위', false);
+assert(literalFireDice.handled && literalFireDice.result.ok && sent.at(-1).content.includes('{{subject=화염 주사위}}') && sent.at(-1).content.includes('[[1d8]]'));
+const genericDiceWord = helper.resolveContractAction(contractCharacter, '주사위', false);
+assert(genericDiceWord.handled && genericDiceWord.result.reason === 'conflict' && genericDiceWord.result.choices.length < 10 &&
+  genericDiceWord.result.choices.every((choice) => /주사위/.test(choice.label)),
+  '주사위라는 검색어를 빈 호환 키로 바꿔 모든 굴림을 선택지로 보여주면 안 됩니다.');
+
 const ambiguousContractBefore = sent.length;
 const ambiguousContract = helper.resolveContractAction(contractCharacter, '겹친판정', false);
 assert(ambiguousContract.handled && ambiguousContract.result.reason === 'conflict' && ambiguousContract.result.choices.length === 2);
+assert.notStrictEqual(ambiguousContract.result.choices[0].label, ambiguousContract.result.choices[1].label,
+  '같은 표시명의 원본 롤은 선택 버튼에서 서로 구분되어야 합니다.');
 assert.strictEqual(sent.length, ambiguousContractBefore, '모호한 계약 항목을 임의 실행하면 안 됩니다.');
+const ambiguousButtons = runBangBang('!!겹친판정', '계약 탐사자').find((item) => item.who === '시트 헬퍼');
+assert(ambiguousButtons && ambiguousButtons.content.includes('background:#111') && ambiguousButtons.content.includes('#2'),
+  '모호한 원본 롤은 구분 가능한 검정 선택 버튼으로 표시해야 합니다.');
+runtime.state.KIBSheetHelper.managerCharacterId = contractCharacterId;
+parsedCheck.roll.modesIncomplete = true;
+const contractManagerNotes = helper.refresh().get('notes');
+assert(contractManagerNotes.includes('겹친 판정 (2개)') && contractManagerNotes.includes('!시트 계약목록|' + contractCharacterId),
+  '관리 핸드아웃에서도 같은 이름의 원본 롤을 숨기지 말고 선택 단계로 연결해야 합니다.');
+assert(contractManagerNotes.includes('일부 선택 방식은 안전하게 실행할 수 없어 생략했습니다.'),
+  '불완전하게 확장된 source 모드를 관리 핸드아웃에서 완전한 목록처럼 보여주면 안 됩니다.');
+delete parsedCheck.roll.modesIncomplete;
+const contractListCommand = contractManagerNotes.match(/href="(!시트 계약목록\|[^"<]+)"/);
+assert(contractListCommand, contractManagerNotes);
+runtime.state.KIBSheetHelper.activeCharacterId = characterId;
+const contractListBefore = sent.length;
+events['chat:message']({ type: 'api', content: contractListCommand[1], playerid: 'gm', who: '테스터 (GM)' });
+const contractListMessage = sent.slice(contractListBefore).find((item) => item.who === '시트 헬퍼');
+assert(contractListMessage && contractListMessage.content.includes('background:#111') && contractListMessage.content.includes(contractCharacterId),
+  '관리 화면의 중복 롤 선택은 현재 화자가 아니라 관리 대상 캐릭터로 고정해야 합니다.');
+runtime.state.KIBSheetHelper.managerCharacterId = characterId;
 const nameModeConflict = helper.resolveContractAction(contractCharacter, '이름충돌', false);
 assert(nameModeConflict.handled && nameModeConflict.result.reason === 'conflict' && nameModeConflict.result.choices.length === 2,
   '원본 롤 이름과 다른 롤의 모드명이 겹치면 선택 버튼을 보여야 합니다.');
+assert.strictEqual(helper.resolveContractAction(contractCharacter, '정밀관찰 보너스2', false).handled, false,
+  '없는 모드 접미사를 기본 롤이나 다른 숫자 모드로 축약 매칭하면 안 됩니다.');
+const directPriority = helper.resolveContractAction(contractCharacter, '우선판정', false);
+assert(directPriority.handled && directPriority.result.ok && sent.at(-1).content.includes('[[1d100+0]]'),
+  '같은 이름의 일반 버튼과 질문 버튼이 있으면 질문 없는 원본 버튼을 우선해야 합니다.');
+const queryPriority = helper.resolveContractAction(contractCharacter, '우선판정 보너스1', false);
+assert(queryPriority.handled && queryPriority.result.ok && sent.at(-1).content.includes('[[1d100+1+0]]'),
+  '질문 선택과 내부 속성 모드가 겹치면 추가 override 없는 원본 질문 선택을 우선해야 합니다.');
+const tamperedBefore = sent.length;
 const tamperedContract = helper.executeContract(contractCharacterId, '다른-계약', parsedCheck.roll.key, '', '', false, '');
 assert.strictEqual(tamperedContract.ok, false);
-assert.strictEqual(sent.length, ambiguousContractBefore, '변조된 계약 선택을 실행하면 안 됩니다.');
+assert.strictEqual(sent.length, tamperedBefore, '변조된 계약 선택을 실행하면 안 됩니다.');
 
 assert.strictEqual(helper.roll(characterId, '관찰력', { mode: '보너스1' }).ok, true);
 let last = sent.filter((item) => item.content).at(-1).content;
@@ -1072,11 +1267,19 @@ assert.strictEqual(secretPayload.secret, true, '비밀판정의 secret 표시가
   );
 });
 const insanityAliasRolls = sent.filter((item) => item.content && item.content.includes('kib_sheet_result=')).length;
+events['chat:message']({ type: 'api', content: '!!실시간', playerid: 'player-1', who: '저널 이름' });
+assert(sent.at(-1).content.includes('{{madness_type=[[1]]}}'));
+events['chat:message']({ type: 'api', content: '!!요약', playerid: 'player-1', who: '저널 이름' });
+assert(sent.at(-1).content.includes('{{madness_type=[[2]]}}'));
 events['chat:message']({ type: 'api', content: '!!일시적광기', playerid: 'player-1', who: '저널 이름' });
 assert(sent.at(-1).content.includes('굴림이 아니라 시트 상태'));
 events['chat:message']({ type: 'api', content: '!!장기적광기', playerid: 'player-1', who: '저널 이름' });
 assert(sent.at(-1).content.includes('굴림이 아니라 시트 상태'));
-assert.strictEqual(sent.filter((item) => item.content && item.content.includes('kib_sheet_result=')).length, insanityAliasRolls);
+events['chat:message']({ type: 'api', content: '!!일시적', playerid: 'player-1', who: '저널 이름' });
+assert(sent.at(-1).content.includes('굴림이 아니라 시트 상태'));
+events['chat:message']({ type: 'api', content: '!!장기적', playerid: 'player-1', who: '저널 이름' });
+assert(sent.at(-1).content.includes('굴림이 아니라 시트 상태'));
+assert.strictEqual(sent.filter((item) => item.content && item.content.includes('kib_sheet_result=')).length, insanityAliasRolls + 2);
 
 const nativeBefore = sent.filter((item) => item.event === 'sheet:result').length;
 events['chat:message'](inlineResultMessage({
@@ -1546,5 +1749,72 @@ const refreshedNotes = refreshedManager.get('notes');
 assert(refreshedNotes.includes('0 / 12 (0%)'));
 assert(refreshedNotes.includes('20 / 70 (29%)'), '이성 비율은 시작 이성을 기준으로 표시해야 합니다.');
 assert(refreshedNotes.includes('활성화'), '이진 상태는 활성화 또는 해제로 표시해야 합니다.');
+
+const visibilityContract = parseSheetContract(`
+  <style>
+    .sheet-route[value="left"]:checked~.sheet-order { display: none; }
+    .sheet-route[value="left"]:checked~.sheet-important-hide { display: none !important; }
+    .sheet-route[value="left"]:checked~.sheet-important-show { display: none; }
+  </style>
+  <input name="attr_gate_marker_a"><input name="attr_gate_marker_b"><input name="attr_gate_marker_c">
+  <input name="attr_gate_marker_d"><input name="attr_gate_marker_e"><input name="attr_gate_marker_f">
+  <input type="checkbox" class="sheet-route" name="attr_route" value="left" checked>
+  <input type="checkbox" class="sheet-route" name="attr_route" value="right">
+  <input type="radio" class="sheet-dice-route" name="attr_dice_route" value="normal" checked>
+  <input type="radio" class="sheet-dice-route" name="attr_dice_route" value="bonus">
+  <div class="sheet-panel sheet-left"><button type="roll" name="roll_left" value="&{template:test} {{roll=[[1d6]]}}">왼쪽</button></div>
+  <div class="sheet-panel sheet-right"><button type="roll" name="roll_right" value="&{template:test} {{roll=[[1d8]]}}">오른쪽</button></div>
+  <div class="sheet-order"><button type="roll" name="roll_order" value="&{template:test} {{roll=[[1d12]]}}">순서</button></div>
+  <div class="sheet-important-hide"><button type="roll" name="roll_important_hide" value="&{template:test} {{roll=[[1d14]]}}">중요 숨김</button></div>
+  <div class="sheet-important-show"><button type="roll" name="roll_important_show" value="&{template:test} {{roll=[[1d16]]}}">중요 표시</button></div>
+  <div class="sheet-dice-normal"><button type="roll" name="roll_dice_normal" value="&{template:test} {{subject=가시 판정}} {{roll=[[1d100]]}}"></button></div>
+  <div class="sheet-dice-bonus"><button type="roll" name="roll_dice_bonus" value="&{template:test} {{subject=가시 판정}} {{roll=[[1d100+?{보너스 주사위|1개,1|2개,2}]]}}"></button></div>
+  <button type="roll" name="roll_unknown" value="&{template:test} {{roll=[[1d10]]}}">미확정</button>
+`, {
+  id: 'visibility-contract', name: '가시성 계약',
+  css: `.charsheet .sheet-panel{display:none}
+    .sheet-route[value="left"]:checked~.sheet-left{display:block}
+    .sheet-route[value="right"]:checked~.sheet-right{display:block}
+    .sheet-route[value="left"]:checked~.sheet-order{display:block}
+    .sheet-route[value="left"]:checked~.sheet-important-hide{display:block}
+    .sheet-route[value="left"]:checked~.sheet-important-show{display:block!important}
+    .sheet-dice-normal,.sheet-dice-bonus{display:none}
+    .sheet-dice-route[value="normal"]:checked~.sheet-dice-normal{display:block}
+    .sheet-dice-route[value="bonus"]:checked~.sheet-dice-bonus{display:block}`,
+});
+visibilityContract.rolls.find((roll) => roll.name === 'unknown').visibility = { name: 'future_state', op: 'eq', value: 'enabled' };
+helper.registerContract(visibilityContract);
+const visibilityCharacter = roll20Object('character-visibility', { name: '가시성 시험', controlledby: 'player-1' });
+characters.push(visibilityCharacter);
+['gate_marker_a', 'gate_marker_b', 'gate_marker_c', 'gate_marker_d', 'gate_marker_e', 'gate_marker_f'].forEach((name, index) => {
+  attributeObjects.push(roll20Object(`visibility-marker-${index}`, {
+    _characterid: visibilityCharacter.id, characterid: visibilityCharacter.id, name, current: '1', max: '',
+  }));
+});
+const routeAttribute = roll20Object('visibility-route', {
+  _characterid: visibilityCharacter.id, characterid: visibilityCharacter.id, name: 'route', current: 'left', max: '',
+});
+attributeObjects.push(routeAttribute);
+assert.strictEqual(helper.inspectContracts(visibilityCharacter.id).status, 'matched');
+assert.strictEqual(
+  Array.from(helper.contractRolls(visibilityCharacter.id), (item) => item.roll.name).sort().join(','),
+  ['dice_normal', 'important_show', 'left', 'order', 'unknown'].join(','),
+  '현재 값으로 확실히 false인 CSS 분기만 제외하고 알 수 없는 조건은 유지해야 합니다.',
+);
+routeAttribute.set('current', 'right');
+assert.strictEqual(
+  Array.from(helper.contractRolls(visibilityCharacter.id), (item) => item.roll.name).sort().join(','),
+  ['dice_normal', 'important_hide', 'important_show', 'order', 'right', 'unknown'].join(','),
+  '같은 우선순위는 뒤의 외부 CSS가 이기고 !important는 source order보다 먼저 적용되어야 합니다.',
+);
+attributeObjects.splice(attributeObjects.indexOf(routeAttribute), 1);
+assert.strictEqual(
+  Array.from(helper.contractRolls(visibilityCharacter.id), (item) => item.roll.name).sort().join(','),
+  ['dice_normal', 'important_show', 'left', 'order', 'unknown'].join(','),
+  '속성 객체가 없으면 HTML에서 추출한 컨트롤 기본값을 사용해야 합니다.',
+);
+const hiddenMode = helper.resolveContractAction(visibilityCharacter, '가시판정 보너스1', false);
+assert(hiddenMode.handled && hiddenMode.result.ok && sent.at(-1).content.includes('[[1d100+1]]'),
+  '현재 CSS에서 숨겨진 원본 버튼도 사용자가 그 버튼의 실제 모드를 명시하면 실행할 수 있어야 합니다.');
 
 console.log('Sheet Helper check: PASS');
