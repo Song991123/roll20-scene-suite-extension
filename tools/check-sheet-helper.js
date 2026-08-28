@@ -52,12 +52,13 @@ const fixedFields = [
 const defaults = {
   character_name: '테스트 탐사자',
   dice_type: '{{roll=[[1d100]]}}',
-  template_common: '',
+  template_common: '', template_other: '',
   temp_insane: '0',
   indef_insane: '0',
   hp: '12', hp_max: '12', mp: '10', mp_max: '10', san_max: '70', san_start: '70', mov: '8',
   damage_bonus: '1d4', build: '1', dying: '0', 'major-wound-toggle': '0',
   free_dice: '2d6+3', rand_maddess: '1',
+  current_mental_condition: '안정', phobias_manias: '어둠 공포증',
   weapon_name_fix: '비무장', weapon_range_fix: '-', weapon_attacks_fix: '1',
   weapon_ammo_fix: '-', weapon_malf_fix: '-',
 };
@@ -79,6 +80,7 @@ Object.assign(defaults, {
   ori_live_title: '산악', ori_live: '48',
   ori_other_control_title: '보트 조종', ori_other_control: '37',
   ori_other_weapon_title: '도검술', ori_other_weapon: '44',
+  ori_other_skills_title: '기상학', ori_other_skills: '46',
   defense_name_01: '가죽 각반', defense_pice_01: '오른다리', defense_value_01: '1d2', defense_desc_01: '가죽 보호대',
   defense_name_07: '철제 투구', defense_pice_07: '머리', defense_value_07: '2', defense_desc_07: '단단한 투구',
 });
@@ -103,6 +105,8 @@ const attributeValues = {
   repeating_other_control_rowE_other_control: '36',
   repeating_other_weapon_rowF_other_weapon_title: '봉술',
   repeating_other_weapon_rowF_other_weapon: '45',
+  repeating_skills_rowS_other_skills_title: '잠수',
+  repeating_skills_rowS_other_skills: '41',
   _reporder_repeating_other_weapon: 'rowF',
   repeating_weapon_rowW1_weapon_name: '리볼버',
   repeating_weapon_rowW1_weapon_skill: '@{firearms_handgun}',
@@ -125,6 +129,7 @@ const attributeValues = {
   repeating_magic_rowM1_magic_name: '문 열기',
   repeating_magic_rowM1_magic_time: '1라운드',
   repeating_magic_rowM1_magic_cost: '마력 2',
+  repeating_magic_rowM1_magic_condition: '문에 손을 댄다.',
   repeating_magic_rowM1_magic_desc: '잠긴 문을 연다.',
   repeating_magic_rowM2_magic_flag: '0',
   repeating_magic_rowM2_magic_name: '기억 지우기',
@@ -140,6 +145,7 @@ const repeatingOrder = {
   live: ['rowD'],
   other_control: ['rowE'],
   other_weapon: ['rowF'],
+  skills: ['rowS'],
   weapon: ['rowW1', 'rowW2', 'rowW3'],
   magic: ['rowM1', 'rowM2'],
 };
@@ -148,15 +154,46 @@ const character = roll20Object(characterId, {
   name: '저널 이름',
   controlledby: 'player-1',
 });
+const officialCharacterId = 'character-official';
+const officialCharacter = roll20Object(officialCharacterId, {
+  name: '공개 시트 탐사자',
+  controlledby: 'player-1',
+});
+const ildCharacterId = 'character-ildneige';
+const ildCharacter = roll20Object(ildCharacterId, {
+  name: '일드네쥬 탐사자',
+  controlledby: 'player-1',
+});
+const sparseCharacterId = 'character-sparse';
+const sparseCharacter = roll20Object(sparseCharacterId, {
+  name: '특수 주사위 없는 탐사자',
+  controlledby: 'player-1',
+});
 const gmCharacter = roll20Object('character-gm', { name: '이경태', controlledby: '' });
 const playerCharacter = roll20Object('character-player', { name: '이경호', controlledby: 'player-2' });
 const gmSpeakerCharacter = roll20Object('character-gm-speaker', { name: 'GM', controlledby: '' });
-const characters = [character, gmCharacter, playerCharacter, gmSpeakerCharacter];
+const characters = [character, officialCharacter, ildCharacter, sparseCharacter, gmCharacter, playerCharacter, gmSpeakerCharacter];
 const players = {
   gm: roll20Object('gm', { _displayname: '마렌 (GM)', speakingas: '' }),
   'player-1': roll20Object('player-1', { _displayname: '테스터', speakingas: '' }),
 };
-let attributeObjects = Object.entries(attributeValues).map(([name, current], index) =>
+const enteredValues = {
+  template_other: defaults.template_other,
+  free_dice: defaults.free_dice,
+  rand_maddess: defaults.rand_maddess,
+  current_mental_condition: defaults.current_mental_condition,
+  phobias_manias: defaults.phobias_manias,
+  ori_science_title: defaults.ori_science_title, ori_science: defaults.ori_science,
+  ori_foreign_title: defaults.ori_foreign_title, ori_foreign: defaults.ori_foreign,
+  ori_art_title: defaults.ori_art_title, ori_art: defaults.ori_art,
+  ori_live_title: defaults.ori_live_title, ori_live: defaults.ori_live,
+  ori_other_control_title: defaults.ori_other_control_title, ori_other_control: defaults.ori_other_control,
+  ori_other_weapon_title: defaults.ori_other_weapon_title, ori_other_weapon: defaults.ori_other_weapon,
+  ori_other_skills_title: defaults.ori_other_skills_title, ori_other_skills: defaults.ori_other_skills,
+  defense_name_07: defaults.defense_name_07, defense_pice_07: defaults.defense_pice_07,
+  defense_value_07: defaults.defense_value_07, defense_desc_07: defaults.defense_desc_07,
+};
+let attributeObjects = Object.entries({ ...enteredValues, ...attributeValues }).map(([name, current], index) =>
   roll20Object(`attribute-${index}`, {
     _characterid: characterId,
     characterid: characterId,
@@ -165,6 +202,57 @@ let attributeObjects = Object.entries(attributeValues).map(([name, current], ind
     max: '',
   }),
 );
+Object.entries({
+  showskills: '2', character_name: '공개 시트 탐사자', dice_type: '0', toggledr: '1', dice_roll: '1d100',
+  pulp_bomtoggle: '0', mixedbom: '0', current_mental_condition: '안정', phobias_manias: '없음',
+  san: '60', cthulhu_mythos: '3', luck: '55', str: '50', dex: '45', pow: '60', int: '65',
+  cthulhu_mythos_da: '2',
+  hp: '10', hp_max: '10', major_wound_toggle: '0', fighting_brawl: '40',
+  spot_hidden: '52', damage_bonus: '1d4',
+  spot_hidden_mdr: '58',
+  artandcraft_name_et: '인쇄', artandcraft_et: '41',
+  artandcraft_name_ow: '항해 지도', artandcraft_ow: '42',
+  artandcraft_name_ic: '홀로그램', artandcraft_ic: '43',
+  repeating_skills_rowO_skillname: '사진술', repeating_skills_rowO_skill: '47',
+  repeating_skillsmdr_rowM_skillname_mdr: '드론 조종', repeating_skillsmdr_rowM_skill_mdr: '44',
+  repeating_weapons_rowP_weaponname: '권총', repeating_weapons_rowP_weaponskill: '@{spot_hidden}',
+  repeating_weapons_rowP_weapondamage: '1d10', repeating_weapons_rowP_weapondb: '+0',
+  repeating_weapons_rowP_weaponrange: '15m', repeating_weapons_rowP_weaponattacks: '1',
+  repeating_weapons_rowP_weaponammo: '6', repeating_weapons_rowP_weaponmalf: '100',
+  repeating_spells_rowQ_spellname: '문지기', repeating_spells_rowQ_spellcastime: '1라운드',
+  repeating_spells_rowQ_spellcost: '마력 3', repeating_spells_rowQ_spelldescription: '문을 지킨다.',
+}).forEach(([name, current], index) => {
+  attributeObjects.push(roll20Object(`official-attribute-${index}`, {
+    _characterid: officialCharacterId,
+    characterid: officialCharacterId,
+    name,
+    current,
+    max: '',
+  }));
+});
+Object.entries({ san: '50', cthulhu_mythos: '0', luck: '50', str: '50' }).forEach(([name, current], index) => {
+  attributeObjects.push(roll20Object(`sparse-attribute-${index}`, {
+    _characterid: sparseCharacterId,
+    characterid: sparseCharacterId,
+    name,
+    current,
+    max: '',
+  }));
+});
+Object.entries({
+  showskills: '7', san: '60', luck: '50', str: '50', dex: '50', pow: '50',
+  cthulhu_mythos_mdr: '0', spot_hidden_mdr: '55', major_wound_toggle: '0',
+  repeating_skillsmdr_rowI_skillname_mdr: '사진술',
+  repeating_skillsmdr_rowI_skill_mdr: '45',
+}).forEach(([name, current], index) => {
+  attributeObjects.push(roll20Object(`ild-attribute-${index}`, {
+    _characterid: ildCharacterId,
+    characterid: ildCharacterId,
+    name,
+    current,
+    max: '',
+  }));
+});
 const sent = [];
 const events = {};
 const created = [];
@@ -194,7 +282,7 @@ const runtime = {
     const object = attributeObjects.find((item) =>
       item.get('_characterid') === id && item.get('name') === name);
     if (object) return object.get(valueType === 'max' ? 'max' : 'current');
-    if (Object.prototype.hasOwnProperty.call(defaults, name)) return defaults[name];
+    if (id === characterId && Object.prototype.hasOwnProperty.call(defaults, name)) return defaults[name];
     const ordered = name.match(/^repeating_(.+)_\$(\d+)_(.+)$/);
     if (!ordered) return undefined;
     const rowId = (repeatingOrder[ordered[1]] || [])[Number(ordered[2])];
@@ -271,7 +359,8 @@ vm.runInContext(source, runtime);
 const helper = runtime.KIBSheetHelper;
 
 function setCurrent(name, current) {
-  const object = attributeObjects.find((item) => item.get('name') === name);
+  const object = attributeObjects.find((item) =>
+    item.get('_characterid') === characterId && item.get('name') === name);
   if (object) object.set('current', current);
   else defaults[name] = current;
 }
@@ -281,11 +370,13 @@ const scanned = helper.scan(characterId, true);
 const scanCalls = getAttrByNameCalls.slice(scanCallStart);
 assert.strictEqual(scanned.ok, true);
 assert.strictEqual(scanned.matched, true);
-assert.strictEqual(scanned.fields.length, fixedFields.length + 13);
+assert.strictEqual(scanned.schema.hasFreeDice, true);
+assert.strictEqual(scanned.schema.specialTemplate, 'cocOther');
+assert.strictEqual(scanned.fields.length, fixedFields.length + 15);
 fixedFields.forEach(([, label]) => {
   assert(scanned.fields.some((item) => item.label === label), `${label} 판정 누락`);
 });
-['천문학', '라틴어', '사진', '산악', '보트 조종', '도검술', '화학', '지질학', '프랑스어', '회화', '극지', '항공기 조종', '봉술']
+['천문학', '라틴어', '사진', '산악', '보트 조종', '도검술', '기상학', '화학', '지질학', '프랑스어', '회화', '극지', '항공기 조종', '봉술', '잠수']
   .forEach((label) => assert(scanned.fields.some((item) => item.label === label), `${label} 사용자 항목 누락`));
 assert.strictEqual(scanned.weapons.length, 4);
 const defaultWeapon = scanned.weapons.find((item) => item.label === '기본값 무기');
@@ -306,8 +397,14 @@ assert.strictEqual(
   0,
   '_reporder_repeating_* 값은 속성 객체에서 읽어야 합니다.',
 );
+assert(!scanCalls.includes('defense_name_02'), '없는 선택 항목을 getAttrByName으로 재조회하면 안 됨');
 assert.strictEqual(scanned.spells.length, 2);
+assert(scanned.spells[0].details.some(([label, value]) => label === '발동조건' && value === '문에 손을 댄다.'));
 assert.strictEqual(scanned.armors.length, 2);
+assert(scanned.specialDice.some((item) => item.kind === 'free'));
+assert.strictEqual(scanned.specialDice.filter((item) => item.kind === 'madness').length, 2);
+assert(!scanned.specialDice.some((item) => item.kind === 'luck' || item.kind === 'hit-location'));
+assert(scanned.madnessHistory.some((item) => item.attr === 'phobias_manias' && item.value === '어둠 공포증'));
 assert(
   !scanCalls.includes('defense_name_01') &&
     !scanCalls.includes('defense_pice_01') &&
@@ -318,6 +415,14 @@ assert(
 assert.strictEqual(runtime.state.KIBSheetHelper.keepMe, '보존');
 assert.strictEqual(runtime.state.KIBSheetHelper.trackingMode, 'gm');
 
+const sparseScan = helper.scan(sparseCharacterId, true);
+assert.strictEqual(sparseScan.matched, true);
+assert.strictEqual(sparseScan.specialDice.length, 0, '시트에 없는 특수 주사위를 메뉴에 만들면 안 됩니다.');
+assert.strictEqual(helper.rollFree(sparseCharacterId, false).ok, false);
+assert.strictEqual(helper.rollMadness(sparseCharacterId, '', false).ok, false);
+assert.strictEqual(helper.rollLuck(sparseCharacterId, false).ok, false);
+assert.strictEqual(helper.rollHitLocation(sparseCharacterId, false).ok, false);
+
 const cutinItems = helper.cutinItems();
 const expectedCutinKinds = [
   ['field', '관찰력'],
@@ -325,9 +430,8 @@ const expectedCutinKinds = [
   ['spell', '문 열기'],
   ['armor', '철제 투구'],
   ['free', '자유 주사위'],
-  ['temporary-madness', '일시적 광기'],
-  ['indefinite-madness', '장기적 광기'],
-  ['luck', '행운 결정'],
+  ['madness', '광기 발작 실시간'],
+  ['madness', '광기 발작 요약'],
   ['hit-location', '명중부위'],
 ];
 expectedCutinKinds.forEach(([kind, label]) => {
@@ -360,6 +464,7 @@ function cutinItem(kind, label) {
   return item;
 }
 
+defaults.san_max = '99-@{cthulhu_mythos}';
 const manager = helper.refresh();
 assert(manager, '관리 핸드아웃을 만들지 못했습니다.');
 const managerNotes = manager.get('notes');
@@ -367,11 +472,22 @@ assert(managerNotes.includes('기본값 무기'));
 assert(managerNotes.includes('피해 1d3+0'));
 assert(managerNotes.includes('문 열기'));
 assert(managerNotes.includes('시전 시간 1라운드'));
+assert(managerNotes.includes('발동조건 문에 손을 댄다.'));
+assert(managerNotes.includes('광기 관련 기록'));
+assert(managerNotes.includes('어둠 공포증'));
+assert(!managerNotes.includes('!시트 내부운결정|' + characterId));
+assert(!managerNotes.includes('!시트 내부명중부위|' + characterId));
 assert.strictEqual(manager.get('inplayerjournals'), '');
 const playerHelp = created.find((item) => item.get('name') === '[PL] 시트 헬퍼 사용법');
 assert(playerHelp, 'PL 사용법 핸드아웃을 만들지 못했습니다.');
 assert.strictEqual(playerHelp.get('inplayerjournals'), 'all');
 assert(playerHelp.get('notes').includes('!!관찰력'));
+assert(playerHelp.get('notes').includes('!!관찰력 보너스1'));
+assert(playerHelp.get('notes').includes('!!광기실시간'));
+assert(playerHelp.get('notes').includes('!!광기요약'));
+assert(!playerHelp.get('notes').includes('!!일시적광기'));
+assert(!playerHelp.get('notes').includes('!!장기적광기'));
+assert(!playerHelp.get('notes').includes('!!운결정'));
 assert(!playerHelp.get('notes').includes('!시트 관리'), 'PL 사용법에 GM 명령이 들어가면 안 됩니다.');
 
 function runBangBang(content) {
@@ -385,6 +501,19 @@ assert(runBangBang('!!리볼버').some((item) => item.content && item.content.in
 assert(runBangBang('!!문 열기').some((item) => item.content && item.content.includes('{{side_subject=주문}}')));
 assert(runBangBang('!!철제 투구').some((item) => item.content && item.content.includes('{{sub_subject2=방어구}}')));
 assert(runBangBang('!!비밀 관찰력').some((item) => item.content && item.content.indexOf('/w gm ') === 0));
+assert(runBangBang('!!판정관찰력 보너스1').some((item) => item.content && item.content.includes('{{subject=관찰력}}') && item.content.includes('{{dice_type=[[1]]}}')));
+const statusMessages = runBangBang('!!상태');
+assert(statusMessages.some((item) => item.content && item.content.includes('광기 관련 기록') && item.content.includes('어둠 공포증')));
+assert(statusMessages.some((item) => item.content && item.content.includes('&#64;{cthulhu_mythos}')));
+assert(!statusMessages.some((item) => item.content && item.content.includes('@{cthulhu_mythos}')));
+const madnessNote = runtime.createObj('attribute', {
+  _characterid: characterId, characterid: characterId, name: 'phobias_manias', current: '폐소공포증', max: '',
+});
+events['add:attribute'](madnessNote);
+assert(helper.scan(characterId).madnessHistory.some((item) => item.attr === 'phobias_manias' && item.value === '폐소공포증'));
+madnessNote.set('current', '고소공포증');
+events['change:attribute'](madnessNote, { current: '폐소공포증' });
+assert(helper.scan(characterId).madnessHistory.some((item) => item.attr === 'phobias_manias' && item.value === '고소공포증'));
 
 const sanBeforeBangBang = Number(defaults.san);
 runBangBang('!!이성 -1d3');
@@ -584,8 +713,7 @@ assert.strictEqual(secretPayload.secret, true, '비밀판정의 secret 표시가
   ['spell', '문 열기', helper.showSpell(characterId, '문 열기', false)],
   ['armor', '철제 투구', helper.rollArmor(characterId, '철제 투구', false)],
   ['free', '자유 주사위', helper.rollFree(characterId, false)],
-  ['luck', '행운 결정', helper.rollLuck(characterId, false)],
-  ['hit-location', '명중부위', helper.rollHitLocation(characterId, false)],
+  ['hit-location', '명중부위', helper.rollHitLocation(officialCharacterId, false)],
 ].forEach(([kind, label, result]) => {
   assert.strictEqual(result.ok, true, `${label} 실행 실패`);
   assert.strictEqual(
@@ -594,16 +722,12 @@ assert.strictEqual(secretPayload.secret, true, '비밀판정의 secret 표시가
     `${label} 실행 payload와 컷인 목록 key가 다릅니다.`,
   );
 });
-assert.strictEqual(
-  payloadFromCommand('!!일시적광기').cutinKey,
-  cutinItem('temporary-madness', '일시적 광기').key,
-  '일시적 광기 실행 payload와 컷인 목록 key가 다릅니다.',
-);
-assert.strictEqual(
-  payloadFromCommand('!!장기적광기').cutinKey,
-  cutinItem('indefinite-madness', '장기적 광기').key,
-  '장기적 광기 실행 payload와 컷인 목록 key가 다릅니다.',
-);
+const insanityAliasRolls = sent.filter((item) => item.content && item.content.includes('kib_sheet_result=')).length;
+events['chat:message']({ type: 'api', content: '!!일시적광기', playerid: 'player-1', who: '저널 이름' });
+assert(sent.at(-1).content.includes('굴림이 아니라 시트 상태'));
+events['chat:message']({ type: 'api', content: '!!장기적광기', playerid: 'player-1', who: '저널 이름' });
+assert(sent.at(-1).content.includes('굴림이 아니라 시트 상태'));
+assert.strictEqual(sent.filter((item) => item.content && item.content.includes('kib_sheet_result=')).length, insanityAliasRolls);
 
 const nativeBefore = sent.filter((item) => item.event === 'sheet:result').length;
 events['chat:message'](inlineResultMessage({
@@ -641,6 +765,173 @@ assert.strictEqual(nativePenaltyResults.length, nativePenaltyBefore + 1);
 assert.strictEqual(nativePenaltyResults.at(-1).payload.result.mode, 'penalty1');
 assert.strictEqual(nativePenaltyResults.at(-1).payload.result.total, 70);
 
+const nativeSpecialBefore = sent.filter((item) => item.event === 'sheet:result').length;
+events['chat:message']({
+  type: 'general', rolltemplate: 'cocOther', playerid: 'player-1', who: '저널 이름',
+  content: '{{subject=1d100}} {{free_roll=$[[0]]}}', inlinerolls: [{ results: { total: 51 } }],
+});
+events['chat:message']({
+  type: 'general', rolltemplate: 'cocOther', playerid: 'player-1', who: '저널 이름',
+  content: '{{madness_type=$[[0]]}} {{rand_roll=$[[1]]}} {{rand_roll2=$[[2]]}}',
+  inlinerolls: [2, 7, 3].map((total) => ({ results: { total } })),
+});
+events['chat:message']({
+  type: 'general', rolltemplate: 'coc-dice-roll', playerid: 'player-1', who: '공개 시트 탐사자',
+  content: '{{name=Rolling 1d100}} {{diceroll=$[[0]]}}', inlinerolls: [{ results: { total: 42 } }],
+});
+events['chat:message']({
+  type: 'general', rolltemplate: 'coc-body-hit-loc', playerid: 'player-1', who: '공개 시트 탐사자',
+  content: '{{roll1=$[[0]]}}', inlinerolls: [{ results: { total: 17 } }],
+});
+events['chat:message']({
+  type: 'general', rolltemplate: 'coc-bomadness-rt', playerid: 'player-1', who: '공개 시트 탐사자',
+  content: '{{roll1=$[[0]]}} {{rounds=$[[1]]}}', inlinerolls: [6, 4].map((total) => ({ results: { total } })),
+});
+const nativeSpecialResults = sent.filter((item) => item.event === 'sheet:result').slice(nativeSpecialBefore);
+assert.deepStrictEqual(nativeSpecialResults.map((item) => item.payload.kind), ['free', 'madness', 'free', 'hit-location', 'madness']);
+assert.strictEqual(nativeSpecialResults[0].payload.result.total, 51);
+assert.strictEqual(nativeSpecialResults[1].payload.result.madnessLabel, '요약');
+assert.strictEqual(nativeSpecialResults[1].payload.result.duration, 3);
+assert.strictEqual(nativeSpecialResults[2].payload.result.total, 42);
+assert.strictEqual(nativeSpecialResults[3].payload.result.total, 17);
+assert.strictEqual(nativeSpecialResults[4].payload.result.madnessLabel, '실시간');
+assert.strictEqual(nativeSpecialResults[4].payload.result.total, 6);
+assert.strictEqual(nativeSpecialResults[4].payload.result.duration, 4);
+assert.strictEqual(nativeSpecialResults[4].payload.madnessType, 1);
+assert.strictEqual(nativeSpecialResults[4].payload.source, 'sheet');
+assert(nativeSpecialResults[4].payload.cutinKey);
+
+const officialScan = helper.scan(officialCharacterId, true);
+assert.strictEqual(officialScan.matched, true);
+assert.strictEqual(officialScan.schema.id, 'name');
+assert.strictEqual(officialScan.schema.officialLegacy, true);
+assert(officialScan.specialDice.some((item) => item.kind === 'hit-location'));
+assert(officialScan.specialDice.some((item) => item.kind === 'free'));
+assert(!officialScan.specialDice.some((item) => item.kind === 'luck'));
+const officialDicePanel = attributeObjects.find((item) =>
+  item.get('_characterid') === officialCharacterId && item.get('name') === 'toggledr');
+officialDicePanel.set('current', '0');
+const officialHiddenDice = helper.scan(officialCharacterId, true);
+assert(!officialHiddenDice.specialDice.some((item) => item.kind === 'free' || item.kind === 'hit-location'));
+officialDicePanel.set('current', '1');
+helper.scan(officialCharacterId, true);
+assert(officialScan.fields.some((item) => item.label === '사진술' && item.value === '47'));
+assert(officialScan.weapons.some((item) => item.label === '권총'));
+assert(officialScan.spells.some((item) => item.label === '문지기'));
+assert(officialScan.resources.some((item) => item.attr === 'major_wound_toggle'));
+assert(!officialScan.resources.some((item) => item.attr === 'major-wound-toggle'));
+assert.strictEqual(
+  officialScan.madnessHistory.map((item) => item.attr).join(','),
+  'current_mental_condition,phobias_manias,injuries_scars,encounters_with_strange_entities',
+);
+
+assert.strictEqual(helper.roll(officialCharacterId, '관찰력', {}).ok, true);
+let officialOutput = sent.filter((item) => item.content).at(-1).content;
+assert(officialOutput.includes('&{template:coc-1}'));
+assert(officialOutput.includes('{{name=관찰력}}'));
+assert(officialOutput.includes('{{roll1=[[1d100]]}}'));
+assert(!officialOutput.includes('{{roll2=[[1d100]]}}'));
+assert(!officialOutput.includes('{{subject=관찰력}}'));
+
+assert.strictEqual(helper.roll(officialCharacterId, '관찰력', { mode: '보너스1' }).ok, true);
+officialOutput = sent.filter((item) => item.content).at(-1).content;
+assert(officialOutput.includes('&{template:coc}'));
+assert(officialOutput.includes('{{roll2=[[1d100]]}}') && officialOutput.includes('{{dice_type=[[1]]}}'));
+
+assert.strictEqual(helper.rollWeapon(officialCharacterId, '권총', false).ok, true);
+officialOutput = sent.filter((item) => item.content).at(-1).content;
+assert(officialOutput.includes('&{template:coc-attack-1}'));
+assert(officialOutput.includes('{{name=권총}}'));
+assert(officialOutput.includes('{{damage=[[1d10+0]]}}'));
+
+assert.strictEqual(helper.showSpell(officialCharacterId, '문지기', false).ok, true);
+officialOutput = sent.filter((item) => item.content).at(-1).content;
+assert(officialOutput.includes('&{template:default}'));
+assert(officialOutput.includes('{{name=문지기}}'));
+assert(officialOutput.includes('{{시전 시간=1라운드}}'));
+
+const officialShowskills = attributeObjects.find((item) =>
+  item.get('_characterid') === officialCharacterId && item.get('name') === 'showskills');
+officialShowskills.set('current', '3');
+const modernScan = helper.scan(officialCharacterId, true);
+assert.strictEqual(modernScan.schema.suffix, '_mdr');
+assert(modernScan.fields.some((item) => item.label === '드론 조종' && item.value === '44'));
+assert(modernScan.fields.some((item) => item.label === '관찰력' && item.attr === 'spot_hidden_mdr'));
+[
+  ['4', '인쇄', 'artandcraft_et'],
+  ['5', '항해 지도', 'artandcraft_ow'],
+  ['6', '홀로그램', 'artandcraft_ic'],
+].forEach(([era, label, attr]) => {
+  officialShowskills.set('current', era);
+  const eraScan = helper.scan(officialCharacterId, true);
+  assert(eraScan.fields.some((item) => item.label === label && item.attr === attr));
+});
+officialShowskills.set('current', '2');
+helper.scan(officialCharacterId, true);
+
+const officialHp = attributeObjects.find((item) =>
+  item.get('_characterid') === officialCharacterId && item.get('name') === 'hp');
+officialHp.set('current', '4');
+events['change:attribute'](officialHp, { current: '10' });
+assert.strictEqual(attributeObjects.find((item) =>
+  item.get('_characterid') === officialCharacterId && item.get('name') === 'major_wound_toggle').get('current'), '1');
+assert(!attributeObjects.some((item) =>
+  item.get('_characterid') === officialCharacterId && item.get('name') === 'major-wound-toggle'));
+
+const officialNativeBefore = sent.filter((item) => item.event === 'sheet:result').length;
+events['chat:message']({
+  type: 'general',
+  rolltemplate: 'coc-1',
+  playerid: 'player-1',
+  who: '공개 시트 탐사자',
+  content: '{{name=관찰력}} {{success=$[[0]]}} {{hard=$[[1]]}} {{extreme=$[[2]]}} {{roll1=$[[3]]}}',
+  inlinerolls: [50, 25, 10, 25].map((total) => ({ results: { total } })),
+});
+const officialNativeResults = sent.filter((item) => item.event === 'sheet:result');
+assert.strictEqual(officialNativeResults.length, officialNativeBefore + 1);
+assert.strictEqual(officialNativeResults.at(-1).payload.label, '관찰력');
+assert.strictEqual(officialNativeResults.at(-1).payload.result.total, 25);
+assert.strictEqual(officialNativeResults.at(-1).payload.outcome, 'hard');
+
+const officialTypeAttackBefore = sent.filter((item) => item.event === 'sheet:result').length;
+events['chat:message']({
+  type: 'general',
+  rolltemplate: 'type-coc-attack-1',
+  playerid: 'player-1',
+  who: '공개 시트 탐사자',
+  content: '{{name=권총}} {{success=$[[0]]}} {{hard=$[[1]]}} {{extreme=$[[2]]}} {{roll1=$[[3]]}}',
+  inlinerolls: [50, 25, 10, 12].map((total) => ({ results: { total } })),
+});
+assert.strictEqual(sent.filter((item) => item.event === 'sheet:result').length, officialTypeAttackBefore + 1);
+assert.strictEqual(sent.filter((item) => item.event === 'sheet:result').at(-1).payload.label, '권총');
+
+const ambiguousBefore = sent.filter((item) => item.event === 'sheet:result').length;
+events['chat:message']({
+  type: 'general',
+  rolltemplate: 'coc',
+  playerid: 'player-1',
+  who: '공개 시트 탐사자',
+  content: '{{name=관찰력}} {{success=$[[0]]}} {{hard=$[[1]]}} {{extreme=$[[2]]}} {{roll1=$[[3]]}} {{roll2=$[[4]]}} {{roll3=$[[5]]}}',
+  inlinerolls: [50, 25, 10, 12, 42, 92].map((total) => ({ results: { total } })),
+});
+assert.strictEqual(sent.filter((item) => item.event === 'sheet:result').length, ambiguousBefore);
+
+const ildScan = helper.scan(ildCharacterId, true);
+assert.strictEqual(ildScan.matched, true);
+assert.strictEqual(ildScan.score, 11);
+assert.strictEqual(ildScan.schema.id, 'name');
+assert.strictEqual(ildScan.schema.era, '3');
+assert.strictEqual(ildScan.schema.suffix, '_mdr');
+assert(ildScan.fields.some((item) => item.label === '사진술' && item.value === '45'));
+assert.strictEqual(helper.roll(ildCharacterId, '관찰력', {}).ok, true);
+
+const ildShowskills = attributeObjects.find((item) =>
+  item.get('_characterid') === ildCharacterId && item.get('name') === 'showskills');
+ildShowskills.set('current', '2');
+const ildFallbackScan = helper.scan(ildCharacterId, true);
+assert.strictEqual(ildFallbackScan.schema.era, '3');
+assert.strictEqual(ildFallbackScan.schema.suffix, '_mdr');
+
 const specialBefore = sent.filter((item) => item.event === 'sheet:result').length;
 const specialMessage = inlineResultMessage({ success: 50, hard: 25, extreme: 10, roll: 25 });
 specialMessage.content = specialMessage.content.replace('{{subject=관찰력}}', '{{subject=생물|학?&=}}');
@@ -674,32 +965,71 @@ last = sent.filter((item) => item.content).at(-1).content;
 assert(last.includes('{{damage=[[1d3+0]]}}'));
 
 assert.strictEqual(helper.showSpell(characterId, '문 열기', false).ok, true);
+last = sent.filter((item) => item.content).at(-1).content;
+assert(last.includes('{{magic_condition=문에 손을 댄다.}}'));
 assert.strictEqual(helper.rollArmor(characterId, '철제 투구', false).ok, true);
 assert.strictEqual(helper.rollFree(characterId, false).ok, true);
+last = sent.filter((item) => item.content).at(-1).content;
+assert(last.includes('&{template:cocOther}'));
+assert(last.includes('{{subject=2d6+3}} {{free_roll=[[2d6+3]]}}'));
 assert.strictEqual(helper.rollMadness(characterId, '', false).ok, true);
+events['chat:message']({ type: 'api', content: '!!관찰력 보너스1', playerid: 'player-1', who: '저널 이름' });
+last = sent.filter((item) => item.content).at(-1).content;
+assert(last.includes('{{subject=관찰력}}') && last.includes('{{dice_type=[[1]]}}'), last);
 setCurrent('rand_maddess', '1');
-events['chat:message']({ type: 'api', content: '!장기광기', playerid: 'player-1', who: '저널 이름' });
+events['chat:message']({ type: 'api', content: '!!광기실시간', playerid: 'player-1', who: '저널 이름' });
 last = sent.filter((item) => item.content).at(-1).content;
-assert(last.includes('{{madness_type=[[1]]}}'), '레거시 광기 명령도 현재 시트 선택을 따라야 합니다.');
+assert(last.includes('{{madness_type=[[1]]}}'), '실시간 광기 명령은 실시간 표를 굴려야 합니다.');
 setCurrent('rand_maddess', '2');
-events['chat:message']({ type: 'api', content: '!일시적광기', playerid: 'player-1', who: '저널 이름' });
+events['chat:message']({ type: 'api', content: '!!광기요약', playerid: 'player-1', who: '저널 이름' });
 last = sent.filter((item) => item.content).at(-1).content;
-assert(last.includes('{{madness_type=[[2]]}}'), '일시적광기 별칭도 현재 시트 선택을 따라야 합니다.');
-events['chat:message']({ type: 'api', content: '!장기적광기', playerid: 'player-1', who: '저널 이름' });
-last = sent.filter((item) => item.content).at(-1).content;
-assert(last.includes('{{madness_type=[[2]]}}'), '장기적광기 별칭을 인식해야 합니다.');
+assert(last.includes('{{madness_type=[[2]]}}'), '요약 광기 명령은 요약 표를 굴려야 합니다.');
 setCurrent('rand_maddess', 'bogus');
 assert.strictEqual(helper.rollMadness(characterId, '', false).ok, false);
 setCurrent('rand_maddess', '1');
-assert.strictEqual(helper.rollLuck(characterId, false).ok, true);
-assert.strictEqual(helper.rollHitLocation(characterId, false).ok, true);
+assert.strictEqual(helper.rollLuck(characterId, false).ok, false);
+assert(!source.includes('3d6*5'), '시트에 없는 행운 결정 공식을 만들면 안 됨');
+assert.strictEqual(helper.rollHitLocation(characterId, false).ok, false);
+assert.strictEqual(helper.rollFree(officialCharacterId, false).ok, true);
 last = sent.filter((item) => item.content).at(-1).content;
-assert(last.includes('{{mark=[[1d20]]}}'));
+assert(last.includes('&{template:coc-dice-roll}'));
+assert(last.includes('{{diceroll=[[1d100]]}}'));
+assert.strictEqual(helper.rollHitLocation(officialCharacterId, false).ok, true);
+last = sent.filter((item) => item.content).at(-1).content;
+assert(last.includes('&{template:coc-body-hit-loc} {{roll1=[[1D20]]}}'));
+assert.strictEqual(helper.rollMadness(officialCharacterId, '1', false).ok, true);
+last = sent.filter((item) => item.content).at(-1).content;
+assert(last.includes('&{template:coc-bomadness-rt}'));
+assert.strictEqual(helper.rollMadness(officialCharacterId, '', false).ok, false);
+assert.strictEqual(helper.rollMadness(officialCharacterId, '2', false).ok, true);
+last = sent.filter((item) => item.content).at(-1).content;
+assert(last.includes('&{template:coc-bomadness-summ}'));
+const officialPulpMadness = attributeObjects.find((item) =>
+  item.get('_characterid') === officialCharacterId && item.get('name') === 'pulp_bomtoggle');
+const officialMixedMadness = attributeObjects.find((item) =>
+  item.get('_characterid') === officialCharacterId && item.get('name') === 'mixedbom');
+officialPulpMadness.set('current', '1');
+officialMixedMadness.set('current', '1');
+assert.strictEqual(helper.rollMadness(officialCharacterId, '1', false).ok, true);
+last = sent.filter((item) => item.content).at(-1).content;
+assert(last.includes('&{template:coc-pulp-bomadness-rt}'), '펄프 광기 설정이 혼합 설정보다 우선해야 합니다.');
+officialPulpMadness.set('current', '0');
+assert.strictEqual(helper.rollMadness(officialCharacterId, '1', false).ok, true);
+last = sent.filter((item) => item.content).at(-1).content;
+assert(last.includes('&{template:coc-mixed-bomadness-rt}') && last.includes('{{roll1=[[1d15]]}}'));
+officialMixedMadness.set('current', '0');
+officialShowskills.set('current', '1');
+helper.scan(officialCharacterId, true);
+assert.strictEqual(helper.rollMadness(officialCharacterId, '2', false).ok, true);
+last = sent.filter((item) => item.content).at(-1).content;
+assert(last.includes('&{template:coc-bomadness-da-summ} {{roll1=[[1D10]]}}'));
+officialShowskills.set('current', '2');
+helper.scan(officialCharacterId, true);
 
 assert.strictEqual(helper.roll(characterId, '없는 기능', {}).ok, false);
-defaults.free_dice = '2d6+악성문자';
+setCurrent('free_dice', '2d6+악성문자');
 assert.strictEqual(helper.rollFree(characterId, false).ok, false);
-defaults.free_dice = '2d6+3';
+setCurrent('free_dice', '2d6+3');
 
 helper.registerProfile({
   id: 'future-system',
@@ -713,7 +1043,9 @@ helper.registerProfile({
 assert(helper.profiles['future-system']);
 
 assert(!source.includes('&{template:coc-1}'));
-assert(!source.includes('&{template:coc-dice-roll}'));
+assert(source.includes('&{template:coc-dice-roll}'));
+assert(source.includes('&{template:coc-body-hit-loc}'));
+assert(source.includes('coc-pulp-bomadness-'));
 assert(!source.includes('&{template:coc-attack-1}'));
 assert(!source.includes('otherskill1'));
 
@@ -758,10 +1090,10 @@ events['chat:message']({ type: 'api', content: '!!화자 GM', playerid: 'gm', wh
 assert.strictEqual(players.gm.get('speakingas'), 'character|' + gmSpeakerCharacter.id);
 events['chat:message']({ type: 'api', content: '!!화자 마렌', playerid: 'gm', who: 'GM (GM)' });
 assert.strictEqual(players.gm.get('speakingas'), '');
-events['chat:message']({ type: 'api', content: '!!명령대상 경태', playerid: 'gm', who: 'GM (GM)' });
-assert.strictEqual(runtime.state.KIBSheetHelper.activeCharacterId, gmCharacter.id);
+events['chat:message']({ type: 'api', content: '!!명령대상 공개', playerid: 'gm', who: 'GM (GM)' });
+assert.strictEqual(runtime.state.KIBSheetHelper.activeCharacterId, officialCharacter.id);
 events['chat:message']({ type: 'api', content: '!시트 상태', playerid: 'gm', who: 'GM (GM)' });
-assert(sent.at(-1).content.includes('이경태'), 'GM이 고른 캐릭터를 다음 명령에 사용해야 합니다.');
+assert(sent.at(-1).content.includes('공개 시트 탐사자'), 'GM이 고른 캐릭터를 다음 명령에 사용해야 합니다.');
 
 events['chat:message']({ type: 'api', content: '!시트 GM전용추적|끄기', playerid: 'gm', who: 'GM (GM)' });
 const gmLuck = runtime.createObj('attribute', {
@@ -770,6 +1102,13 @@ const gmLuck = runtime.createObj('attribute', {
 const playerLuck = runtime.createObj('attribute', {
   _characterid: playerCharacter.id, characterid: playerCharacter.id, name: 'luck', current: '31', max: '',
 });
+['san', 'cthulhu_mythos', 'str'].forEach((name) => runtime.createObj('attribute', {
+  _characterid: playerCharacter.id, characterid: playerCharacter.id, name, current: '30', max: '',
+}));
+runtime.createObj('attribute', {
+  _characterid: playerCharacter.id, characterid: playerCharacter.id, name: 'hp_max', current: '12', max: '',
+});
+helper.scan(playerCharacter.id, true);
 const gmTrackBefore = sent.filter((item) => item.who === `character|${gmCharacter.id}`).length;
 events['change:attribute'](gmLuck, { current: '30' });
 assert.strictEqual(

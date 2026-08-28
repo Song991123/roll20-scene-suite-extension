@@ -768,10 +768,8 @@ assert(
   '패널 이미지 설정 설명이 필요합니다.',
 );
 assert(
-  !/(?:sheetRules|changeSheetRules|시트추가|시트삭제|시트목록|function rollFields|function conditionMatches)/.test(
-    cutinText,
-  ),
-  '배포본 08에 시트 호환 코드를 넣지 않습니다.',
+  /(?:sheetRules|sheet:result|function playSheetResult)/.test(cutinText),
+  '기능 브랜치의 08은 10 시트 헬퍼 결과를 연결해야 합니다.',
 );
 assert(
   appText.includes('각종 여러 시트 호환은 아직 미개발. 추후 업뎃 예정'),

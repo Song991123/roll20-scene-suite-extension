@@ -945,11 +945,11 @@ var KIBScene = KIBScene || {};
     var rows =
       commandRow('!!관찰력', '시트 값으로 판정') +
       commandRow('!!비밀 관찰력', 'GM에게 판정') +
-      commandRow('!!판정 관찰력 보너스1', '보너스 주사위 지정') +
+      commandRow('!!관찰력 보너스1', '보너스 주사위 지정') +
       commandRow('!!무기명', '시트 무기 사용') +
       commandRow(':hp+3', '일반 채팅에서 수치 변경') +
-      commandRow('!!일시적광기', '일시적 광기 굴림') +
-      commandRow('!!장기적광기', '장기적 광기 굴림') +
+      commandRow('!!광기실시간', '광기 발작 실시간') +
+      commandRow('!!광기요약', '광기 발작 요약') +
       commandRow('!!상태', '인식된 항목 확인');
     return moduleHelpSection(
       'sheet',

@@ -1,7 +1,7 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.4.2
+ * Scene Suite 10 - Sheet Helper 0.5.1
  * 제작 및 통합: @EOOOOORK
- * CoC 7판 프로필 기준 시트: 천량성님 커스텀 시트
+ * CoC 7판: 천량성님 커스텀 시트, Roll20 공개 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
  */
 
@@ -21,7 +21,7 @@ var sheet_helper_setting = {
 (function (api) {
   'use strict';
 
-  var VERSION = '0.4.2';
+  var VERSION = '0.5.1';
   var profiles = {};
   var cache = {};
   var refreshTimer = null;
@@ -158,6 +158,7 @@ var sheet_helper_setting = {
     }
     profile.name = profile.name || profile.id;
     profile.markers = profile.markers || {};
+    profile.markerAliases = profile.markerAliases || {};
     profile.minimumScore = Number(profile.minimumScore) || 1;
     profile.tracked = profile.tracked || {};
     profile.changeable = profile.changeable || [];
@@ -174,7 +175,9 @@ var sheet_helper_setting = {
     var score = 0;
     var markers = profile.markers || {};
     Object.keys(markers).forEach(function (name) {
-      if (getAttr(characterId, name) !== undefined) score += Number(markers[name]) || 0;
+      var candidates = [name].concat(profile.markerAliases[name] || []);
+      if (candidates.some(function (candidate) { return getAttr(characterId, candidate) !== undefined; }))
+        score += Number(markers[name]) || 0;
     });
     return score;
   }
@@ -253,7 +256,7 @@ var sheet_helper_setting = {
     var character = getObj('character', characterId);
     if (!character) return { ok: false, error: '캐릭터를 찾지 못했습니다.' };
     var value = profile.scan(character, attrObjects(characterId)) || {};
-    ['fields', 'resources', 'weapons', 'spells', 'armors', 'warnings'].forEach(function (key) {
+    ['fields', 'resources', 'weapons', 'spells', 'armors', 'specialDice', 'madnessHistory', 'warnings'].forEach(function (key) {
       if (!Array.isArray(value[key])) value[key] = [];
     });
     value.ok = true;
@@ -413,7 +416,7 @@ var sheet_helper_setting = {
     return normalize(raw);
   }
 
-  function modeInfo(characterId, override) {
+  function modeInfo(characterId, override, schema) {
     var mode = trim(override)
       ? parseDiceMode(override)
       : parseDiceMode(getAttr(characterId, 'dice_type'));
@@ -425,7 +428,15 @@ var sheet_helper_setting = {
       return { id: 'penalty1', label: '페널티 1개', fragment: '{{roll1=[[1d100]]}} {{roll2=[[1d100]]}} {{roll3=[[1d100]]}} {{dice_type=[[-1]]}}' };
     if (/^(?:-2|페널티2|패널티2|penalty2)$/.test(mode))
       return { id: 'penalty2', label: '페널티 2개', fragment: '{{roll1=[[1d100]]}} {{roll2=[[1d100]]}} {{roll3=[[1d100]]}} {{dice_type=[[-2]]}}' };
-    return { id: 'normal', label: '기본', fragment: '{{roll=[[1d100]]}}' };
+    return {
+      id: 'normal',
+      label: '기본',
+      fragment: schema && schema.officialLegacy
+        ? '{{roll1=[[1d100]]}}'
+        : schema && schema.id === 'name'
+          ? '{{roll1=[[1d100]]}} {{roll2=[[1d100]]}} {{roll3=[[1d100]]}}'
+        : '{{roll=[[1d100]]}}',
+    };
   }
 
   function commonTemplate(character) {
@@ -450,6 +461,10 @@ var sheet_helper_setting = {
 
   function resultKey(system, label) {
     return normalize(system) + ':' + encodeURIComponent(normalize(label));
+  }
+
+  function madnessKey(type) {
+    return Number(type) === 2 ? 'madness-summary' : 'madness-realtime';
   }
 
   function templateValue(message, field) {
@@ -477,6 +492,29 @@ var sheet_helper_setting = {
   }
 
   function cocResult(message, payload) {
+    if (payload && payload.kind === 'madness') {
+      var madnessType = Number(payload.madnessType || templateValue(message, 'madness_type')) || 1;
+      return {
+        total: templateValue(message, 'rand_roll') !== null ? templateValue(message, 'rand_roll') : templateValue(message, 'roll1'),
+        duration: templateValue(message, madnessType === 2 ? 'hours' : 'rounds') !== null
+          ? templateValue(message, madnessType === 2 ? 'hours' : 'rounds')
+          : templateValue(message, 'rand_roll2'),
+        madnessType: madnessType,
+        madnessLabel: madnessType === 2 ? '요약' : '실시간',
+        outcome: 'roll',
+        outcomeLabel: OUTCOMES.roll,
+      };
+    }
+    if (payload && (payload.kind === 'free' || payload.kind === 'luck')) {
+      var freeTotal = templateValue(message, 'free_roll');
+      if (freeTotal === null) freeTotal = templateValue(message, 'diceroll');
+      return freeTotal === null ? null : { total: freeTotal, outcome: 'roll', outcomeLabel: OUTCOMES.roll };
+    }
+    if (payload && payload.kind === 'hit-location') {
+      var hitTotal = templateValue(message, 'mark');
+      if (hitTotal === null) hitTotal = templateValue(message, 'roll1');
+      return hitTotal === null ? null : { total: hitTotal, outcome: 'roll', outcomeLabel: OUTCOMES.roll };
+    }
     var target = templateValue(message, 'success');
     var hard = templateValue(message, 'hard');
     var extreme = templateValue(message, 'extreme');
@@ -492,6 +530,7 @@ var sheet_helper_setting = {
     var roll2 = templateValue(message, 'roll2');
     var roll3 = templateValue(message, 'roll3');
     var rolled = templateValue(message, 'roll');
+    if (mode === 'normal' && rolled === null) rolled = roll1;
     if (mode === 'bonus1') rolled = roll1 !== null && roll2 !== null ? Math.min(roll1, roll2) : null;
     else if (mode === 'bonus2') rolled = roll1 !== null && roll2 !== null && roll3 !== null ? Math.min(roll1, roll2, roll3) : null;
     else if (mode === 'penalty1') rolled = roll1 !== null && roll2 !== null ? Math.max(roll1, roll2) : null;
@@ -564,9 +603,43 @@ var sheet_helper_setting = {
       emitResult(pending.payload, message);
       return true;
     }
-    if (String(message && message.rolltemplate || '').toLowerCase() !== 'coc') return false;
+    var rolltemplate = String(message && message.rolltemplate || '').toLowerCase();
+    if (!/^coc(?:$|-|other$)/.test(rolltemplate) && !/^type-coc-attack(?:-1)?$/.test(rolltemplate)) return false;
+    var specialPayload = null;
+    var madnessType = templateValue(message, 'madness_type');
+    if (madnessType !== null || /bomadness-(?:da-)?(?:rt|summ)$/.test(rolltemplate)) {
+      madnessType = madnessType || (/summ$/.test(rolltemplate) ? 2 : 1);
+      specialPayload = {
+        source: 'sheet', system: 'coc7', kind: 'madness', characterId: '', characterName: templateText(message, 'character_name'),
+        key: madnessKey(madnessType), label: madnessType === 2 ? '광기 발작 요약' : '광기 발작 실시간',
+        madnessType: madnessType, secret: message.type === 'whisper' || message.type === 'gmrollresult',
+      };
+    } else if (templateValue(message, 'free_roll') !== null || (rolltemplate === 'coc-dice-roll' && templateValue(message, 'diceroll') !== null)) {
+      var freeLabel = templateText(message, 'subject');
+      specialPayload = {
+        source: 'sheet', system: 'coc7', kind: normalize(freeLabel) === '행운결정' ? 'luck' : 'free', characterId: '',
+        characterName: templateText(message, 'character_name'), key: 'free-dice',
+        label: normalize(freeLabel) === '행운결정' ? '행운 결정' : '자유 주사위',
+        secret: message.type === 'whisper' || message.type === 'gmrollresult',
+      };
+    } else if (templateValue(message, 'mark') !== null || (rolltemplate === 'coc-body-hit-loc' && templateValue(message, 'roll1') !== null)) {
+      specialPayload = {
+        source: 'sheet', system: 'coc7', kind: 'hit-location', characterId: '', characterName: templateText(message, 'character_name'),
+        key: 'hit-location', label: '명중부위', secret: message.type === 'whisper' || message.type === 'gmrollresult',
+      };
+    }
+    if (specialPayload) {
+      specialPayload.cutinKey = resultKey('coc7', specialPayload.label);
+      emitResult(specialPayload, message);
+      return true;
+    }
+    if (
+      /^(?:coc|coc-attack|type-coc-attack)$/.test(rolltemplate) &&
+      templateValue(message, 'dice_type') === null &&
+      templateValue(message, 'roll2') !== null
+    ) return false;
     if (templateValue(message, 'success') === null || (templateValue(message, 'roll') === null && templateValue(message, 'roll1') === null)) return false;
-    var label = templateText(message, 'subject');
+    var label = templateText(message, 'subject') || templateText(message, 'name');
     if (!label) return false;
     var payload = {
       source: 'sheet',
@@ -626,6 +699,7 @@ var sheet_helper_setting = {
       value: value,
       secret: secret,
       mode: options && options.mode,
+      schema: checked.data.schema,
     });
     if (!built.ok) return built;
     return sendSheet(character, built.content, merge({
@@ -723,6 +797,7 @@ var sheet_helper_setting = {
       character: character,
       item: weapon,
       secret: !!secret,
+      schema: checked.data.schema,
     });
     if (!built.ok) return built;
     return sendSheet(character, built.content, merge({
@@ -749,9 +824,10 @@ var sheet_helper_setting = {
       character: character,
       item: spell,
       secret: !!secret,
+      schema: checked.data.schema,
     });
     if (!built.ok) return built;
-    return sendSheet(character, built.content, merge({
+    var payload = merge({
       system: activeProfile().id,
       kind: 'spell',
       characterId: characterId,
@@ -759,7 +835,17 @@ var sheet_helper_setting = {
       label: spell.label,
       cutinKey: resultKey(activeProfile().id, spell.label),
       secret: !!secret,
-    }, built.payload));
+    }, built.payload);
+    if (built.immediate) {
+      try {
+        sendChat('character|' + character.id, built.content);
+        emitResult(payload, null);
+        return { ok: true, payload: payload };
+      } catch (err) {
+        return { ok: false, error: '주문 메시지를 보내지 못했습니다: ' + (err.message || err) };
+      }
+    }
+    return sendSheet(character, built.content, payload);
   }
 
   function rollArmor(characterId, query, secret) {
@@ -787,13 +873,23 @@ var sheet_helper_setting = {
     }, built.payload));
   }
 
+  function specialItem(data, kind, type) {
+    return (data.specialDice || []).filter(function (item) {
+      return item.kind === kind && (!type || String(item.type || '') === String(type));
+    })[0] || null;
+  }
+
   function rollFree(characterId, secret) {
     var character = getObj('character', characterId);
     if (!character) return { ok: false, error: '캐릭터를 찾지 못했습니다.' };
     var checked = ensureSheet(character);
     if (!checked.ok) return checked;
+    var special = specialItem(checked.data, 'free');
+    if (!special) return { ok: false, error: '현재 시트에서 자유 주사위를 찾지 못했습니다.' };
     var built = buildAction(activeProfile(), 'free', {
       character: character,
+      item: special,
+      schema: checked.data.schema,
       secret: !!secret,
     });
     if (!built.ok) return built;
@@ -801,21 +897,26 @@ var sheet_helper_setting = {
       system: activeProfile().id,
       kind: 'free',
       characterId: characterId,
-      key: 'free_dice',
-      label: '자유 주사위',
-      cutinKey: resultKey(activeProfile().id, '자유 주사위'),
+      key: special.key,
+      label: special.label,
+      cutinKey: resultKey(activeProfile().id, special.label),
       secret: !!secret,
     }, built.payload));
   }
 
-  function rollMadness(characterId, forcedType, secret, requestedLabel) {
+  function rollMadness(characterId, forcedType, secret) {
     var character = getObj('character', characterId);
     if (!character) return { ok: false, error: '캐릭터를 찾지 못했습니다.' };
     var checked = ensureSheet(character);
     if (!checked.ok) return checked;
+    if (checked.data.schema.officialLegacy && !trim(forcedType))
+      return { ok: false, error: '공식 시트의 광기 발작은 !!광기실시간 또는 !!광기요약으로 골라 주세요.' };
+    if (!specialItem(checked.data, 'madness'))
+      return { ok: false, error: '현재 시트에서 광기 발작 주사위를 찾지 못했습니다.' };
     var built = buildAction(activeProfile(), 'madness', {
       character: character,
       forcedType: forcedType,
+      schema: checked.data.schema,
       secret: !!secret,
     });
     if (!built.ok) return built;
@@ -823,33 +924,16 @@ var sheet_helper_setting = {
       system: activeProfile().id,
       kind: 'madness',
       characterId: characterId,
-      key: 'rand_maddess',
+      key: madnessKey(built.payload && built.payload.madnessType),
       secret: !!secret,
     }, built.payload);
-    payload.label = trim(requestedLabel) || payload.label || '광기 발작';
+    payload.label = payload.label || '광기 발작';
     payload.cutinKey = resultKey(activeProfile().id, payload.label);
     return sendSheet(character, built.content, payload);
   }
 
   function rollLuck(characterId, secret) {
-    var character = getObj('character', characterId);
-    if (!character) return { ok: false, error: '캐릭터를 찾지 못했습니다.' };
-    var checked = ensureSheet(character);
-    if (!checked.ok) return checked;
-    var built = buildAction(activeProfile(), 'luck', {
-      character: character,
-      secret: !!secret,
-    });
-    if (!built.ok) return built;
-    return sendSheet(character, built.content, merge({
-      system: activeProfile().id,
-      kind: 'luck',
-      characterId: characterId,
-      key: 'luck-start',
-      label: '행운 결정',
-      cutinKey: resultKey(activeProfile().id, '행운 결정'),
-      secret: !!secret,
-    }, built.payload));
+    return { ok: false, error: '현재 시트에서 행운 결정 주사위를 찾지 못했습니다.' };
   }
 
   function rollHitLocation(characterId, secret) {
@@ -857,8 +941,12 @@ var sheet_helper_setting = {
     if (!character) return { ok: false, error: '캐릭터를 찾지 못했습니다.' };
     var checked = ensureSheet(character);
     if (!checked.ok) return checked;
+    var special = specialItem(checked.data, 'hit-location');
+    if (!special) return { ok: false, error: '현재 시트에서 명중부위 주사위를 찾지 못했습니다.' };
     var built = buildAction(activeProfile(), 'hitLocation', {
       character: character,
+      item: special,
+      schema: checked.data.schema,
       secret: !!secret,
     });
     if (!built.ok) return built;
@@ -866,9 +954,9 @@ var sheet_helper_setting = {
       system: activeProfile().id,
       kind: 'hit-location',
       characterId: characterId,
-      key: 'hit-location',
-      label: '명중부위',
-      cutinKey: resultKey(activeProfile().id, '명중부위'),
+      key: special.key,
+      label: special.label,
+      cutinKey: resultKey(activeProfile().id, special.label),
       secret: !!secret,
     }, built.payload));
   }
@@ -932,6 +1020,13 @@ var sheet_helper_setting = {
     return attribute;
   }
 
+  function cocMajorWoundAttr(characterId) {
+    for (var i = 0; i < cocMajorWoundAttrs.length; i++) {
+      if (getAttr(characterId, cocMajorWoundAttrs[i]) !== undefined) return cocMajorWoundAttrs[i];
+    }
+    return getAttr(characterId, 'showskills') !== undefined ? 'major_wound_toggle' : 'major-wound-toggle';
+  }
+
   function applyCocHealthRules(characterId, before, current) {
     var profile = activeProfile();
     if (!profile || profile.id !== 'coc7') return [];
@@ -940,9 +1035,10 @@ var sheet_helper_setting = {
     var maximum = asNumber(getAttr(characterId, 'hp_max'));
     if (oldHp === null || hp === null || maximum === null || maximum <= 0) return [];
     var changed = [];
-    var majorWound = enabledValue(getAttr(characterId, 'major-wound-toggle')) === true;
+    var majorWoundAttr = cocMajorWoundAttr(characterId);
+    var majorWound = enabledValue(getAttr(characterId, majorWoundAttr)) === true;
     if (oldHp > hp && oldHp - hp >= maximum / 2 && !majorWound) {
-      setAttribute(characterId, 'major-wound-toggle', 1);
+      setAttribute(characterId, majorWoundAttr, 1);
       majorWound = true;
       changed.push('중상 활성화');
     }
@@ -1064,6 +1160,13 @@ var sheet_helper_setting = {
     ['dying', '빈사'], ['major-wound-toggle', '중상'], ['temp_insane', '일시적 광기'], ['indef_insane', '장기 광기'],
   ];
 
+  var cocMadnessHistory = [
+    ['current_mental_condition', '현재 정신 상태'],
+    ['phobias_manias', '공포증과 집착증'],
+    ['injuries_scars', '부상과 흉터'],
+    ['encounters_with_strange_entities', '기이한 존재들과의 만남'],
+  ];
+
   var cocRepeatingChecks = [
     { section: 'science', labels: ['science_title'], value: 'science', group: '과학' },
     { section: 'foreign', labels: ['foreign_title'], value: 'foreign', group: '외국어' },
@@ -1080,14 +1183,129 @@ var sheet_helper_setting = {
     { label: 'ori_live_title', value: 'ori_live', group: '생존술' },
     { label: 'ori_other_control_title', value: 'ori_other_control', group: '기타 운전' },
     { label: 'ori_other_weapon_title', value: 'ori_other_weapon', group: '기타 전투' },
+    { label: 'ori_other_skills_title', value: 'ori_other_skills', group: '기타 기능' },
   ];
 
-  function cocField(definition, read) {
-    var value = read(definition[0]);
-    if (value === undefined) return null;
+  var cocCommunityAliases = {
+    spot_hidden: ['spothidden'],
+    fast_talk: ['fasttalk'],
+    sleight_of_hand: ['sleightofhand'],
+    animal_control: ['animalhandling'],
+    mouth_talk: ['readlips'],
+    elec_machin: ['electronics'],
+    computer: ['computer_use', 'computeruse', 'computer_maint'],
+    boom: ['demolitions'],
+    mech_repair: ['mechrepair', 'repair/devise'],
+    psychology: ['insight'],
+    drive_auto: ['drive_wagon', 'drive'],
+    natural_world: ['naturalworld'],
+    credit_rating: ['status', 'credit'],
+    firearms_handgun: ['firearms_handguns'],
+    firearms_rifle: ['firearms_r_s'],
+    elec_repair: ['elecrepair'],
+    op_hv_machine: ['ophvmachine'],
+  };
+
+  var cocCommunityFields = [
+    { era: '1', attr: 'ownkingdom_da', label: '왕국 지식' },
+    { era: '1', attr: 'pilotboat_da', label: '선박 조종' },
+    { era: '1', attr: 'religion_da', label: '종교' },
+    { era: '1', attr: 'shield_da', labelAttr: 'shield_type_and_name_da', label: '방패' },
+    { era: '2', attr: 'acting', label: '연기' },
+    { era: '2', attr: 'compute_use', label: '컴퓨터 사용' },
+    { era: '2', attr: 'drive_other01', labelAttr: 'drive_other01_name', label: '기타 운전' },
+    { era: '2', attr: 'language_other01', labelAttr: 'language_other_name', label: '기타 언어' },
+    { era: '2', attr: 'machine_gun', label: '기관총' },
+    { era: '2', attr: 'pharmacy', label: '약학' },
+    { era: '2', attr: 'submachine_gun', label: '기관단총' },
+    { era: '2', attr: 'survival01', labelAttr: 'survival_name', label: '생존술' },
+    { era: '3', attr: 'firearms_smg_mdr', label: '사격(기관단총)' },
+    { era: '4', attr: 'firearms_s_m_g_et', label: '사격(기관단총)' },
+    { era: '4', attr: 'artandcraft_et', labelAttr: 'artandcraft_name_et', label: '예술/공예' },
+    { era: '4', attr: 'language(other)_et', labelAttr: 'language(other)_et_name', label: '기타 언어' },
+    { era: '4', attr: 'scavenge_et', label: '물자 수색' },
+    { era: '4', attr: 'techrepair_et', label: '기술 수리' },
+    { era: '5', attr: 'gambling_ow', label: '도박' },
+    { era: '5', attr: 'artandcraft_ow', labelAttr: 'artandcraft_name_ow', label: '예술/공예' },
+    { era: '5', attr: 'language(other)_ow', labelAttr: 'language(other)_ow_name', label: '기타 언어' },
+    { era: '5', attr: 'rope_use_ow', label: '밧줄 사용' },
+    { era: '5', attr: 'trap_ow', label: '함정' },
+    { era: '6', attr: 'firearms_electr', label: '사격(전자무기)' },
+    { era: '6', attr: 'artandcraft_ic', labelAttr: 'artandcraft_name_ic', label: '예술/공예' },
+    { era: '6', attr: 'sysops_ic', label: '시스템 운용' },
+    { era: '6', attr: 'techrepair_ic', label: '기술 수리' },
+    { era: '6', attr: 'zerog_ic', label: '무중력 활동' },
+    { era: '7', attr: 'civics_inv', label: '시민학' },
+    { era: '7', attr: 'empire_inv', label: '제국 지식' },
+    { era: '7', attr: 'pilotboat_inv', label: '선박 조종' },
+    { era: '7', attr: 'shield_inv', labelAttr: 'shield_type_and_name_inv', label: '방패' },
+  ];
+
+  var cocMajorWoundAttrs = ['major_wound_toggle', 'major-wound-toggle', 'major_wound', 'majorwound'];
+
+  var cocCommunityEras = {
+    1: { suffix: '_da', skillSection: 'skillsda', weaponSection: 'weaponsda' },
+    2: { suffix: '', skillSection: 'skills', weaponSection: 'weapons' },
+    3: { suffix: '_mdr', skillSection: 'skillsmdr', weaponSection: 'weaponsmdr' },
+    4: { suffix: '_et', skillSection: 'skillset', weaponSection: 'weaponset' },
+    5: { suffix: '_ow', skillSection: 'skillset', weaponSection: 'weaponsow' },
+    6: { suffix: '_ic', skillSection: 'skillsic', weaponSection: 'weaponsic' },
+    7: { suffix: '_inv', skillSection: 'skillsinv', weaponSection: 'weaponsinv' },
+  };
+
+  function cocSchema(read, attributeIndex) {
+    var names = Object.keys(attributeIndex || {});
+    function has(name) { return own(attributeIndex || {}, name); }
+    var isNameSchema = has('showskills') || has('weapon1_name') || has('major_wound_toggle') ||
+      has('major_wound') || has('majorwound') ||
+      names.some(function (name) {
+        return /^repeating_(?:skills|skillsinv|skillsda|skillsmdr|skillsic|skillset|weapons|weaponsinv|weaponsda|weaponsmdr|weaponsic|weaponsow|weaponset|spells)_.+_(?:skillname|weaponname|spellname)(?:_(?:inv|da|ow|mdr|et|ic))?$/.test(name);
+      });
+    var era = trim(has('showskills') ? read('showskills') : '') || '2';
+    var selected = cocCommunityEras[era] || cocCommunityEras[2];
+    var selectedEraPresent = selected.suffix ? names.some(function (name) {
+      return name.indexOf(selected.suffix) !== -1;
+    }) : read('cthulhu_mythos') !== undefined || names.some(function (name) {
+      return name.indexOf('repeating_skills_') === 0 || name.indexOf('repeating_weapons_') === 0;
+    });
+    if (isNameSchema && !selectedEraPresent) {
+      var inferredEras = Object.keys(cocCommunityEras).filter(function (id) {
+        return read('cthulhu_mythos' + cocCommunityEras[id].suffix) !== undefined;
+      });
+      if (inferredEras.length === 1) {
+        era = inferredEras[0];
+        selected = cocCommunityEras[era];
+      }
+    }
+    var majorWound = cocMajorWoundAttrs.filter(has)[0];
     return {
-      key: definition[0],
-      attr: definition[0],
+      id: isNameSchema ? 'name' : 'subject',
+      officialLegacy: has('showskills'),
+      era: era,
+      suffix: isNameSchema ? selected.suffix : '',
+      skillSection: isNameSchema ? selected.skillSection : '',
+      weaponSection: isNameSchema ? selected.weaponSection : '',
+      majorWound: majorWound || (isNameSchema ? 'major_wound_toggle' : 'major-wound-toggle'),
+    };
+  }
+
+  function cocField(definition, read, schema) {
+    var roots = [definition[0]].concat(cocCommunityAliases[definition[0]] || []);
+    var candidates = roots;
+    if (schema.id === 'name' && definition[2] === '기능' && schema.suffix)
+      candidates = roots.map(function (name) { return name + schema.suffix; });
+    var attr = '';
+    var value;
+    for (var i = 0; i < candidates.length; i++) {
+      value = read(candidates[i]);
+      if (value === undefined) continue;
+      attr = candidates[i];
+      break;
+    }
+    if (!attr) return null;
+    return {
+      key: attr,
+      attr: attr,
       label: definition[1],
       group: definition[2],
       aliases: definition[3] || [],
@@ -1114,17 +1332,19 @@ var sheet_helper_setting = {
         ? indexed[key]
         : getAttr(characterId, name, valueType);
     }
+    function readIndexed(name, valueType) {
+      var indexed = attributeIndex[name];
+      return indexed ? indexed[valueType == 'max' ? 'max' : 'current'] : undefined;
+    }
+    var schema = cocSchema(read, attributeIndex);
+    var subjectTemplate = schema.id === 'subject' ? read('template_common') : undefined;
+    schema.hasFreeDice = schema.id === 'subject' && subjectTemplate !== undefined;
+    schema.specialTemplate = schema.hasFreeDice && read('template_other') !== undefined ? 'cocOther' : 'coc';
     var fields = cocFields.map(function (definition) {
-      return cocField(definition, read);
+      return cocField(definition, read, schema);
     }).filter(Boolean);
-    cocSingleChecks.forEach(function (definition) {
-      var label = trim(read(definition.label));
-      var value = read(definition.value);
-      if (!label || value === undefined) return;
-      fields.push({ key: definition.value, attr: definition.value, label: label, group: definition.group, aliases: [], value: value, custom: true });
-    });
     var warnings = [];
-    cocRepeatingChecks.forEach(function (definition) {
+    function appendRepeatingChecks(definition) {
       var names = definition.labels.concat([definition.value]);
       collectRows(characterId, definition.section, names, objects).forEach(function (row, index) {
         var label = '';
@@ -1149,102 +1369,260 @@ var sheet_helper_setting = {
           custom: true,
         });
       });
-    });
-
-    var weaponFields = ['weapon_name', 'weapon_skill', 'weapon_damage', 'weapon_db', 'weapon_range', 'weapon_attacks', 'weapon_ammo', 'weapon_malf'];
-    var weapons = [];
-    var fixedName = trim(read('weapon_name_fix'));
-    if (fixedName) {
-      weapons.push({
-        key: 'weapon_fix', label: fixedName, aliases: ['비무장'],
-        skill: read('fighting_brawl'), damage: '1d3', db: '+@{damage_bonus}',
-        range: read('weapon_range_fix'), attacks: read('weapon_attacks_fix'),
-        ammo: read('weapon_ammo_fix'), malf: read('weapon_malf_fix'), ammoAttr: '', ammoRef: '',
-        details: [
-          ['기능', '근접전(격투)'], ['피해', '1d3+피해 보너스'],
-          ['사거리', read('weapon_range_fix')], ['공격 횟수', read('weapon_attacks_fix')],
-          ['탄약', read('weapon_ammo_fix')], ['고장', read('weapon_malf_fix')],
-        ],
+    }
+    if (schema.id === 'subject') {
+    cocSingleChecks.forEach(function (definition) {
+      var label = trim(readIndexed(definition.label));
+      var value = readIndexed(definition.value);
+        if (!label || value === undefined) return;
+        fields.push({ key: definition.value, attr: definition.value, label: label, group: definition.group, aliases: [], value: value, custom: true });
+      });
+      cocRepeatingChecks.forEach(appendRepeatingChecks);
+      appendRepeatingChecks({
+        section: 'skills', labels: ['other_skills_title'], value: 'other_skills', group: '기타 기능',
+      });
+    } else {
+      appendRepeatingChecks({
+        section: schema.skillSection,
+        labels: ['skillname' + schema.suffix],
+        value: 'skill' + schema.suffix,
+        group: '사용자 기능',
+      });
+      cocCommunityFields.forEach(function (definition) {
+        if (definition.era !== schema.era || readIndexed(definition.attr) === undefined) return;
+        var label = trim(definition.labelAttr && readIndexed(definition.labelAttr)) || definition.label;
+        fields.push({
+          key: definition.attr, attr: definition.attr, label: label, group: '기능',
+          aliases: [], value: readIndexed(definition.attr), custom: !!definition.labelAttr,
+        });
+      });
+      Object.keys(attributeIndex).forEach(function (labelAttr) {
+        if (!/^(?:artandcraft\d*|fightspec\d+|fighting_other|firearms_other|otherkingdom\d+|otherlanguage\d+|readandwritelang\d+|otherskill\d+)(?:_(?:inv|da|ow|mdr|et|ic))?_name$/.test(labelAttr)) return;
+        var valueAttr = labelAttr.substring(0, labelAttr.length - 5);
+        var eraSuffix = valueAttr.match(/_(?:inv|da|ow|mdr|et|ic)$/);
+        if ((schema.suffix && (!eraSuffix || eraSuffix[0] !== schema.suffix)) || (!schema.suffix && eraSuffix)) return;
+        var label = trim(read(labelAttr));
+        var value = read(valueAttr);
+        if (!label || value === undefined || fields.some(function (item) { return item.attr === valueAttr; })) return;
+        fields.push({ key: valueAttr, attr: valueAttr, label: label, group: '사용자 기능', aliases: [], value: value, custom: true });
       });
     }
-    collectRows(characterId, 'weapon', weaponFields, objects).forEach(function (row, index) {
-      var name = trim(row.values.weapon_name);
-      if (!name) {
-        if (Object.keys(row.names).length) warnings.push('무기 ' + (index + 1) + ' 이름이 비어 있습니다.');
-        return;
-      }
-      weapons.push({
-        key: row.names.weapon_name || 'repeating_weapon_' + row.id + '_weapon_name',
-        scopes: ['repeating_weapon_' + row.id + '_', 'repeating_weapon_$' + index + '_'],
-        label: name, aliases: [], skill: row.values.weapon_skill, damage: row.values.weapon_damage,
-        db: row.values.weapon_db, range: row.values.weapon_range, attacks: row.values.weapon_attacks,
-        ammo: row.values.weapon_ammo,
-        malf: row.values.weapon_malf,
-        ammoAttr: row.names.weapon_ammo || '',
-        ammoRef: row.refs.weapon_ammo || row.names.weapon_ammo || '',
-        details: [
-          ['기능', row.values.weapon_skill], ['피해', trim(row.values.weapon_damage) + trim(row.values.weapon_db)],
-          ['사거리', row.values.weapon_range], ['공격 횟수', row.values.weapon_attacks],
-          ['탄약', row.values.weapon_ammo], ['고장', row.values.weapon_malf],
-        ],
-      });
-    });
 
-    var spellFields = ['magic_flag', 'magic_name', 'magic_time', 'magic_cost', 'magic_desc'];
+    var weapons = [];
     var spells = [];
-    collectRows(characterId, 'magic', spellFields, objects).forEach(function (row, index) {
-      var name = trim(row.values.magic_name);
-      if (!name) {
-        if (Object.keys(row.names).length) warnings.push('주문 ' + (index + 1) + ' 이름이 비어 있습니다.');
-        return;
+    if (schema.id === 'subject') {
+      var weaponFields = ['weapon_name', 'weapon_skill', 'weapon_damage', 'weapon_db', 'weapon_range', 'weapon_attacks', 'weapon_ammo', 'weapon_malf'];
+      var fixedName = trim(read('weapon_name_fix'));
+      if (fixedName) {
+        weapons.push({
+          key: 'weapon_fix', label: fixedName, aliases: ['비무장'],
+          skill: read('fighting_brawl'), damage: '1d3', db: '+@{damage_bonus}',
+          range: read('weapon_range_fix'), attacks: read('weapon_attacks_fix'),
+          ammo: read('weapon_ammo_fix'), malf: read('weapon_malf_fix'), ammoAttr: '', ammoRef: '',
+          details: [
+            ['기능', '근접전(격투)'], ['피해', '1d3+피해 보너스'],
+            ['사거리', read('weapon_range_fix')], ['공격 횟수', read('weapon_attacks_fix')],
+            ['탄약', read('weapon_ammo_fix')], ['고장', read('weapon_malf_fix')],
+          ],
+        });
       }
-      spells.push({
-        key: row.names.magic_name || 'repeating_magic_' + row.id + '_magic_name',
-        label: name, aliases: [], time: row.values.magic_time, cost: row.values.magic_cost, desc: row.values.magic_desc,
-        details: [['시전 시간', row.values.magic_time], ['비용', row.values.magic_cost], ['설명', row.values.magic_desc]],
+      for (var subjectWeaponIndex = 1; subjectWeaponIndex <= 4; subjectWeaponIndex++) {
+        var subjectSuffix = '0' + subjectWeaponIndex;
+        var subjectName = trim(readIndexed('weapon_name_' + subjectSuffix));
+        if (!subjectName) continue;
+        weapons.push({
+          key: 'weapon_name_' + subjectSuffix, label: subjectName, aliases: [],
+          skill: readIndexed('weapon_skill_' + subjectSuffix), damage: readIndexed('weapon_damage_' + subjectSuffix),
+          db: readIndexed('weapon_db_' + subjectSuffix), range: readIndexed('weapon_range_' + subjectSuffix),
+          attacks: readIndexed('weapon_attacks_' + subjectSuffix), ammo: readIndexed('weapon_ammo_' + subjectSuffix),
+          malf: readIndexed('weapon_malf_' + subjectSuffix), ammoAttr: 'weapon_ammo_' + subjectSuffix,
+          ammoRef: 'weapon_ammo_' + subjectSuffix,
+          details: [
+            ['기능', readIndexed('weapon_skill_' + subjectSuffix)],
+            ['피해', trim(readIndexed('weapon_damage_' + subjectSuffix)) + trim(readIndexed('weapon_db_' + subjectSuffix))],
+            ['사거리', readIndexed('weapon_range_' + subjectSuffix)], ['공격 횟수', readIndexed('weapon_attacks_' + subjectSuffix)],
+            ['탄약', readIndexed('weapon_ammo_' + subjectSuffix)], ['고장', readIndexed('weapon_malf_' + subjectSuffix)],
+          ],
+        });
+      }
+      collectRows(characterId, 'weapon', weaponFields, objects).forEach(function (row, index) {
+        var name = trim(row.values.weapon_name);
+        if (!name) {
+          if (Object.keys(row.names).length) warnings.push('무기 ' + (index + 1) + ' 이름이 비어 있습니다.');
+          return;
+        }
+        weapons.push({
+          key: row.names.weapon_name || 'repeating_weapon_' + row.id + '_weapon_name',
+          scopes: ['repeating_weapon_' + row.id + '_', 'repeating_weapon_$' + index + '_'],
+          label: name, aliases: [], skill: row.values.weapon_skill, damage: row.values.weapon_damage,
+          db: row.values.weapon_db, range: row.values.weapon_range, attacks: row.values.weapon_attacks,
+          ammo: row.values.weapon_ammo, malf: row.values.weapon_malf,
+          ammoAttr: row.names.weapon_ammo || '', ammoRef: row.refs.weapon_ammo || row.names.weapon_ammo || '',
+          details: [
+            ['기능', row.values.weapon_skill], ['피해', trim(row.values.weapon_damage) + trim(row.values.weapon_db)],
+            ['사거리', row.values.weapon_range], ['공격 횟수', row.values.weapon_attacks],
+            ['탄약', row.values.weapon_ammo], ['고장', row.values.weapon_malf],
+          ],
+        });
       });
-    });
+      collectRows(characterId, 'magic', ['magic_flag', 'magic_name', 'magic_time', 'magic_cost', 'magic_condition', 'magic_desc'], objects).forEach(function (row, index) {
+        var name = trim(row.values.magic_name);
+        if (!name) {
+          if (Object.keys(row.names).length) warnings.push('주문 ' + (index + 1) + ' 이름이 비어 있습니다.');
+          return;
+        }
+        spells.push({
+          key: row.names.magic_name || 'repeating_magic_' + row.id + '_magic_name',
+          label: name, aliases: [], time: row.values.magic_time, cost: row.values.magic_cost,
+          condition: row.values.magic_condition, desc: row.values.magic_desc,
+          details: [['시전 시간', row.values.magic_time], ['비용', row.values.magic_cost], ['발동조건', row.values.magic_condition], ['설명', row.values.magic_desc]],
+        });
+      });
+    } else {
+      var brawl = fields.filter(function (item) { return item.label === '근접전(격투)'; })[0];
+      if (brawl) {
+        weapons.push({
+          key: 'unarmed', label: '비무장', aliases: [trim(readIndexed('unarmed_txt'))],
+          skill: '@{' + brawl.attr + '}', damage: '1d3', db: '+@{damage_bonus}',
+          range: '-', attacks: '1', ammo: '-', malf: '-', ammoAttr: '', ammoRef: '',
+          details: [['기능', brawl.label], ['피해', '1d3+피해 보너스']],
+        });
+      }
+      for (var weaponIndex = 1; weaponIndex <= 5; weaponIndex++) {
+        var fixedPrefix = 'weapon' + weaponIndex + schema.suffix;
+        var officialName = trim(readIndexed(fixedPrefix + '_name'));
+        if (!officialName) continue;
+        weapons.push({
+          key: fixedPrefix + '_name', label: officialName, aliases: [],
+          skill: readIndexed(fixedPrefix + '_skill'), damage: readIndexed(fixedPrefix + '_damage'), db: readIndexed(fixedPrefix + '_db'),
+          range: readIndexed(fixedPrefix + '_range'), attacks: readIndexed(fixedPrefix + '_attacks'),
+          ammo: readIndexed(fixedPrefix + '_ammo'), malf: readIndexed(fixedPrefix + '_malf'),
+          extraDamage: readIndexed(fixedPrefix + '_extdamage'),
+          ammoAttr: fixedPrefix + '_ammo', ammoRef: fixedPrefix + '_ammo',
+          details: [
+            ['기능', readIndexed(fixedPrefix + '_skill')], ['피해', trim(readIndexed(fixedPrefix + '_damage')) + trim(readIndexed(fixedPrefix + '_db'))],
+            ['사거리', readIndexed(fixedPrefix + '_range')], ['공격 횟수', readIndexed(fixedPrefix + '_attacks')],
+            ['탄약', readIndexed(fixedPrefix + '_ammo')], ['고장', readIndexed(fixedPrefix + '_malf')],
+          ],
+        });
+      }
+      var officialWeaponFields = ['weaponname', 'weaponskill', 'weapondamage', 'weapondb', 'weaponrange', 'weaponattacks', 'weaponammo', 'weaponmalf', 'weaponextdamage']
+        .map(function (name) { return name + schema.suffix; });
+      collectRows(characterId, schema.weaponSection, officialWeaponFields, objects).forEach(function (row, index) {
+        var nameField = 'weaponname' + schema.suffix;
+        var skillField = 'weaponskill' + schema.suffix;
+        var damageField = 'weapondamage' + schema.suffix;
+        var dbField = 'weapondb' + schema.suffix;
+        var rangeField = 'weaponrange' + schema.suffix;
+        var attacksField = 'weaponattacks' + schema.suffix;
+        var ammoField = 'weaponammo' + schema.suffix;
+        var malfField = 'weaponmalf' + schema.suffix;
+        var extraDamageField = 'weaponextdamage' + schema.suffix;
+        var officialName = trim(row.values[nameField]);
+        if (!officialName) {
+          if (Object.keys(row.names).length) warnings.push('무기 ' + (index + 1) + ' 이름이 비어 있습니다.');
+          return;
+        }
+        weapons.push({
+          key: row.names[nameField],
+          scopes: ['repeating_' + schema.weaponSection + '_' + row.id + '_', 'repeating_' + schema.weaponSection + '_$' + index + '_'],
+          label: officialName, aliases: [], skill: row.values[skillField], damage: row.values[damageField],
+          db: row.values[dbField], range: row.values[rangeField], attacks: row.values[attacksField],
+          ammo: row.values[ammoField], malf: row.values[malfField],
+          extraDamage: row.values[extraDamageField],
+          ammoAttr: row.names[ammoField] || '', ammoRef: row.refs[ammoField] || row.names[ammoField] || '',
+          details: [
+            ['기능', row.values[skillField]], ['피해', trim(row.values[damageField]) + trim(row.values[dbField])],
+            ['사거리', row.values[rangeField]], ['공격 횟수', row.values[attacksField]],
+            ['탄약', row.values[ammoField]], ['고장', row.values[malfField]],
+          ],
+        });
+      });
+      collectRows(characterId, 'spells', ['spellname', 'spellcost', 'spellcastime', 'spelldescription'], objects).forEach(function (row, index) {
+        var name = trim(row.values.spellname);
+        if (!name) {
+          if (Object.keys(row.names).length) warnings.push('주문 ' + (index + 1) + ' 이름이 비어 있습니다.');
+          return;
+        }
+        spells.push({
+          key: row.names.spellname, label: name, aliases: [], time: row.values.spellcastime,
+          cost: row.values.spellcost, desc: row.values.spelldescription,
+          details: [['시전 시간', row.values.spellcastime], ['비용', row.values.spellcost], ['설명', row.values.spelldescription]],
+        });
+      });
+    }
 
     var armors = [];
     for (var armorIndex = 1; armorIndex <= 7; armorIndex++) {
       var suffix = armorIndex < 10 ? '0' + armorIndex : String(armorIndex);
-      var armorName = trim(read('defense_name_' + suffix));
+      var armorName = trim(readIndexed('defense_name_' + suffix));
       if (!armorName) continue;
       armors.push({
         key: 'defense_name_' + suffix, label: armorName, aliases: [],
-        part: read('defense_pice_' + suffix), value: read('defense_value_' + suffix),
-        desc: read('defense_desc_' + suffix),
+        part: readIndexed('defense_pice_' + suffix), value: readIndexed('defense_value_' + suffix),
+        desc: readIndexed('defense_desc_' + suffix),
         details: [
-          ['부위', read('defense_pice_' + suffix)],
-          ['방어', read('defense_value_' + suffix)],
-          ['설명', read('defense_desc_' + suffix)],
+          ['부위', readIndexed('defense_pice_' + suffix)],
+          ['방어', readIndexed('defense_value_' + suffix)],
+          ['설명', readIndexed('defense_desc_' + suffix)],
         ],
       });
     }
 
     var resources = cocResources.map(function (definition) {
-      var value = read(definition[0]);
+      var attr = definition[0] === 'major-wound-toggle' ? schema.majorWound : definition[0];
+      var value = read(attr);
       return value === undefined ? null : {
-        key: definition[0], attr: definition[0], label: definition[1], aliases: definition[2] || [], value: value,
+        key: attr, attr: attr, label: definition[1], aliases: definition[2] || [], value: value,
       };
     }).filter(Boolean);
-    return { fields: fields, resources: resources, weapons: weapons, spells: spells, armors: armors, warnings: warnings };
+    var specialDice = [];
+    if (schema.officialLegacy) {
+      if (enabledValue(readIndexed('toggledr')) === true) {
+        specialDice.push({ key: 'dice_roll', label: '자유 주사위', kind: 'free', command: '자유주사위' });
+        specialDice.push({ key: 'hit-location', label: '명중부위', kind: 'hit-location', command: '명중부위' });
+      }
+      specialDice.push(
+        { key: 'madness-realtime', label: '광기 발작 실시간', kind: 'madness', type: '1', command: '광기실시간' },
+        { key: 'madness-summary', label: '광기 발작 요약', kind: 'madness', type: '2', command: '광기요약' },
+      );
+    } else {
+      if (readIndexed('free_dice') !== undefined || schema.hasFreeDice)
+        specialDice.push({ key: 'free_dice', label: '자유 주사위', kind: 'free', command: '자유주사위' });
+      if (readIndexed('rand_maddess') !== undefined)
+        specialDice.push(
+          { key: 'madness-realtime', label: '광기 발작 실시간', kind: 'madness', type: '1', command: '광기실시간' },
+          { key: 'madness-summary', label: '광기 발작 요약', kind: 'madness', type: '2', command: '광기요약' },
+        );
+    }
+    var madnessHistory = cocMadnessHistory.map(function (definition) {
+      var value = readIndexed(definition[0]);
+      return value === undefined && !schema.officialLegacy
+        ? null
+        : { key: definition[0], attr: definition[0], label: definition[1], value: value === undefined ? '' : value };
+    }).filter(Boolean);
+    return {
+      schema: schema, fields: fields, resources: resources, weapons: weapons, spells: spells, armors: armors,
+      specialDice: specialDice, madnessHistory: madnessHistory, warnings: warnings,
+    };
   }
 
   function cocCheckAction(context) {
-    var mode = modeInfo(context.character.id, context.mode);
+    var mode = modeInfo(context.character.id, context.mode, context.schema);
     var expression = resolvedRollExpression(
       context.character.id,
       context.value,
       context.item.scopes || [],
     );
     if (!expression) return { ok: false, error: context.item.label + ' 판정식을 계산하지 못했습니다.' };
+    var nameSchema = context.schema && context.schema.id === 'name';
+    var template = context.schema && context.schema.officialLegacy && mode.id === 'normal' ? 'coc-1' : 'coc';
     return {
       ok: true,
       content:
         (context.secret ? '/w gm ' : '') +
-        '&{template:coc} ' + commonTemplate(context.character) +
-        ' {{subject=' + safeTemplateText(context.item.label) + '}}' +
+        '&{template:' + template + '} ' + commonTemplate(context.character) +
+        ' {{' + (nameSchema ? 'name' : 'subject') + '=' + safeTemplateText(context.item.label) + '}}' +
         ' {{success=[[(' + expression + ')]]}}' +
         ' {{hard=[[floor((' + expression + ')/2)]]}}' +
         ' {{extreme=[[floor((' + expression + ')/5)]]}} ' + mode.fragment,
@@ -1263,17 +1641,22 @@ var sheet_helper_setting = {
       weapon.scopes || [],
     );
     if (!damage) return { ok: false, error: weapon.label + '의 피해식이 올바르지 않습니다.' };
-    var mode = modeInfo(characterId);
+    var nameSchema = context.schema && context.schema.id === 'name';
+    var mode = modeInfo(characterId, '', context.schema);
+    var template = context.schema && context.schema.officialLegacy && mode.id === 'normal'
+      ? 'coc-attack-1'
+      : (nameSchema ? 'coc-attack' : 'coc');
     return {
       ok: true,
       content:
         (context.secret ? '/w gm ' : '') +
-        '&{template:coc} ' + commonTemplate(context.character) +
-        ' {{subject=' + safeTemplateText(weapon.label) + '}}' +
+        '&{template:' + template + '} ' + commonTemplate(context.character) +
+        ' {{' + (nameSchema ? 'name' : 'subject') + '=' + safeTemplateText(weapon.label) + '}}' +
         ' {{success=[[(' + skill + ')]]}}' +
         ' {{hard=[[floor((' + skill + ')/2)]]}}' +
         ' {{extreme=[[floor((' + skill + ')/5)]]}} ' + mode.fragment +
         ' {{damage=[[' + damage + ']]}}' +
+        (trim(weapon.extraDamage) ? ' {{extdamage=' + safeTemplateText(weapon.extraDamage) + '}}' : '') +
         (trim(weapon.malf) ? ' {{malf=' + safeTemplateText(weapon.malf) + '}}' : ''),
       payload: { value: trim(weapon.skill), mode: mode.id },
     };
@@ -1281,15 +1664,28 @@ var sheet_helper_setting = {
 
   function cocSpellAction(context) {
     var spell = context.item;
+    if (context.schema && context.schema.id === 'name') {
+      return {
+        ok: true,
+        immediate: true,
+        content:
+          (context.secret ? '/w gm ' : '') +
+          '&{template:default} {{name=' + safeTemplateText(spell.label) + '}}' +
+          ' {{시전 시간=' + safeTemplateText(spell.time) + '}}' +
+          ' {{비용=' + safeTemplateText(spell.cost) + '}}' +
+          ' {{설명=' + safeTemplateText(spell.desc) + '}}',
+      };
+    }
     return {
       ok: true,
       content:
         (context.secret ? '/w gm ' : '') +
         '&{template:coc} ' + commonTemplate(context.character) +
         ' {{subject=' + safeTemplateText(spell.label) + '}} {{side_subject=주문}}' +
-        ' {{magic_time=' + safeTemplateText(spell.time) + '}}' +
-        ' {{magic_cost=' + safeTemplateText(spell.cost) + '}}' +
-        ' {{magic_desc=' + safeTemplateText(spell.desc) + '}}',
+          ' {{magic_time=' + safeTemplateText(spell.time) + '}}' +
+          ' {{magic_cost=' + safeTemplateText(spell.cost) + '}}' +
+          (trim(spell.condition) ? ' {{magic_condition=' + safeTemplateText(spell.condition) + '}}' : '') +
+          ' {{magic_desc=' + safeTemplateText(spell.desc) + '}}',
     };
   }
 
@@ -1309,21 +1705,57 @@ var sheet_helper_setting = {
   }
 
   function cocFreeAction(context) {
-    var raw = getAttr(context.character.id, 'free_dice');
+    var attr = context.item && context.item.key || (context.schema && context.schema.officialLegacy ? 'dice_roll' : 'free_dice');
+    var raw = getAttr(context.character.id, attr);
     if (raw === undefined) return { ok: false, error: '현재 시트에 자유 주사위 항목이 없습니다.' };
     var expression = resolvedRollExpression(context.character.id, raw, []);
     if (!expression) return { ok: false, error: '시트의 자유 주사위 식이 올바르지 않습니다.' };
+    if (context.schema && context.schema.officialLegacy)
+      return {
+        ok: true,
+        content:
+          (context.secret ? '/w gm ' : '') +
+          '&{template:coc-dice-roll} {{name=Rolling ' + safeTemplateText(raw) + '}} {{diceroll=[[' + expression + ']]}}',
+        payload: { expression: expression },
+      };
     return {
       ok: true,
       content:
         (context.secret ? '/w gm ' : '') +
-        '&{template:coc} ' + commonTemplate(context.character) +
+        '&{template:' + (context.schema && context.schema.specialTemplate || 'coc') + '} ' + commonTemplate(context.character) +
         ' {{subject=' + safeTemplateText(raw) + '}} {{free_roll=[[' + expression + ']]}}',
-      payload: { label: trim(raw), expression: expression },
+      payload: { expression: expression },
     };
   }
 
   function cocMadnessAction(context) {
+    if (context.schema && context.schema.officialLegacy) {
+      var officialType = trim(context.forcedType || '1');
+      if (!/^[12]$/.test(officialType))
+        return { ok: false, error: '광기 발작은 실시간 또는 요약으로 골라 주세요.' };
+      var isSummary = officialType === '2';
+      var era = String(context.schema.era || '2');
+      var prefix = 'coc-bomadness-';
+      var fields = isSummary
+        ? ' {{roll1=[[1d10]]}} {{hours=[[1d10cs1cf10]]}} {{tables=[[1d100cs1cf100]]}} {{under=[[1d10cs1cf10]]}}'
+        : ' {{roll1=[[1d10]]}} {{rounds=[[1d10cs1cf10]]}} {{tables=[[1d100cs1cf100]]}} {{under=[[1d10cs1cf10]]}}';
+      if (enabledValue(getAttr(context.character.id, 'pulp_bomtoggle')) === true) {
+        prefix = 'coc-pulp-bomadness-';
+      } else if (era === '2' && enabledValue(getAttr(context.character.id, 'mixedbom')) === true) {
+        prefix = 'coc-mixed-bomadness-';
+        fields = isSummary
+          ? ' {{roll1=[[1d10]]}} {{hours=[[1d10cs1cf10]]}} {{tables=[[1d100cs1cf100]]}} {{under=[[1d10cs1cf10]]}}'
+          : ' {{roll1=[[1d15]]}} {{rounds=[[1d10cs1cf10]]}} {{tables=[[1d100cs1cf100]]}} {{under=[[1d10cs1cf10]]}}';
+      } else if (['1', '4', '5', '7'].indexOf(era) > -1) {
+        prefix = 'coc-bomadness-da-';
+        fields = isSummary ? ' {{roll1=[[1D10]]}}' : ' {{roll1=[[1D10]]}} {{rounds=[[1d10]]}}';
+      }
+      return {
+        ok: true,
+        content: (context.secret ? '/w gm ' : '') + '&{template:' + prefix + (isSummary ? 'summ' : 'rt') + '}' + fields,
+        payload: { label: isSummary ? '광기 발작 요약' : '광기 발작 실시간', madnessType: Number(officialType) },
+      };
+    }
     var current = getAttr(context.character.id, 'rand_maddess');
     if (current === undefined) return { ok: false, error: '현재 시트에 광기 발작 항목이 없습니다.' };
     var selected = trim(context.forcedType || current);
@@ -1334,47 +1766,40 @@ var sheet_helper_setting = {
       ok: true,
       content:
         (context.secret ? '/w gm ' : '') +
-        '&{template:coc} ' + commonTemplate(context.character) +
+        '&{template:' + (context.schema && context.schema.specialTemplate || 'coc') + '} ' + commonTemplate(context.character) +
         ' {{madness_type=[[' + type + ']]}} {{rand_roll=[[1d10]]}} {{rand_roll2=[[1d10]]}}',
       payload: { label: type === 2 ? '광기 발작 요약' : '광기 발작 실시간', madnessType: type },
     };
   }
 
-  function cocLuckAction(context) {
-    if (getAttr(context.character.id, 'luck') === undefined)
-      return { ok: false, error: '현재 시트에 행운 항목이 없습니다.' };
-    return {
-      ok: true,
-      content:
-        (context.secret ? '/w gm ' : '') +
-        '&{template:coc} ' + commonTemplate(context.character) +
-        ' {{subject=행운 결정}} {{free_roll=[[3d6*5]]}}',
-      payload: { label: '행운 결정' },
-    };
-  }
-
   function cocHitLocationAction(context) {
+    if (!context.schema || !context.schema.officialLegacy)
+      return { ok: false, error: '현재 시트에서 명중부위 주사위를 찾지 못했습니다.' };
     return {
       ok: true,
-      content:
-        (context.secret ? '/w gm ' : '') +
-        '&{template:coc} ' + commonTemplate(context.character) + ' {{mark=[[1d20]]}}',
+      content: (context.secret ? '/w gm ' : '') + '&{template:coc-body-hit-loc} {{roll1=[[1D20]]}}',
       payload: { label: '명중부위' },
     };
   }
 
   registerProfile({
     id: 'coc7',
-    name: 'CoC 7판 커스텀 시트',
-    minimumScore: 8,
+    name: 'CoC 7판 시트',
+    minimumScore: 9,
     markers: { san: 3, cthulhu_mythos: 3, luck: 2, str: 1, dex: 1, pow: 1 },
+    markerAliases: {
+      cthulhu_mythos: Object.keys(cocCommunityEras).map(function (id) {
+        return 'cthulhu_mythos' + cocCommunityEras[id].suffix;
+      }).filter(function (name) { return name !== 'cthulhu_mythos'; }),
+    },
     tracked: {
       hp: '체력', mp: '마력', san: '이성', luck: '행운', str: '근력', con: '건강', siz: '크기',
       dex: '민첩성', app: '외모', edu: '교육', int: '지능', pow: '정신력', cthulhu_mythos: '크툴루 신화',
-      dying: '빈사', 'major-wound-toggle': '중상', temp_insane: '일시적 광기', indef_insane: '장기 광기',
+      dying: '빈사', 'major-wound-toggle': '중상', major_wound_toggle: '중상', major_wound: '중상', majorwound: '중상',
+      temp_insane: '일시적 광기', indef_insane: '장기 광기',
     },
-    changeable: ['hp', 'mp', 'san', 'luck', 'dying', 'major-wound-toggle', 'temp_insane', 'indef_insane'],
-    binaryResources: ['dying', 'major-wound-toggle', 'temp_insane', 'indef_insane'],
+    changeable: ['hp', 'mp', 'san', 'luck', 'dying', 'major-wound-toggle', 'major_wound_toggle', 'major_wound', 'majorwound', 'temp_insane', 'indef_insane'],
+    binaryResources: ['dying', 'major-wound-toggle', 'major_wound_toggle', 'major_wound', 'majorwound', 'temp_insane', 'indef_insane'],
     resourceMaximums: { hp: 'hp_max', mp: 'mp_max', san: 'san_start' },
     actions: {
       check: cocCheckAction,
@@ -1383,18 +1808,30 @@ var sheet_helper_setting = {
       armor: cocArmorAction,
       free: cocFreeAction,
       madness: cocMadnessAction,
-      luck: cocLuckAction,
       hitLocation: cocHitLocationAction,
     },
     result: cocResult,
     relevant: function (name) {
       if (cocFields.some(function (item) { return item[0] === name; })) return true;
       if (cocFields.some(function (item) { return item[0] + '_mod' === name; })) return true;
+      if (cocFields.some(function (item) {
+        return [item[0]].concat(cocCommunityAliases[item[0]] || []).some(function (root) {
+          return ['', '_inv', '_da', '_ow', '_mdr', '_et', '_ic'].some(function (suffix) {
+            return name === root + suffix || name === root + suffix + '_mod';
+          });
+        });
+      })) return true;
       if (cocResources.some(function (item) { return item[0] === name; })) return true;
+      if (cocMadnessHistory.some(function (item) { return item[0] === name; })) return true;
       if (cocSingleChecks.some(function (item) { return item.label === name || item.value === name; })) return true;
       if (cocSingleChecks.some(function (item) { return item.value + '_mod' === name; })) return true;
-      return /^repeating_(?:science|foreign|art|live|other_control|other_weapon|weapon|magic)_/.test(name) ||
-        /^_reporder_repeating_(?:science|foreign|art|live|other_control|other_weapon|weapon|magic)$/.test(name) ||
+      if (cocCommunityFields.some(function (item) { return item.attr === name || item.labelAttr === name; })) return true;
+      if (/^(?:showskills|toggledr|dice_roll|free_dice|rand_maddess|template_other|pulp_bomtoggle|mixedbom|major_wound_toggle|major_wound|majorwound)$/.test(name)) return true;
+      if (/^(?:weapon[1-5](?:_(?:inv|da|ow|mdr|et|ic))?_(?:name|skill|damage|db|range|attacks|ammo|malf|extdamage))$/.test(name)) return true;
+      if (/^weapon_(?:name|skill|damage|db|range|attacks|ammo|malf)_0[1-4]$/.test(name)) return true;
+      if (/^(?:artandcraft\d*|fightspec\d+|fighting_other|firearms_other|otherkingdom\d+|otherlanguage\d+|readandwritelang\d+|otherskill\d+)(?:_(?:inv|da|ow|mdr|et|ic))?(?:_name)?$/.test(name)) return true;
+      return /^repeating_(?:science|foreign|art|live|other_control|other_weapon|skills|skillsinv|skillsda|skillsmdr|skillsic|skillset|weapon|weapons|weaponsinv|weaponsda|weaponsmdr|weaponsic|weaponsow|weaponset|magic|spells)_/.test(name) ||
+        /^_reporder_repeating_(?:science|foreign|art|live|other_control|other_weapon|skills|skillsinv|skillsda|skillsmdr|skillsic|skillset|weapon|weapons|weaponsinv|weaponsda|weaponsmdr|weaponsic|weaponsow|weaponset|magic|spells)$/.test(name) ||
         /^defense_(?:name|pice|value|desc)_\d\d$/.test(name) ||
         /^weapon_(?:name|range|attacks|ammo|malf)_fix$/.test(name);
     },
@@ -1436,7 +1873,10 @@ var sheet_helper_setting = {
     var found = {};
     function add(item, kind) {
       var key = resultKey(profile.id, item.label);
-      if (!found[key]) found[key] = { key: key, label: item.label, kind: kind, system: profile.id };
+      if (!found[key]) found[key] = {
+        key: key, label: item.label, kind: kind, system: profile.id,
+        command: item.command || '', type: item.type || '',
+      };
     }
     characterObjects().forEach(function (character) {
       if (!profile || !profileMatches(profile, character.id)) return;
@@ -1445,15 +1885,8 @@ var sheet_helper_setting = {
       data.weapons.forEach(function (item) { add(item, 'weapon'); });
       data.spells.forEach(function (item) { add(item, 'spell'); });
       data.armors.forEach(function (item) { add(item, 'armor'); });
+      data.specialDice.forEach(function (item) { add(item, item.kind); });
     });
-    [
-      ['자유 주사위', 'free'],
-      ['광기 발작', 'madness'],
-      ['일시적 광기', 'temporary-madness'],
-      ['장기적 광기', 'indefinite-madness'],
-      ['행운 결정', 'luck'],
-      ['명중부위', 'hit-location'],
-    ].forEach(function (item) { add({ label: item[0] }, item[1]); });
     return Object.keys(found).map(function (key) { return found[key]; }).sort(function (a, b) {
       return a.label.localeCompare(b.label);
     });
@@ -1500,17 +1933,19 @@ var sheet_helper_setting = {
       }));
       body += section('주문', itemRows(selected.characterId, selected.spells, '주문'));
       body += section('방어구', itemRows(selected.characterId, selected.armors, '방어구'));
-      body += section(
-        '시트 주사위',
-        button('자유 주사위', '!시트 내부자유|' + selected.characterId, '#287a4b') +
-          button('광기 발작', '!시트 내부광기|' + selected.characterId, '#7654a8') +
-          button('행운 결정', '!시트 내부운결정|' + selected.characterId, '#a16d1a') +
-          button('명중부위', '!시트 내부명중부위|' + selected.characterId, '#53657d'),
-      );
+      var specialButtons = selected.specialDice.map(function (item) {
+        var color = item.kind === 'free' ? '#287a4b' : item.kind === 'madness' ? '#7654a8' : '#53657d';
+        return button(item.label, '!시트 내부' + item.command + '|' + selected.characterId, color);
+      }).join('');
+      if (specialButtons) body += section('시트 주사위', specialButtons);
       body += section('수치', '<table style="width:100%">' + selected.resources.map(function (item) {
         return '<tr><td>' + escapeHtml(item.label) + '<br><code style="font-size:10px">' + escapeHtml(item.attr) + '</code></td><td style="text-align:right"><b>' +
           escapeHtml(displayResourceValue(profile, selected.characterId, item.attr, item.value)) + '</b></td></tr>';
       }).join('') + '</table>');
+      if (selected.madnessHistory.length)
+        body += section('광기 관련 기록', selected.madnessHistory.map(function (item) {
+          return '<b>' + escapeHtml(item.label) + '</b><br>' + (trim(item.value) ? escapeHtml(item.value).replace(/\r?\n/g, '<br>') : '<span style="color:#777">비어 있음</span>');
+        }).join('<br><br>'));
       body += section('판정 컷인', cutinControlsHtml());
       if (selected.warnings.length)
         body += section('확인할 항목', selected.warnings.map(escapeHtml).join('<br>'));
@@ -1601,11 +2036,15 @@ var sheet_helper_setting = {
   }
 
   function whisper(msg, text) {
-    sendChat('시트 헬퍼', '/w "' + playerName(msg).replace(/"/g, '') + '" ' + text, null, { noarchive: true });
+    sendChat('시트 헬퍼', '/w "' + playerName(msg).replace(/"/g, '') + '" ' + safeWhisperText(text), null, { noarchive: true });
   }
 
   function whisperGm(text) {
-    sendChat('시트 헬퍼', '/w gm ' + text, null, { noarchive: true });
+    sendChat('시트 헬퍼', '/w gm ' + safeWhisperText(text), null, { noarchive: true });
+  }
+
+  function safeWhisperText(text) {
+    return String(text == null ? '' : text).replace(/@\{/g, '&#64;{');
   }
 
   function switchSpeaker(msg, query) {
@@ -1641,6 +2080,9 @@ var sheet_helper_setting = {
   }
 
   function playerHelpHtml() {
+    var specialHelp = cutinItems().filter(function (item) { return item.command; }).map(function (item) {
+      return '<code>!!' + escapeHtml(item.command) + '</code> ' + escapeHtml(item.label) + '<br>';
+    }).join('');
     return (
       '<div style="font-family:Arial,sans-serif;background:#fff;color:#111"><div style="padding:10px;background:#111;color:#fff"><b>시트 헬퍼 사용법</b></div><div style="padding:10px;line-height:1.7">' +
       '<code>!!관찰력</code> 판정<br>' +
@@ -1650,13 +2092,8 @@ var sheet_helper_setting = {
       '<code>!!이성 -1d3</code> 수치 변경<br>' +
       '<code>:hp+3</code> 일반 채팅에서 수치 변경<br>' +
       '<code>!!비밀 관찰력</code> GM에게 판정<br>' +
-      '<code>!!판정 관찰력 보너스1</code> 주사위 방식 지정<br>' +
-      '<code>!!자유</code> 시트 자유 주사위<br>' +
-      '<code>!!광기</code> 시트에 선택한 광기 발작<br>' +
-      '<code>!!일시적광기</code> 일시적 광기 굴림<br>' +
-      '<code>!!장기적광기</code> 장기적 광기 굴림<br>' +
-      '<code>!!운결정</code> 행운 결정<br>' +
-      '<code>!!명중부위</code> 명중부위<br>' +
+      '<code>!!관찰력 보너스1</code> 주사위 방식 지정<br>' +
+      specialHelp +
       '<code>!!상태</code> 인식한 항목 확인</div></div>'
     );
   }
@@ -1667,9 +2104,15 @@ var sheet_helper_setting = {
       '프로필: ' + escapeHtml(data.profileName) + '<br>' +
       '판정 ' + data.fields.length + '개, 무기 ' + data.weapons.length + '개, 주문 ' + data.spells.length + '개, 방어구 ' + data.armors.length + '개<br>' +
       data.fields.map(function (item) { return escapeHtml(item.label) + ' <b>' + escapeHtml(item.value) + '</b>'; }).join(', ') +
+      (data.specialDice.length ? '<br><br><b>시트 주사위</b><br>' + data.specialDice.map(function (item) {
+        return escapeHtml(item.label);
+      }).join(', ') : '') +
       (data.resources.length ? '<br><br><b>수치</b><br>' + data.resources.map(function (item) {
         return escapeHtml(item.label) + ' <b>' + escapeHtml(displayResourceValue(profile, data.characterId, item.attr, item.value)) + '</b>';
-      }).join(', ') : '') + '</div>';
+      }).join(', ') : '') +
+      (data.madnessHistory.length ? '<br><br><b>광기 관련 기록</b><br>' + data.madnessHistory.map(function (item) {
+        return escapeHtml(item.label) + ': ' + (trim(item.value) ? escapeHtml(item.value).replace(/\r?\n/g, '<br>') : '비어 있음');
+      }).join('<br>') : '') + '</div>';
   }
 
   function reportResult(msg, result) {
@@ -1801,7 +2244,7 @@ var sheet_helper_setting = {
     }
 
     var secret = false;
-    var compactSecret = body.match(/^비밀(판정|무기|주문|방어구|자유|광기|운결정|명중부위)\s*(.*)$/);
+    var compactSecret = body.match(/^비밀(광기실시간|광기요약|자유주사위|판정|무기|주문|방어구|자유|광기|운결정|명중부위)\s*(.*)$/);
     if (compactSecret) {
       secret = true;
       body = compactSecret[1] + (trim(compactSecret[2]) ? ' ' + trim(compactSecret[2]) : '');
@@ -1810,7 +2253,9 @@ var sheet_helper_setting = {
       body = body.replace(/^비밀\s+/, '');
     }
 
-    var explicit = body.match(/^(판정|무기|주문|방어구)\s+(.+)$/);
+    var explicit = body.match(/^판정\s*(.+)$/);
+    if (explicit) explicit = ['', '판정', explicit[1]];
+    else explicit = body.match(/^(무기|주문|방어구)\s+(.+)$/);
     if (explicit) {
       var action = explicit[1];
       var query = trim(explicit[2]);
@@ -1826,7 +2271,7 @@ var sheet_helper_setting = {
           }
           return bangBangHint(
             rollCheck(character.id, query, { secret: secret, mode: mode }),
-            '!!판정 ' + query,
+            '!!판정' + query,
           );
         }
         if (action === '무기')
@@ -1839,17 +2284,19 @@ var sheet_helper_setting = {
 
     var simple = normalize(body);
     if (
-      ['자유', '광기', '일시광기', '일시적광기', '장기광기', '장기적광기', '운결정', '명중부위'].indexOf(simple) > -1
+      ['자유', '자유주사위', '광기', '광기실시간', '광기요약', '일시광기', '일시적광기', '장기광기', '장기적광기', '운결정', '명중부위'].indexOf(simple) > -1
     ) {
       return withCharacter(msg, '', function (character) {
-        if (simple === '자유') return rollFree(character.id, secret);
+        if (simple === '자유' || simple === '자유주사위') return rollFree(character.id, secret);
         if (simple === '운결정') return rollLuck(character.id, secret);
         if (simple === '명중부위') return rollHitLocation(character.id, secret);
         if (simple === '일시광기' || simple === '일시적광기')
-          return rollMadness(character.id, '', secret, '일시적 광기');
+          return { ok: false, error: '일시적 광기는 굴림이 아니라 시트 상태입니다. 광기 발작은 !!광기실시간 또는 !!광기요약으로 굴려 주세요.' };
         if (simple === '장기광기' || simple === '장기적광기')
-          return rollMadness(character.id, '', secret, '장기적 광기');
-        return rollMadness(character.id, '', secret, '광기 발작');
+          return { ok: false, error: '장기적 광기는 굴림이 아니라 시트 상태입니다. 광기 발작은 !!광기실시간 또는 !!광기요약으로 굴려 주세요.' };
+        if (simple === '광기실시간') return rollMadness(character.id, '1', secret);
+        if (simple === '광기요약') return rollMadness(character.id, '2', secret);
+        return rollMadness(character.id, '', secret);
       });
     }
 
@@ -1875,6 +2322,18 @@ var sheet_helper_setting = {
     return withCharacter(msg, '', function (character) {
       var checked = ensureSheet(character);
       if (!checked.ok) return checked;
+      var directMode = body.match(
+        /^(.+?)\s+((?:보너스|페널티|패널티)\s*(?:1|2|한\s*개|두\s*개)|bonus[12]|penalty[12]|-?[12])$/i,
+      );
+      if (directMode) {
+        var directCheck = resolveBangBang(checked.data, directMode[1], ['check']);
+        if (directCheck.ok)
+          return bangBangHint(
+            rollCheck(character.id, directMode[1], { secret: secret, mode: directMode[2] }),
+            '!!' + trim(directMode[1]) + ' ' + trim(directMode[2]),
+          );
+        if (directCheck.reason === 'conflict') return directCheck;
+      }
       var change = body.match(/^(.+?)\s*([+\-=])\s*(.*)$/);
       if (change) {
         var changed = resolveBangBang(checked.data, change[1], ['resource', 'weapon']);
@@ -1981,6 +2440,8 @@ var sheet_helper_setting = {
       if (internal === '탄약') return reportResult(msg, changeAmmo(characterId, parts[0], parts[1]));
       if (internal === '자유') return reportResult(msg, rollFree(characterId, false));
       if (internal === '광기') return reportResult(msg, rollMadness(characterId, '', false));
+      if (internal === '광기실시간') return reportResult(msg, rollMadness(characterId, '1', false));
+      if (internal === '광기요약') return reportResult(msg, rollMadness(characterId, '2', false));
       if (internal === '운결정') return reportResult(msg, rollLuck(characterId, false));
       if (internal === '명중부위') return reportResult(msg, rollHitLocation(characterId, false));
       return;
@@ -1995,14 +2456,18 @@ var sheet_helper_setting = {
       return withCharacter(msg, '', function (character) { return showSpell(character.id, parts[0], action === '비밀주문'); });
     if (action === '방어구' || action === '비밀방어구')
       return withCharacter(msg, '', function (character) { return rollArmor(character.id, parts[0], action === '비밀방어구'); });
-    if (action === '자유' || action === '비밀자유')
-      return withCharacter(msg, '', function (character) { return rollFree(character.id, action === '비밀자유'); });
+    if (action === '자유' || action === '자유주사위' || action === '비밀자유' || action === '비밀자유주사위')
+      return withCharacter(msg, '', function (character) { return rollFree(character.id, action === '비밀자유' || action === '비밀자유주사위'); });
     if (action === '광기' || action === '비밀광기')
-      return withCharacter(msg, '', function (character) { return rollMadness(character.id, '', action === '비밀광기', '광기 발작'); });
+      return withCharacter(msg, '', function (character) { return rollMadness(character.id, '', action === '비밀광기'); });
+    if (action === '광기실시간' || action === '비밀광기실시간')
+      return withCharacter(msg, '', function (character) { return rollMadness(character.id, '1', action === '비밀광기실시간'); });
+    if (action === '광기요약' || action === '비밀광기요약')
+      return withCharacter(msg, '', function (character) { return rollMadness(character.id, '2', action === '비밀광기요약'); });
     if (action === '일시광기' || action === '일시적광기')
-      return withCharacter(msg, '', function (character) { return rollMadness(character.id, '', false, '일시적 광기'); });
+      return withCharacter(msg, '', function () { return { ok: false, error: '일시적 광기는 굴림이 아니라 시트 상태입니다.' }; });
     if (action === '장기광기' || action === '장기적광기')
-      return withCharacter(msg, '', function (character) { return rollMadness(character.id, '', false, '장기적 광기'); });
+      return withCharacter(msg, '', function () { return { ok: false, error: '장기적 광기는 굴림이 아니라 시트 상태입니다.' }; });
     if (action === '운결정' || action === '비밀운결정')
       return withCharacter(msg, '', function (character) { return rollLuck(character.id, action === '비밀운결정'); });
     if (action === '명중부위' || action === '비밀명중부위')
@@ -2056,11 +2521,11 @@ var sheet_helper_setting = {
       return true;
     }
     if (/^!(?:일시광기|일시적광기|일시)$/.test(content)) {
-      withCharacter(msg, '', function (character) { return rollMadness(character.id, '', false, '일시적 광기'); });
+      withCharacter(msg, '', function () { return { ok: false, error: '일시적 광기는 굴림이 아니라 시트 상태입니다.' }; });
       return true;
     }
     if (/^!(?:장기광기|장기적광기|장기)$/.test(content)) {
-      withCharacter(msg, '', function (character) { return rollMadness(character.id, '', false, '장기적 광기'); });
+      withCharacter(msg, '', function () { return { ok: false, error: '장기적 광기는 굴림이 아니라 시트 상태입니다.' }; });
       return true;
     }
     if (/^!(?:status|skills|기능|weapons)$/.test(content)) {

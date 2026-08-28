@@ -131,9 +131,8 @@ const runtime = {
             { key: 'coc7:문열기', label: '문 열기', system: 'coc7', kind: 'spell' },
             { key: 'coc7:철제투구', label: '철제 투구', system: 'coc7', kind: 'armor' },
             { key: 'coc7:자유주사위', label: '자유 주사위', system: 'coc7', kind: 'free' },
-            { key: 'coc7:일시적광기', label: '일시적 광기', system: 'coc7', kind: 'temporary-madness' },
-            { key: 'coc7:장기적광기', label: '장기적 광기', system: 'coc7', kind: 'indefinite-madness' },
-            { key: 'coc7:행운결정', label: '행운 결정', system: 'coc7', kind: 'luck' },
+            { key: 'coc7:광기실시간', label: '광기 발작 실시간', system: 'coc7', kind: 'madness' },
+            { key: 'coc7:광기요약', label: '광기 발작 요약', system: 'coc7', kind: 'madness' },
             { key: 'coc7:명중부위', label: '명중부위', system: 'coc7', kind: 'hit-location' },
           ];
         },
@@ -273,7 +272,7 @@ check(
 check(
   '특정 판정 연결만 모든 실행 항목을 질문',
   buttonCommand(initialManagerNotes, '특정 판정 연결').includes('?{판정 항목') &&
-    ['관찰력', '리볼버', '문 열기', '철제 투구', '자유 주사위', '일시적 광기', '장기적 광기', '행운 결정', '명중부위']
+    ['관찰력', '리볼버', '문 열기', '철제 투구', '자유 주사위', '광기 발작 실시간', '광기 발작 요약', '명중부위']
       .every((label) => buttonCommand(initialManagerNotes, '특정 판정 연결').includes(label)),
   '특정 판정 연결 선택지에 시트 헬퍼의 전체 실행 항목이 없습니다.',
 );
