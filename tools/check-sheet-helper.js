@@ -31,21 +31,23 @@ const repeatedModeArrays = new Map();
 let embeddedRollsWithModes = 0;
 let repeatedModeSets = 0;
 embeddedSheets.forEach((sheet) => {
+  assert(!Object.prototype.hasOwnProperty.call(sheet, 'name'),
+    '배포용 시트 인식 정보에는 사람이 붙인 시트 이름을 포함하면 안 됩니다: ' + sheet.id);
   assert(!Object.prototype.hasOwnProperty.call(sheet, 'modeSets'),
-    '복원 뒤 시트에 임시 modeSets가 남았습니다: ' + sheet.name);
+    '복원 뒤 시트에 임시 modeSets가 남았습니다: ' + sheet.id);
   assert(!Object.prototype.hasOwnProperty.call(sheet, 'fieldAliasSets'),
-    '복원 뒤 시트에 임시 fieldAliasSets가 남았습니다: ' + sheet.name);
+    '복원 뒤 시트에 임시 fieldAliasSets가 남았습니다: ' + sheet.id);
   (sheet.rolls || []).forEach((roll) => {
     assert(Array.isArray(roll.modes),
-      '복원 뒤 roll.modes가 배열이 아닙니다: ' + sheet.name + ' / ' + roll.key);
+      '복원 뒤 roll.modes가 배열이 아닙니다: ' + sheet.id + ' / ' + roll.key);
     if (roll.modes.length) {
       embeddedRollsWithModes++;
       embeddedModeArrays.add(roll.modes);
       assert(!Object.isFrozen(roll.modes),
-        '기존 확장 호환성을 위해 선택 방식 배열은 변경 가능해야 합니다: ' + sheet.name + ' / ' + roll.key);
+        '기존 확장 호환성을 위해 선택 방식 배열은 변경 가능해야 합니다: ' + sheet.id + ' / ' + roll.key);
       roll.modes.forEach((mode) => {
         assert(!Object.isFrozen(mode) && !Object.isFrozen(mode.overrides || {}),
-          '기존 확장 호환성을 위해 선택 방식 내용은 변경 가능해야 합니다: ' + sheet.name + ' / ' + roll.key);
+          '기존 확장 호환성을 위해 선택 방식 내용은 변경 가능해야 합니다: ' + sheet.id + ' / ' + roll.key);
       });
       const signature = JSON.stringify(roll.modes);
       const previous = repeatedModeArrays.get(signature);
@@ -58,27 +60,37 @@ embeddedSheets.forEach((sheet) => {
       } else repeatedModeArrays.set(signature, roll.modes);
     }
     assert(!Object.prototype.hasOwnProperty.call(roll, 'm'),
-      '복원 뒤 roll에 임시 mode 참조가 남았습니다: ' + sheet.name + ' / ' + roll.key);
+      '복원 뒤 roll에 임시 mode 참조가 남았습니다: ' + sheet.id + ' / ' + roll.key);
   });
 });
 assert.strictEqual(embeddedModeArrays.size, embeddedRollsWithModes,
   '선택 방식 배열은 굴림마다 독립적이어야 합니다.');
 assert(repeatedModeSets > 0, '동일한 선택 방식이 여러 굴림에 있는 검증 자료가 필요합니다.');
-const embeddedOfficial = embeddedSheets.find((sheet) => sheet.name === 'Roll20 공개 CoC 7판');
-const embeddedMajorWound = embeddedOfficial && embeddedOfficial.fields.find((field) =>
+function findEmbeddedSheet(attributeCount, rollCount, modeCount) {
+  const matches = embeddedSheets.filter((sheet) =>
+    sheet.attributes.length === attributeCount &&
+    sheet.rolls.length === rollCount &&
+    sheet.rolls.reduce((total, roll) => total + (roll.modes || []).length, 0) === modeCount);
+  assert.strictEqual(matches.length, 1,
+    `구조 ${attributeCount}/${rollCount}/${modeCount}인 배포 시트는 정확히 하나여야 합니다.`);
+  return matches[0];
+}
+
+const embeddedLargeSheet = findEmbeddedSheet(1611, 879, 744);
+const embeddedMajorWound = embeddedLargeSheet.fields.find((field) =>
   ['중상', 'majorwound'].includes(String(field.label || '').toLowerCase().replace(/[\s_.:()"'-]+/g, '')) &&
   field.type === 'checkbox');
 assert(embeddedMajorWound && embeddedMajorWound.visibility,
-  '공개 CoC 시트의 대체 체력 화면에서 숨겨지는 중상 조건을 배포 정보에 보존해야 합니다.');
-assert.strictEqual(embeddedOfficial.rolls.filter((roll) => /@\{int\}/i.test(roll.raw)).length, 2,
-  '공개 CoC 시트의 단일·보너스/패널티 지능 버튼을 모두 원본대로 보존해야 합니다.');
+  '대형 시트의 대체 체력 화면에서 숨겨지는 중상 조건을 배포 정보에 보존해야 합니다.');
+assert.strictEqual(embeddedLargeSheet.rolls.filter((roll) => /@\{int\}/i.test(roll.raw)).length, 2,
+  '대형 시트의 단일·보너스/패널티 지능 버튼을 모두 원본대로 보존해야 합니다.');
 [
   ['hp', '체력'], ['hp_max', '체력'],
   ['mp', '마력'], ['mp_max', '마력'],
 ].forEach(([name, group]) => {
-  const field = embeddedOfficial.fields.find((candidate) => candidate.name === name);
+  const field = embeddedLargeSheet.fields.find((candidate) => candidate.name === name);
   assert(field && field.groupLabel === group,
-    `공개 CoC 시트의 ${name}은 원본 화면의 ${group} 현재·최대 묶음을 보존해야 합니다.`);
+    `대형 시트의 ${name}은 원본 화면의 ${group} 현재·최대 묶음을 보존해야 합니다.`);
 });
 embeddedSheets.forEach((sheet) => {
   const current = sheet.fields.find((field) => field.name === 'san');
@@ -87,10 +99,10 @@ embeddedSheets.forEach((sheet) => {
   if (!current || !maximum || !starting) return;
   [current, maximum, starting].forEach((field) => {
     assert.strictEqual(String(field.groupLabel || '').replace(/^븿\s*/, ''), '이성',
-      sheet.name + '의 현재·시작·최대 이성이 같은 원본 자원으로 묶여야 합니다: ' + field.name);
+      sheet.id + '의 현재·시작·최대 이성이 같은 원본 자원으로 묶여야 합니다: ' + field.name);
   });
   assert([starting.label].concat(starting.aliases || []).some((label) => /^(?:시작|초기|start|initial)/i.test(String(label))),
-    sheet.name + '의 시작 이성 입력은 내부 변수명이 아니라 원본 표시명으로 구분되어야 합니다.');
+    sheet.id + '의 시작 이성 입력은 내부 변수명이 아니라 원본 표시명으로 구분되어야 합니다.');
 });
 assert(Buffer.byteLength(distributedSource, 'utf8') <= 1750000,
   '10번 임베드 데이터가 다시 비대해졌습니다: ' + Buffer.byteLength(distributedSource, 'utf8') + ' bytes');
@@ -137,6 +149,9 @@ const fixture = parseSheetContract([
   '<button type="roll" name="roll_intelligence_bonus" value="&{template:fixture} {{subject=지능}} {{success=[[@{mind_score}]]}} {{hard=[[floor(@{mind_score}/2)]]}} {{extreme=[[floor(@{mind_score}/5)]]}} {{roll1=[[1d100]]}} {{roll2=[[1d100]]}} {{roll3=[[1d100]]}}">지능</button>',
   '<button type="roll" name="roll_intelligence" value="&{template:fixture} {{subject=지능}} {{success=[[@{mind_score}]]}} {{hard=[[floor(@{mind_score}/2)]]}} {{extreme=[[floor(@{mind_score}/5)]]}} {{roll=[[1d100]]}}">지능</button>',
   '<input name="attr_skill_value" value="60">',
+  '<input name="attr_indirect_value" value="60">',
+  '<label><input type="radio" name="attr_indirect_fields" value="{{roll=[[1d100]]}}" checked>일반 판정</label>',
+  '<button type="roll" name="roll_indirect_check" value="&{template:fixture} {{subject=간접 판정}} {{success=[[@{indirect_value}]]}} @{indirect_fields}"></button>',
   '<div class="mode-control">',
   '  <select name="attr_bonus_mode">',
   '    <option value="0">기본</option>',
@@ -152,12 +167,32 @@ const fixture = parseSheetContract([
   '<input name="attr_free_expression" value="1d6">',
   '<button type="roll" name="roll_free" value="&{template:fixture} {{subject=자유 굴림}} {{formula=@{free_expression}}} {{roll=[[@{free_expression}]]}}"></button>',
   '<fieldset class="repeating_skill">',
-  '  <input name="attr_item_name">',
-  '  <input name="attr_item_value">',
+  '  <label>기능 이름 <input name="attr_item_name"></label>',
+  '  <label>판정 수치 <input name="attr_item_value"></label>',
   '  <button type="roll" name="roll_item" value="&{template:fixture} {{subject=@{item_name}}} {{success=[[@{item_value}]]}} {{hard=[[floor(@{item_value}/2)]]}} {{extreme=[[floor(@{item_value}/5)]]}} {{roll=[[1d100]]}}"></button>',
   '</fieldset>',
+  '<fieldset class="repeating_armory">',
+  '  <label>무기 이름 <input name="attr_gear_title"></label>',
+  '  <label>피해 <input name="attr_gear_damage"></label>',
+  '  <label>공격 방식 <select name="attr_gear_style"><option value="1d4">보통 공격</option><option value="2d6">강한 공격</option></select></label>',
+  '  <button type="roll" name="roll_gear" value="&{template:fixture} {{subject=@{gear_title}}} {{damage=[[@{gear_damage}]]}} {{roll=[[1d100+@{gear_style}]]}}"></button>',
+  '</fieldset>',
+  '<fieldset class="repeating_ritual">',
+  '  <label>주문 이름 <input name="attr_incantation_title"></label>',
+  '  <label>시전 수치 <input name="attr_incantation_target"></label>',
+  '  <label>시전 방식 <select name="attr_incantation_style"><option value="1d8">단일 시전</option><option value="2d8">확대 시전</option></select></label>',
+  '  <button type="roll" name="roll_incantation" value="&{template:fixture} {{subject=@{incantation_title}}} {{success=[[@{incantation_target}]]}} {{roll=[[1d100+@{incantation_style}]]}}"></button>',
+  '</fieldset>',
+  '<label>광기 발작 방식 <select name="attr_episode_style"><option value="1d10">실시간</option><option value="1d20">요약</option></select></label>',
+  '<button type="roll" name="roll_episode" value="&{template:fixture} {{subject=정신 동요}} {{roll=[[@{episode_style}]]}}">광기 발작</button>',
+  '<select name="attr_hidden_episode_style"><option value="1">실시간</option><option value="2">요약</option></select>',
+  '<button type="roll" value="&{template:fixture-other} {{madness_type=[[@{hidden_episode_style}]]}} {{roll=[[1d10]]}}"></button>',
   '<button type="roll" name="roll_conflict_a" value="&{template:fixture} {{subject=겹친 굴림}} {{roll=[[1d6]]}}"></button>',
   '<button type="roll" name="roll_conflict_b" value="&{template:fixture} {{subject=겹친 굴림}} {{roll=[[1d8]]}}"></button>',
+  '<rolltemplate class="sheet-rolltemplate-fixture">',
+  '  {{#rollTotal() roll 1}}<b class="sheet-critical">Critical</b>{{/rollTotal() roll 1}}',
+  '  {{#rollGreater() roll success}}<b class="sheet-fumble">Fumble</b>{{/rollGreater() roll success}}',
+  '</rolltemplate>',
   '<button type="roll" name="roll_source_boundary" value="&{template:source-boundary} {{subject=원본 경계}} {{goal=[[60]]}} {{die=[[1d100]]}}"></button>',
   '<rolltemplate class="sheet-rolltemplate-source-boundary">',
   '  {{#rollTotal() die 1}}<span class="sheet-critical">Critical</span>{{/rollTotal() die 1}}',
@@ -393,6 +428,15 @@ Object.assign(fixtureValues, {
   repeating_skill_rowAlpha_item_name: '추가 항목',
   repeating_skill_rowAlpha_item_value: '33',
   _reporder_repeating_skill: 'rowTwo,rowOne,rowTwo,missing',
+  repeating_armory_rowGear_gear_title: '연습용 칼',
+  repeating_armory_rowGear_gear_damage: '1d6',
+  repeating_armory_rowGear_gear_style: '1d4',
+  _reporder_repeating_armory: 'rowGear',
+  repeating_ritual_rowRitual_incantation_title: '별빛 주문',
+  repeating_ritual_rowRitual_incantation_target: '47',
+  repeating_ritual_rowRitual_incantation_style: '1d8',
+  _reporder_repeating_ritual: 'rowRitual',
+  episode_style: '1d10',
 });
 const fixtureCharacter = addCharacter(
   'generic-character',
@@ -497,7 +541,8 @@ assert.strictEqual(inspection.status, 'matched',
 assert.strictEqual(inspection.contract.id, fixture.id);
 let scan = helper.scan(fixtureCharacter.id, true);
 assert.strictEqual(scan.matched, true);
-assert.strictEqual(scan.profileName, fixture.name);
+assert.strictEqual(scan.profileName, fixture.name,
+  '외부 연동에서 쓰는 기존 런타임 필드는 유지해야 합니다.');
 assert(scan.resources.some((item) => item.label === '체력' && item.value === 10 && item.max === 20),
   '원본 시트의 표시명과 숫자 입력란에서 범용 수치 목록을 만들지 못했습니다.');
 assert(scan.resources.some((item) => item.label === '공식 수치' && item.value === 40),
@@ -604,6 +649,42 @@ assert(helper.resolveContractAction(fixtureCharacter, '새 항목', false).resul
 assert(sent.at(-1).content.includes('{{success=[[63]]}}'),
   '사용자 반복 항목의 이름과 값 변경을 다시 읽어야 합니다.');
 
+const createdSkillRow = [
+  addAttribute(fixtureCharacter.id, 'repeating_skill_rowFresh_item_name', '즉석 기능'),
+  addAttribute(fixtureCharacter.id, 'repeating_skill_rowFresh_item_value', '41'),
+];
+const createdWeaponRow = [
+  addAttribute(fixtureCharacter.id, 'repeating_armory_rowFresh_gear_title', '사용자 무기'),
+  addAttribute(fixtureCharacter.id, 'repeating_armory_rowFresh_gear_damage', '1d8'),
+  addAttribute(fixtureCharacter.id, 'repeating_armory_rowFresh_gear_style', '2d6'),
+];
+const createdSpellRow = [
+  addAttribute(fixtureCharacter.id, 'repeating_ritual_rowFresh_incantation_title', '사용자 주문'),
+  addAttribute(fixtureCharacter.id, 'repeating_ritual_rowFresh_incantation_target', '52'),
+  addAttribute(fixtureCharacter.id, 'repeating_ritual_rowFresh_incantation_style', '2d8'),
+];
+assert(helper.resolveContractAction(fixtureCharacter, '즉석 기능', false).result.ok,
+  '사용자가 추가한 기능 반복행을 즉시 인식해야 합니다.');
+assert(helper.resolveContractAction(fixtureCharacter, '사용자 무기', false).result.ok,
+  '사용자가 추가한 무기 반복행을 즉시 인식해야 합니다.');
+assert(helper.resolveContractAction(fixtureCharacter, '사용자 주문', false).result.ok,
+  '사용자가 추가한 주문 반복행을 즉시 인식해야 합니다.');
+
+[
+  [createdSkillRow, '숙련 기능', '58'],
+  [createdWeaponRow, '개조 무기', '2d10'],
+  [createdSpellRow, '개량 주문', '67'],
+].forEach(([row, name, value]) => {
+  const beforeName = row[0].get('current');
+  const beforeValue = row[1].get('current');
+  row[0].set('current', name);
+  events['change:attribute'](row[0], { current: beforeName });
+  row[1].set('current', value);
+  events['change:attribute'](row[1], { current: beforeValue });
+  assert(helper.resolveContractAction(fixtureCharacter, name, false).result.ok,
+    '사용자 반복행의 이름·값 변경을 다시 읽어야 합니다: ' + name);
+});
+
 const freeRoll = runApi('!!r 2d6+3');
 assert(freeRoll.some((item) =>
   item.content && item.content.includes('{{roll=[[2d6+3]]}}')),
@@ -623,6 +704,42 @@ assert(conflict.content.includes('겹친 굴림 (선택 1)') &&
 
 const status = runApi('!!상태').find((item) => item.who === '시트 헬퍼');
 assert(status && status.content.includes('정밀 관찰') && status.content.includes('새 항목'));
+const rollGroupTitles = ['기능 / 판정', '무기', '주문', '광기', '기타 주사위'];
+const rollGroupMarkers = rollGroupTitles.map((title) => 'font-weight:bold">' + title + ' ');
+const rollGroupPositions = rollGroupMarkers.map((marker) => status.content.indexOf(marker));
+assert(rollGroupPositions.every((position) => position >= 0) &&
+  rollGroupPositions.every((position, index) => index === 0 || position > rollGroupPositions[index - 1]),
+  'PL 상태 화면은 파싱한 굴림 구조에 따라 기능 / 판정, 무기, 주문, 광기, 기타 주사위 순으로 나눠야 합니다.');
+const rollGroupContents = Object.fromEntries(rollGroupTitles.map((title, index) => [
+  title,
+  status.content.slice(rollGroupPositions[index], rollGroupPositions[index + 1] || status.content.length),
+]));
+assert(rollGroupContents['기능 / 판정'].includes('정밀 관찰') &&
+  rollGroupContents['기능 / 판정'].includes('간접 판정') &&
+  rollGroupContents['기능 / 판정'].includes('숙련 기능') &&
+  !rollGroupContents['기능 / 판정'].includes('개조 무기'),
+  '판정 구조와 사용자 추가 기능은 기능 / 판정 구역에만 보여야 합니다.');
+assert(rollGroupContents['무기'].includes('연습용 칼') &&
+  rollGroupContents['무기'].includes('개조 무기') &&
+  !rollGroupContents['무기'].includes('개량 주문'),
+  '원본 무기 구역과 사용자 추가 무기는 무기 구역에만 보여야 합니다.');
+assert(rollGroupContents['주문'].includes('별빛 주문') &&
+  rollGroupContents['주문'].includes('개량 주문') &&
+  !rollGroupContents['주문'].includes('연습용 칼'),
+  '원본 주문 구역과 사용자 추가 주문은 주문 구역에만 보여야 합니다.');
+assert(rollGroupContents['광기'].includes('광기 발작') &&
+  rollGroupContents['광기'].includes('실시간 / 요약') &&
+  !rollGroupContents['광기'].includes('자유 굴림'),
+  '광기 굴림은 광기 구역에만 보여야 합니다.');
+assert(rollGroupContents['기타 주사위'].includes('자유 굴림'),
+  '판정 결과 구조나 원본 구역 근거가 없는 굴림은 기타 주사위에 보여야 합니다.');
+assert(status.content.includes('선택할 수 있는 방식'),
+  '원본 선택 방식은 굴림 구역과 관계를 새로 만들지 말고 별도 목록으로 유지해야 합니다.');
+['1d4', '2d6', '1d8', '2d8', '1d10', '1d20'].forEach((rawMode) => {
+  assert(!status.content.includes('선택 방식: ' + rawMode) &&
+    !status.content.includes(', ' + rawMode) && !status.content.includes(rawMode + ','),
+  '선택 방식에는 원본 내부 주사위 값 대신 사람이 읽는 이름만 보여야 합니다: ' + rawMode);
+});
 assert(status.content.includes('50 / 시작 50 (100%) / 최대 99'),
   '이성은 시작 이성 기준 비율과 최대 이성 상한을 서로 구분해 보여야 합니다.');
 changeFixture('mind_limit', 50);
@@ -668,7 +785,7 @@ assert(freshStatus && freshStatus.content.includes('13 / 20 (65%)'),
 resetFixture({ vital_current: 10, temporary_mode: '', major_state: 0 });
 
 const manager = helper.refresh();
-assert(manager && manager.get('notes').includes('범용 시험 시트'));
+assert(manager && manager.get('notes').includes('시트에서 인식한 항목'));
 assert(!manager.get('notes').includes('원본 시트 계약'));
 const playerHelp = created.find((item) => item.get('name') === '[PL] 시트 헬퍼 사용법');
 assert(playerHelp && playerHelp.get('notes').includes('!!굴릴항목이름'));
@@ -964,12 +1081,16 @@ assert.strictEqual(captureSourceBoundary(100, 60).payload.outcome, 'fumble',
 assert.strictEqual(captureSourceBoundary(96, 40).payload.outcome, 'fumble',
   '원본 rolltemplate의 역조건과 표시 텍스트 대실패를 인식하지 못했습니다.');
 
-[itemName, itemValue].forEach((attribute) => {
+[itemName, itemValue].concat(createdSkillRow, createdWeaponRow, createdSpellRow).forEach((attribute) => {
   attributeObjects.splice(attributeObjects.indexOf(attribute), 1);
   events['destroy:attribute'](attribute);
 });
 assert(!helper.contractRolls(fixtureCharacter.id).some((item) => item.label === '새 항목'),
   '삭제한 사용자 반복 항목이 굴림 목록에 남으면 안 됩니다.');
+['숙련 기능', '개조 무기', '개량 주문'].forEach((label) => {
+  assert(!helper.contractRolls(fixtureCharacter.id).some((item) => item.label === label),
+    '삭제한 사용자 반복행이 굴림 목록에 남으면 안 됩니다: ' + label);
+});
 
 // 저장 구조가 같은 시트는 GM 선택을 받고, 시트가 바뀌면 예전 선택을 강제하지 않습니다.
 const twinA = parseSheetContract([
@@ -989,7 +1110,8 @@ inspection = helper.inspectContracts(twinCharacter.id);
 assert.strictEqual(inspection.status, 'ambiguous');
 runtime.state.KIBSheetHelper.managerCharacterId = twinCharacter.id;
 const twinManager = helper.refresh().get('notes');
-assert(twinManager.includes('쌍둥이 시트 A') && twinManager.includes('쌍둥이 시트 B'));
+assert(twinManager.includes('후보 1 / 굴림 1개') && twinManager.includes('후보 2 / 굴림 1개'),
+  '동일 저장 구조 후보는 시트 이름 대신 실제 굴림 수가 붙은 선택 버튼으로 보여야 합니다.');
 runApi('!시트 인식선택|' + twinCharacter.id + '|' + twinA.id,
   '테스터 GM (GM)', 'gm');
 assert.strictEqual(runtime.state.KIBSheetHelper.sheetSelections[twinCharacter.id], twinA.id);
@@ -997,26 +1119,24 @@ assert.strictEqual(helper.inspectContracts(twinCharacter.id).contract.id, twinA.
 
 // 배포본에 함께 넣은 실제 시트 5종의 추출 결과와 런타임 실행을 회귀 검증합니다.
 const expectedEmbeddedStats = [
-  ['천량성 커스텀 CoC', 329, 90, 424],
-  ['자체제작 호질', 338, 81, 405],
-  ['Bloody Mary Castle', 422, 253, 2928],
-  ['Roll20 공개 CoC 7판', 1611, 879, 744],
-  ['마렌 헤윰 커스텀 CoC', 187, 72, 374],
+  [329, 90, 424],
+  [338, 81, 405],
+  [422, 253, 2928],
+  [1611, 879, 744],
+  [187, 72, 374],
 ];
 assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => [
-  sheet.name,
   sheet.attributes.length,
   sheet.rolls.length,
   sheet.rolls.reduce((total, roll) => total + (roll.modes || []).length, 0),
 ]), expectedEmbeddedStats,
   '실제 시트 5종의 추출 결과가 바뀌었습니다. 원본 변경인지 파서 회귀인지 확인하세요.');
 
-const actualSheet = embeddedSheets.find((sheet) => sheet.name === '천량성 커스텀 CoC');
-const hojilSheet = embeddedSheets.find((sheet) => sheet.name === '자체제작 호질');
-const bloodySheet = embeddedSheets.find((sheet) => sheet.name === 'Bloody Mary Castle');
-const publicSheet = embeddedSheets.find((sheet) => sheet.name === 'Roll20 공개 CoC 7판');
-const marenHyeyoomSheet = embeddedSheets.find((sheet) => sheet.name === '마렌 헤윰 커스텀 CoC');
-assert(actualSheet && hojilSheet && bloodySheet && publicSheet && marenHyeyoomSheet);
+const actualSheet = findEmbeddedSheet(329, 90, 424);
+const hojilSheet = findEmbeddedSheet(338, 81, 405);
+const bloodySheet = findEmbeddedSheet(422, 253, 2928);
+const publicSheet = embeddedLargeSheet;
+const marenHyeyoomSheet = findEmbeddedSheet(187, 72, 374);
 const actualField = (name) => actualSheet.fields.find((field) => field.name === name);
 assert([actualField('str').label].concat(actualField('str').aliases || []).includes('근력'));
 assert([actualField('hp').label].concat(actualField('hp').aliases || []).includes('체력'));
@@ -1030,7 +1150,7 @@ embeddedSheets.forEach((sheet) => {
     [field.label].concat(field.aliases || []).some((label) =>
       /커스텀 시트 제작|디자인\s*:/.test(String(label || ''))));
   assert.strictEqual(misplacedCredits.length, 0,
-    `${sheet.name}: 제작자·디자인 표기를 입력 필드 라벨로 읽으면 안 됩니다: ` +
+    `${sheet.id}: 제작자·디자인 표기를 입력 필드 라벨로 읽으면 안 됩니다: ` +
     misplacedCredits.map((field) => field.name).join(', '));
 });
 const marenFieldLabels = Object.fromEntries((marenHyeyoomSheet.fields || []).map((field) =>
@@ -1094,7 +1214,7 @@ const fallbackCalls = getAttrByNameCalls.slice(fallbackCallsBefore).filter((call
 assert(sparseInspectionMessages.some((item) =>
   item.content && item.content.includes('시트 선택') &&
   item.content.includes('background:#111') &&
-  item.content.includes(actualSheet.name) &&
+  item.content.includes('후보 1 / 굴림') &&
   item.content.includes('!시트 인식선택|')),
   '실제 희소 캐릭터의 첫 !!점검은 오류 대신 GM 검정 선택 버튼을 보여줘야 합니다.');
 assert.strictEqual(fallbackCalls.length, 0,
@@ -1109,11 +1229,17 @@ const selectedInspectionMessages = runApi('!!점검', '테스터 GM (GM)', 'gm')
 const selectedCalls = getAttrByNameCalls.slice(selectedCallsBefore).filter((call) =>
   call.characterId === sparseCharacter.id);
 assert(selectedInspectionMessages.some((item) =>
-  item.content && item.content.includes(actualSheet.name) &&
+  item.content && item.content.includes('인식 완료') &&
   !item.content.includes('시트 선택')),
   'GM 선택 뒤 !!점검은 저장한 시트의 인식 결과를 보여줘야 합니다.');
 assert.strictEqual(runtime.state.KIBSheetHelper.sheetSelections[sparseCharacter.id], actualSheet.id,
   '!!점검은 캐시만 비우고 GM의 저장 선택을 지우면 안 됩니다.');
+const actualStatus = runApi('!!상태', '테스터 GM (GM)', 'gm').find((item) => item.who === '시트 헬퍼');
+const actualCheckAt = actualStatus && actualStatus.content.indexOf('font-weight:bold">기능 / 판정 ');
+const actualMadnessAt = actualStatus && actualStatus.content.indexOf('font-weight:bold">광기 ');
+assert(actualCheckAt >= 0 && actualMadnessAt > actualCheckAt &&
+  actualStatus.content.slice(actualCheckAt, actualMadnessAt).includes('근력'),
+  '실제 배포 시트의 선택 방식으로 주사위 필드를 넣는 판정도 기능 / 판정 구역에 보여야 합니다.');
 const selectedFieldNames = new Set(actualSheet.globalAttributes || []);
 assert(selectedCalls.length > 0,
   'GM 선택 뒤에는 선택한 시트의 실제 굴림값을 읽어야 합니다.');
@@ -1287,7 +1413,7 @@ function addSourceCharacter(sheet, id, name) {
   };
 }
 
-// 실제 천량성 시트의 사용자 추가 기능은 생성·변경을 모두 따라가야 합니다.
+// 실제 배포 시트의 사용자 추가 기능은 생성·변경을 모두 따라가야 합니다.
 const actualValues = {};
 actualSheet.signature.forEach((entry) => {
   actualValues[typeof entry === 'string' ? entry : entry.name] = '50';
@@ -1427,8 +1553,8 @@ assert(!/repeating_science_(?:-P09SparseRow|\$0)_science/.test(sent.at(-1).conte
 
 const hojilRuntime = addSourceCharacter(
   hojilSheet,
-  'source-hojil',
-  '호질 원본 시험',
+  'source-variant-a',
+  '변형 A 원본 시험',
 );
 inspection = helper.inspectContracts(hojilRuntime.character.id);
 assert.strictEqual(inspection.status, 'ambiguous',
@@ -1445,12 +1571,12 @@ assert(runApi('!!r 2d6+3', hojilRuntime.character.get('name')).some((item) =>
 
 const bloodyRuntime = addSourceCharacter(
   bloodySheet,
-  'source-bloody',
-  '블러디 메리 원본 시험',
+  'source-variant-b',
+  '변형 B 원본 시험',
 );
 inspection = helper.inspectContracts(bloodyRuntime.character.id);
 assert.strictEqual(inspection.status, 'matched',
-  inspection.error || 'Bloody Mary Castle 시트 자동 인식 실패');
+  inspection.error || '다중 광기 방식 시트 자동 인식 실패');
 assert.strictEqual(inspection.contract.id, bloodySheet.id);
 const bloodyConflict = runApi('!!실시간', bloodyRuntime.character.get('name'))
   .find((item) => item.who === '시트 헬퍼');
@@ -1470,11 +1596,11 @@ assert(runApi(
 const publicRuntime = addSourceCharacter(
   publicSheet,
   'source-public',
-  '공개 CoC 7판 원본 시험',
+  '대형 원본 시험',
 );
 inspection = helper.inspectContracts(publicRuntime.character.id);
 assert.strictEqual(inspection.status, 'matched',
-  inspection.error || 'Roll20 공개 CoC 7판 자동 인식 실패');
+  inspection.error || '대형 배포 시트 자동 인식 실패');
 assert.strictEqual(inspection.contract.id, publicSheet.id);
 const publicOldRoll = publicSheet.rolls.find((roll) =>
   roll.template === 'coc' && /\{\{\s*success\s*=/.test(roll.raw) &&

@@ -21,6 +21,8 @@ function readSheet(name, htmlPath, cssPath) {
 
 function packModes(sheet) {
   const packed = JSON.parse(JSON.stringify(sheet));
+  // 원본 파일을 구분하려고 붙인 개발용 이름은 Roll20 시트 데이터가 아니다.
+  delete packed.name;
   const modeSets = [];
   const modeSetIds = new Map();
   const fieldVisibilitySets = [];
@@ -120,7 +122,7 @@ if (require.main === module) {
     for (let index = 0; index < args.length; index += 3)
       entries.push({ name: args[index], html: args[index + 1], css: args[index + 2] });
     const sheets = embed(entries);
-    console.log(`Embedded sheet recognition: ${sheets.map((sheet) => sheet.name).join(', ')}`);
+    console.log(`Embedded sheet recognition: ${sheets.length} source files`);
   }
 }
 
