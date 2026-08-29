@@ -90,9 +90,12 @@ execFileSync(process.execPath, [path.join(root, 'tools', 'check-handout-cutin-op
   stdio: 'inherit',
 });
 
+const vdHandlers = {};
 const vdRuntime = {
   state: { KIBSceneVD: { config: { font_family: 'Candal' } } },
-  on() {},
+  on(event, handler) {
+    (vdHandlers[event] ||= []).push(handler);
+  },
   log() {},
   findObjs() {
     return [];
@@ -138,6 +141,23 @@ assert.strictEqual(
 assert.strictEqual(
   vdRuntime.vdDecorationForMessage('general', 'shared'),
   'vd_panel',
+);
+let vdAsyncFieldUpdate = null;
+vdRuntime.vdSetChanged(
+  {
+    get(key) {
+      if (key === 'notes')
+        throw new Error('Roll20 requires a callback for Handout notes.');
+      return key === 'name' ? 'same' : '';
+    },
+    set(values) { vdAsyncFieldUpdate = values; },
+  },
+  { name: 'same', notes: '본문' },
+);
+assert.deepStrictEqual(
+  JSON.parse(JSON.stringify(vdAsyncFieldUpdate)),
+  { notes: '본문' },
+  '03은 callback 전용 Handout 필드를 직접 읽지 않고 기존처럼 갱신해야 합니다.',
 );
 assert.strictEqual(
   (visualDialogueText.match(/left: name_left/g) || []).length,
@@ -266,6 +286,32 @@ assert.deepStrictEqual(
   Array.from(vdRuntime.vdTabletopCards('page-1', tabletopCards), (card) => card.id),
   ['card-back', 'card-front'],
   '카드 토큰끼리의 기존 앞뒤 순서를 보존해야 합니다.',
+);
+const cardFrontCalls = [];
+vdRuntime.findObjs = (query) =>
+  query && query._type === 'graphic' && query._pageid === 'page-1'
+    ? [tabletopCards[0]]
+    : [];
+vdRuntime.getObj = (type, id) => {
+  if (type === 'page' && id === 'page-1')
+    return roll20Object('page-1', { _zorder: 'card-front' });
+  return type === 'graphic' && id === 'card-front' ? tabletopCards[0] : null;
+};
+vdRuntime.toFront = (obj) => cardFrontCalls.push(obj.id);
+vdRuntime.setTimeout = (callback) => {
+  callback();
+  return 1;
+};
+vdHandlers['destroy:graphic'][0](
+  roll20Object('removed-cutin', {
+    _pageid: 'page-1',
+    name: '',
+  }),
+);
+assert.deepStrictEqual(
+  cardFrontCalls,
+  ['card-front'],
+  '그래픽 삭제가 끝난 다음 카드 토큰을 다시 최상단으로 복구해야 합니다.',
 );
 
 const narratorRuntime = {
@@ -646,6 +692,24 @@ const avatarRuntime = {
 };
 vm.createContext(avatarRuntime);
 vm.runInContext(avatarText, avatarRuntime);
+
+let avatarAsyncFieldUpdate = null;
+avatarRuntime.avSetChanged(
+  {
+    get(key) {
+      if (key === 'notes')
+        throw new Error('Roll20 requires a callback for Handout notes.');
+      return key === 'name' ? 'same' : '';
+    },
+    set(values) { avatarAsyncFieldUpdate = values; },
+  },
+  { name: 'same', notes: '본문' },
+);
+assert.deepStrictEqual(
+  JSON.parse(JSON.stringify(avatarAsyncFieldUpdate)),
+  { notes: '본문' },
+  '09는 callback 전용 Handout 필드를 직접 읽지 않고 기존처럼 갱신해야 합니다.',
+);
 
 const avatarRequest = {
   characterId: avatarCharacter.id,

@@ -874,9 +874,16 @@ function avGraphicImage(url) {
 }
 
 function avSetChanged(object, values) {
+  var callbackOnly = {
+    bio: true,
+    notes: true,
+    gmnotes: true,
+    defaulttoken: true,
+  };
   var updates = {};
   Object.keys(values).forEach(function (key) {
-    if (object.get(key) !== values[key]) updates[key] = values[key];
+    if (callbackOnly[key] || object.get(key) !== values[key])
+      updates[key] = values[key];
   });
   if (Object.keys(updates).length) object.set(updates);
 }

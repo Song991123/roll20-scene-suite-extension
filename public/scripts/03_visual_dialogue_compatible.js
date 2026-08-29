@@ -807,9 +807,16 @@ function vdGraphicImage(url) {
 }
 
 function vdSetChanged(object, values) {
+  var callbackOnly = {
+    bio: true,
+    notes: true,
+    gmnotes: true,
+    defaulttoken: true,
+  };
   var updates = {};
   Object.keys(values).forEach(function (key) {
-    if (object.get(key) !== values[key]) updates[key] = values[key];
+    if (callbackOnly[key] || object.get(key) !== values[key])
+      updates[key] = values[key];
   });
   if (Object.keys(updates).length) object.set(updates);
 }
@@ -1440,6 +1447,9 @@ on('change:character:name', vdScheduleExpressionHandouts);
 on('change:character:controlledby', vdScheduleExpressionHandouts);
 
 on('destroy:graphic', function (obj) {
+  if (!obj) return;
+  var pageId = obj.get('_pageid');
+  if (pageId) vdScheduleTabletopFront(pageId, 0);
   if (obj.get('name') == 'vd_standing') {
     arrangeStandings(false);
   }
