@@ -357,12 +357,11 @@ runtime.state.KIBSceneCutin.sheetRules['contractoldhash:alien|success'] = {
 };
 listener({ ...basePayload, cutinKey: 'sheet:alien', label: 'Alien', outcome: 'success' });
 check(
-  '구형 해시 기반 시트 연결을 안정 키로 자동 이전',
-  activeGraphic() && activeGraphic().get('imgsrc') === exactCard.get('avatar') &&
-    runtime.state.KIBSceneCutin.sheetRules['sheet:alien|success'] &&
-    runtime.state.KIBSceneCutin.sheetRules['sheet:alien|success'].itemKey === 'sheet:alien' &&
-    !runtime.state.KIBSceneCutin.sheetRules['contractoldhash:alien|success'],
-  '기존 시트 컷인 연결이 재생되지 않거나 새 안정 키로 이전되지 않았습니다.',
+  '구형 해시 규칙은 표시명만으로 자동 이전하지 않음',
+  activeGraphic() && activeGraphic().get('imgsrc') === globalExactCard.get('avatar') &&
+    runtime.state.KIBSceneCutin.sheetRules['contractoldhash:alien|success'] &&
+    !runtime.state.KIBSceneCutin.sheetRules['sheet:alien|success'],
+  '현재 항목이라는 증거 없이 구형 규칙을 이전하거나 삭제했습니다.',
 );
 runtime.state.KIBSceneCutin.sheetRules['contractnewhash:alien|success'] = {
   itemKey: 'contractnewhash:alien', itemLabel: 'Alien old', outcome: 'success',
@@ -376,6 +375,7 @@ listener({ ...basePayload, cutinKey: 'sheet:alien', label: 'Alien', outcome: 'su
 check(
   '새 안정 키가 남은 구형 키보다 우선',
   activeGraphic() && activeGraphic().get('imgsrc') === globalExactCard.get('avatar') &&
+    runtime.state.KIBSceneCutin.sheetRules['contractoldhash:alien|success'] &&
     runtime.state.KIBSceneCutin.sheetRules['contractnewhash:alien|success'],
   '새 연결이 있는데 구형 해시 연결을 다시 가져오면 안 됩니다.',
 );
@@ -391,13 +391,47 @@ listener({
   outcome: 'hard',
 });
 check(
-  '번역 전 label 기반 시트 연결을 현재 롤 키로 이전',
-  activeGraphic() && activeGraphic().get('imgsrc') === exactCard.get('avatar') &&
-    runtime.state.KIBSceneCutin.sheetRules['sheet:translated|hard'] &&
-    runtime.state.KIBSceneCutin.sheetRules['sheet:translated|hard'].itemLabel === '사용자 판정' &&
-    !runtime.state.KIBSceneCutin.sheetRules['sheet:Custom%20Check|hard'],
-  '이전 표시 이름이 aliases에 있는데도 안정 키로 이전되지 않았습니다.',
+  '번역 전 label 규칙은 alias만으로 자동 이전하지 않음',
+  activeGraphic() && activeGraphic().get('imgsrc') === globalRollCard.get('avatar') &&
+    runtime.state.KIBSceneCutin.sheetRules['sheet:Custom%20Check|hard'] &&
+    !runtime.state.KIBSceneCutin.sheetRules['sheet:translated|hard'],
+  '번역 전 표시명이 alias와 같다는 이유로 구형 규칙을 이전하거나 삭제했습니다.',
 );
+runtime.state.KIBSceneCutin.sheetRules['sheet:translated|hard'] = {
+  itemKey: 'sheet:translated', itemLabel: '사용자 판정', outcome: 'hard',
+  sourceKey: `card:${globalExactCard.id}`, duration: 4000,
+};
+runtime.state.KIBSceneCutin.sheetRules['sheet:Custom%20Check|hard'] = {
+  itemKey: 'sheet:Custom%20Check', itemLabel: 'Custom Check', outcome: 'hard',
+  sourceKey: `card:${exactCard.id}`, duration: 4000,
+};
+runtime.state.KIBSceneCutin.sheetRules['contractduplicate:Custom%20Check|hard'] = {
+  itemKey: 'contractduplicate:Custom%20Check', itemLabel: 'Custom Check', outcome: 'hard',
+  sourceKey: `card:${exactCard.id}`, duration: 4000,
+};
+runtime.state.KIBSceneCutin.sheetRules['contract-absent:Custom%20Check|hard'] = {
+  itemKey: 'contract-absent:Custom%20Check', itemLabel: 'Custom Check', outcome: 'hard',
+  sourceKey: `card:${genericCard.id}`, duration: 2500,
+};
+runtime.state.KIBSceneCutin.sheetRules['sheet:shared-a|hard'] = {
+  itemKey: 'sheet:shared-a', itemLabel: '공유 판정 A', outcome: 'hard',
+  sourceKey: `card:${genericCard.id}`, duration: 4000,
+};
+(events['chat:message'] || []).forEach((callback) => callback({
+  type: 'api',
+  playerid: gm.id,
+  content: '!컷인 시트연결해제|sheet:translated|hard',
+}));
+check(
+  '현재 exact 연결만 해제하고 구형·다른 시트 규칙은 보존',
+  !runtime.state.KIBSceneCutin.sheetRules['sheet:translated|hard'] &&
+    runtime.state.KIBSceneCutin.sheetRules['sheet:Custom%20Check|hard'] &&
+    runtime.state.KIBSceneCutin.sheetRules['contractduplicate:Custom%20Check|hard'] &&
+    runtime.state.KIBSceneCutin.sheetRules['contract-absent:Custom%20Check|hard'] &&
+    runtime.state.KIBSceneCutin.sheetRules['sheet:shared-a|hard'],
+  '해제 대상 exact 키 외의 구형 또는 현재 목록에 없는 시트 규칙이 삭제되었습니다.',
+);
+delete runtime.state.KIBSceneCutin.sheetRules['sheet:shared-a|hard'];
 runtime.state.KIBSceneCutin.sheetRules['contract-a:Shared%20Old|extreme'] = {
   itemKey: 'contract-a:Shared%20Old', itemLabel: 'Shared Old', outcome: 'extreme',
   sourceKey: `card:${exactCard.id}`, duration: 4000,

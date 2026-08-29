@@ -1682,7 +1682,9 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function unbindSheetCutin(parts) {
     initState();
-    var key = sheetRuleKey(parts[0], parts[1]);
+    var itemKey = trim(parts[0]);
+    var outcome = trim(parts[1]);
+    var key = sheetRuleKey(itemKey, outcome);
     if (!state.KIBSceneCutin.sheetRules[key]) return whisper('등록된 판정 컷인 연결이 없습니다.');
     delete state.KIBSceneCutin.sheetRules[key];
     refreshLinkedManagers();
@@ -1696,28 +1698,6 @@ KIBScene.adapters = KIBScene.adapters || {};
     refreshHelp();
   }
 
-  function sheetItemNames(item) {
-    var seen = {};
-    return [item && item.label].concat(item && item.aliases || []).map(normalizeText).filter(function (name) {
-      if (!name || seen[name]) return false;
-      seen[name] = true;
-      return true;
-    });
-  }
-
-  function legacySheetItemName(itemKey) {
-    var value = trim(itemKey);
-    var colon = value.indexOf(':');
-    if (colon < 1) return '';
-    var prefix = value.substring(0, colon).toLowerCase();
-    if (prefix !== 'sheet' && prefix.indexOf('contract') !== 0) return '';
-    try {
-      return normalizeText(decodeURIComponent(value.substring(colon + 1)));
-    } catch (error) {
-      return normalizeText(value.substring(colon + 1));
-    }
-  }
-
   function sheetRuleWithLegacy(itemKey, outcome, item, items) {
     initState();
     var currentKey = sheetRuleKey(itemKey, outcome);
@@ -1727,50 +1707,7 @@ KIBScene.adapters = KIBScene.adapters || {};
         current.itemLabel = item.displayLabel || item.label;
       return current;
     }
-    if (trim(itemKey).indexOf('sheet:') !== 0) return null;
-    var available = rawSheetItems(items);
-    var target = item || available.filter(function (candidate) { return candidate.key === itemKey; })[0];
-    if (!target) return null;
-    if (!target.key) {
-      var payloadItem = {};
-      Object.keys(target).forEach(function (key) { payloadItem[key] = target[key]; });
-      payloadItem.key = itemKey;
-      target = payloadItem;
-    }
-    if (!available.some(function (candidate) { return candidate.key === itemKey; })) available.push(target);
-    var targetNames = sheetItemNames(target);
-    function candidates(prefix) {
-      return Object.keys(state.KIBSceneCutin.sheetRules).filter(function (key) {
-        if (key === currentKey) return false;
-        var split = key.lastIndexOf('|');
-        if (split < 0 || key.substring(split + 1) !== trim(outcome)) return false;
-        var oldItemKey = key.substring(0, split);
-        var oldPrefix = oldItemKey.substring(0, oldItemKey.indexOf(':')).toLowerCase();
-        if (prefix === 'sheet' ? oldPrefix !== 'sheet' : oldPrefix.indexOf('contract') !== 0) return false;
-        var rule = state.KIBSceneCutin.sheetRules[key];
-        if (!validSheetRule(rule) || sheetRuleKey(rule.itemKey, rule.outcome) !== key) return false;
-        var oldNames = [normalizeText(rule.itemLabel), legacySheetItemName(oldItemKey)].filter(Boolean);
-        var uniqueOwner = oldNames.some(function (name) {
-          var owners = available.filter(function (candidate) {
-            return sheetItemNames(candidate).indexOf(name) >= 0;
-          });
-          return owners.length === 1 && owners[0].key === itemKey && targetNames.indexOf(name) >= 0;
-        });
-        return uniqueOwner;
-      });
-    }
-    var legacyKeys = candidates('sheet');
-    if (!legacyKeys.length) legacyKeys = candidates('contract');
-    if (legacyKeys.length !== 1) return null;
-    var legacyKey = legacyKeys[0];
-    var legacy = state.KIBSceneCutin.sheetRules[legacyKey];
-    var migrated = {};
-    Object.keys(legacy).forEach(function (key) { migrated[key] = legacy[key]; });
-    migrated.itemKey = itemKey;
-    migrated.itemLabel = target.displayLabel || target.label || migrated.itemLabel;
-    state.KIBSceneCutin.sheetRules[currentKey] = migrated;
-    delete state.KIBSceneCutin.sheetRules[legacyKey];
-    return migrated;
+    return null;
   }
 
   function playSheetResult(payload) {

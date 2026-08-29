@@ -223,6 +223,12 @@
     return normalizeText(out).slice(0, 300);
   }
 
+  function directLabelText(node) {
+    return normalizeText((node && node.children || []).filter(function (child) {
+      return child.tag === '#text';
+    }).map(function (child) { return child.text; }).join(' ')).slice(0, 300);
+  }
+
   function hasAttr(node, name) {
     return Object.prototype.hasOwnProperty.call(node.attrs, name);
   }
@@ -801,7 +807,8 @@
   }
 
   var ADJACENT_LABEL_TAGS = {
-    span: true, div: true, strong: true, em: true, b: true, small: true, p: true
+    span: true, div: true, strong: true, em: true, b: true, small: true, p: true,
+    h1: true, h2: true, h3: true, h4: true, h5: true, h6: true, legend: true, caption: true
   };
   var ADJACENT_SKIP_TAGS = { button: true, input: true, select: true, textarea: true };
 
@@ -823,6 +830,8 @@
             continue;
           }
           if (ADJACENT_SKIP_TAGS[sibling.tag]) {
+            if (sibling.tag === 'input' &&
+              (hasAttr(sibling, 'hidden') || (sibling.attrs.type || '').toLowerCase() === 'hidden')) continue;
             if (depth === 0 && sibling.tag !== 'button') continue;
             break;
           }
@@ -1021,6 +1030,447 @@
     return controls;
   }
 
+  function fieldNodeType(node) {
+    if (node.tag === 'textarea' || node.tag === 'select') return node.tag;
+    return (node.attrs.type || 'text').toLowerCase();
+  }
+
+  function hiddenFieldNode(node) {
+    return hasAttr(node, 'hidden') || fieldNodeType(node) === 'hidden';
+  }
+
+  function nearbyRollLabelDetails(node, translations) {
+    var current = node && node.parent;
+    for (var depth = 0; current && depth < 2; depth += 1, current = current.parent) {
+      var rolls = [];
+      var values = [];
+      walk(current, function (child) {
+        if ((child.tag === 'button' || child.tag === 'input') &&
+          (child.attrs.type || '').toLowerCase() === 'roll') rolls.push(child);
+        if (child.tag === 'input' && /^(?:text|number|range)$/.test(fieldNodeType(child)) &&
+          !hasAttr(child, 'readonly') && !hasAttr(child, 'disabled') && !hiddenFieldNode(child))
+          values.push(child);
+      });
+      if (rolls.length === 1 && values.length === 1 && values[0] === node) {
+        var details = labelDetails(rolls[0], translations, nodeText);
+        var labels = uniqueTexts([details.label].concat(details.aliases || [])).filter(searchableLabelText);
+        return { label: labels[0] || '', aliases: labels.slice(1) };
+      }
+      // 더 넓은 부모에서는 후보 수가 줄지 않으므로, 다른 입력·굴림과 섞인 순간 중단한다.
+      if (rolls.length > 1 || values.length > 1) break;
+    }
+    return { label: '', aliases: [] };
+  }
+
+  function singleValueContainerLabelDetails(node, translations) {
+    var current = node;
+    for (var depth = 0; current && current.parent && depth < 3; depth += 1) {
+      var container = current.parent;
+      var values = [];
+      var scalars = [];
+      walk(container, function (child) {
+        if (child.tag !== 'input' || !/^(?:text|number|range)$/.test(fieldNodeType(child)) || hiddenFieldNode(child)) return;
+        scalars.push(child);
+        if (!hasAttr(child, 'readonly') && !hasAttr(child, 'disabled')) values.push(child);
+      });
+      if (values.length === 1 && scalars.indexOf(node) > -1) {
+        var siblings = container.children;
+        var index = siblings.indexOf(current);
+        for (var i = index - 1; i >= 0; i -= 1) {
+          var sibling = siblings[i];
+          if (sibling.tag === '#text') {
+            var text = normalizeText(sibling.text);
+            if (!text) continue;
+            if (searchableLabelText(text)) return { label: text, aliases: [] };
+            break;
+          }
+          if (sibling.tag === 'input' && hiddenFieldNode(sibling)) continue;
+          if (sibling.tag === 'input' || sibling.tag === 'select' || sibling.tag === 'textarea') break;
+          var details = labelDetails(sibling, translations, directLabelText);
+          if (!details.label)
+            details = labelDetails(sibling, translations, labelText);
+          var labels = uniqueTexts([details.label].concat(details.aliases || [])).filter(searchableLabelText);
+          if (labels.length) return { label: labels[0], aliases: labels.slice(1) };
+          break;
+        }
+      }
+      current = container;
+    }
+    return { label: '', aliases: [] };
+  }
+
+  function fieldContextLabelDetails(node, translations) {
+    // 한 겹 위의 라벨은 그 묶음 안에 편집 가능한 값 입력이 현재 입력 하나뿐일
+    // 때만 읽는다. 큰 탭·무기 목록처럼 여러 입력을 품은 컨테이너의 제목과
+    // 번역 문자열 전체가 개별 필드 별칭으로 번지는 것을 막는다.
+    var details = adjacentLabelDetails(node, translations, 0);
+    var container = node && node.parent && node.parent.parent;
+    if (container) {
+      var values = [];
+      walk(container, function (child) {
+        if ((child.tag === 'input' || child.tag === 'select' || child.tag === 'textarea') &&
+          !hasAttr(child, 'readonly') && !hasAttr(child, 'disabled') && !hiddenFieldNode(child))
+          values.push(child);
+      });
+      if (values.length === 1 && values[0] === node)
+        details = mergeLabelDetails(details, adjacentLabelDetails(node, translations, 1));
+    }
+    details = mergeLabelDetails(details, singleValueContainerLabelDetails(node, translations));
+    details = mergeLabelDetails(details, nearbyRollLabelDetails(node, translations));
+    return mergeLabelDetails(details, tableRowLabelDetails(node, translations, []));
+  }
+
+  function applyFieldRollLabels(controlScopes, rolls) {
+    var fields = controlScopes.fields || [];
+    var global = dictionary();
+    var sections = dictionary();
+    fields.forEach(function (field) {
+      if (field.section) {
+        if (!sections[field.section]) sections[field.section] = dictionary();
+        sections[field.section][field.name] = field;
+      } else global[field.name] = field;
+    });
+    (rolls || []).forEach(function (roll) {
+      var section = roll.repeating && roll.repeating.section;
+      var seen = dictionary();
+      var candidates = [];
+      (roll.refs || []).forEach(function (ref) {
+        if (!ref || ref.max) return;
+        var field = section && sections[section] && sections[section][ref.name] || global[ref.name];
+        if (!field || !field.numericCandidate) return;
+        var key = (field.section || '') + '|' + field.name;
+        if (seen[key]) return;
+        seen[key] = true;
+        candidates.push(field);
+      });
+      if (candidates.length !== 1) return;
+      var labels = uniqueTexts((roll.staticLabels || []).map(function (entry) { return entry && entry.value; })
+        .concat(roll.aliases || [])
+        .concat([roll.label]))
+        .filter(searchableLabelText);
+      if (!labels.length) return;
+      var field = candidates[0];
+      var current = normalizeText(field.label);
+      if (!current || current === normalizeText(field.name)) {
+        field.label = labels[0];
+        field.aliases = uniqueTexts((field.aliases || []).concat(labels.slice(1)));
+      } else field.aliases = uniqueTexts((field.aliases || []).concat(labels));
+    });
+  }
+
+  function resourceQualifier(field) {
+    var roles = dictionary();
+    var labels = uniqueTexts([field && field.label].concat(field && field.aliases || []));
+    labels.forEach(function (label) {
+      var compact = normalizeText(label).toLowerCase().replace(/[\s_.:()"'\-]+/g, '');
+      var role = '';
+      if (/^(?:현재.+|.+현재)$/.test(compact) || /^(?:현재|current|now)(?:값|수치|점수|value|score)?$/.test(compact)) role = 'current';
+      else if (/^(?:최대.+|.+최대)$/.test(compact) || /^(?:최대|maximum|max)(?:값|수치|점수|value|score)?$/.test(compact)) role = 'maximum';
+      else if (/^(?:시작|초기).+|.+(?:시작|초기)$/.test(compact) || /^(?:시작|초기|start|starting|initial)(?:값|수치|점수|value|score)?$/.test(compact)) role = 'start';
+      else if (/^(?:4\/5|80%|threshold|문턱값|기준값)$/.test(compact)) role = 'threshold';
+      if (!role) return;
+      if (!roles[role]) roles[role] = [];
+      roles[role].push(label);
+    });
+    var names = Object.keys(roles);
+    return names.length === 1 ? { role: names[0], labels: uniqueTexts(roles[names[0]]) } : null;
+  }
+
+  function resourceHeadingDetails(node, translations) {
+    var headingTags = {
+      h1: true, h2: true, h3: true, h4: true, h5: true, h6: true,
+      legend: true, caption: true, strong: true, b: true
+    };
+    function headingNode(candidate) {
+      if (!candidate || candidate.tag === '#text') return false;
+      var classes = normalizeText(candidate.attrs && candidate.attrs['class']).toLowerCase();
+      return !!headingTags[candidate.tag] || /(?:^|\s)(?:sheet-)?[^\s]*(?:head|header|title|tit)(?:\s|$)/.test(classes);
+    }
+    function usable(details) {
+      var values = uniqueTexts([details && details.label].concat(details && details.aliases || [])).filter(function (label) {
+        return searchableLabelText(label) && !valueLikePlaceholder(label) &&
+          !resourceQualifier({ label: label, aliases: [] });
+      });
+      return { label: values[0] || '', aliases: values.slice(1) };
+    }
+    function read(candidate) {
+      if (!headingNode(candidate)) return { label: '', aliases: [] };
+      var details = usable(labelDetails(candidate, translations, directLabelText));
+      return details.label ? details : usable(labelDetails(candidate, translations, labelText));
+    }
+    var direct = read(node);
+    if (direct.label) return direct;
+    var children = elementChildren(node);
+    for (var index = 0; index < children.length; index += 1) {
+      var child = read(children[index]);
+      if (child.label) return child;
+      var grandchildren = elementChildren(children[index]);
+      for (var nested = 0; nested < grandchildren.length; nested += 1) {
+        child = read(grandchildren[nested]);
+        if (child.label) return child;
+      }
+    }
+    return { label: '', aliases: [] };
+  }
+
+  function resourceRollLabelDetails(container) {
+    var strong = [];
+    var weak = [];
+    walk(container, function (node) {
+      if ((node.tag !== 'button' && node.tag !== 'input') ||
+        (node.attrs.type || '').toLowerCase() !== 'roll') return;
+      templateFields(node.attrs.value || '').forEach(function (field) {
+        if (!/^(?:subject|name|title|label|skill|attribute)$/i.test(field.field) ||
+          /[@%?&]\{|\[\[|\$\[\[/.test(field.value)) return;
+        var label = normalizeText(field.value);
+        if (searchableLabelText(label) && !valueLikePlaceholder(label) &&
+          !resourceQualifier({ label: label, aliases: [] }))
+          (/^(?:subject|skill|attribute)$/i.test(field.field) ? strong : weak).push(label);
+      });
+    });
+    strong = uniqueTexts(strong);
+    weak = uniqueTexts(weak);
+    if (strong.length === 1) return { label: strong[0], aliases: [], strong: true };
+    return weak.length === 1 ? { label: weak[0], aliases: [], strong: false } : { label: '', aliases: [] };
+  }
+
+  function resourceGroupLabelDetails(container, translations) {
+    var fallback = null;
+    var branch = container;
+    for (var depth = 0; branch && branch.tag !== '#root' && depth < 4; depth += 1) {
+      var details = resourceHeadingDetails(branch, translations);
+      if (details.label) return details;
+      details = resourceRollLabelDetails(branch);
+      if (details.label && details.strong) return details;
+      if (!fallback && details.label) fallback = details;
+      branch = branch.parent;
+    }
+    return fallback || { label: '', aliases: [] };
+  }
+
+  function applyResourceGroupLabels(controlScopes, translations) {
+    function apply(fields, groups) {
+      var candidates = new Map();
+      (fields || []).forEach(function (field) {
+        if (!/^(?:text|number|range)$/.test(field.type) || field.hidden) return;
+        var qualifier = resourceQualifier(field);
+        if (!qualifier) return;
+        (groups && groups[field.name] || []).forEach(function (node) {
+          if (hiddenFieldNode(node)) return;
+          var container = node.parent;
+          for (var distance = 0; container && container.tag !== '#root' && distance < 4;
+            distance += 1, container = container.parent) {
+            if (!candidates.has(container)) candidates.set(container, []);
+            candidates.get(container).push({ field: field, qualifier: qualifier, distance: distance });
+          }
+        });
+      });
+
+      var groupsToApply = [];
+      candidates.forEach(function (entries, container) {
+        var byField = dictionary();
+        entries.forEach(function (entry) {
+          var current = byField[entry.field.name];
+          if (!current || entry.distance < current.distance) byField[entry.field.name] = entry;
+        });
+        var unique = Object.keys(byField).map(function (name) { return byField[name]; });
+        var byRole = dictionary();
+        unique.forEach(function (entry) {
+          var role = entry.qualifier.role;
+          if (!byRole[role]) byRole[role] = [];
+          byRole[role].push(entry);
+        });
+        if (!byRole.current || byRole.current.length !== 1 || unique.length < 2 ||
+          !(byRole.maximum || byRole.start || byRole.threshold)) return;
+        if (Object.keys(byRole).some(function (role) { return byRole[role].length > 1; })) return;
+        var scalarNames = dictionary();
+        walk(container, function (node) {
+          if (node.tag !== 'input' || !/^(?:text|number|range)$/.test(fieldNodeType(node)) || hiddenFieldNode(node)) return;
+          var name = baseAttrName(node.attrs.name);
+          if (name) scalarNames[name] = true;
+        });
+        if (Object.keys(scalarNames).length > 12) return;
+        groupsToApply.push({
+          container: container,
+          entries: unique,
+          roles: Object.keys(byRole).length,
+          maximumDistance: unique.reduce(function (maximum, entry) {
+            return Math.max(maximum, entry.distance);
+          }, 0)
+        });
+      });
+      groupsToApply.sort(function (left, right) {
+        return right.roles - left.roles || right.entries.length - left.entries.length ||
+          left.maximumDistance - right.maximumDistance;
+      });
+
+      var assigned = dictionary();
+      groupsToApply.forEach(function (group) {
+        if (group.entries.some(function (entry) { return assigned[entry.field.name]; })) return;
+        var details = resourceGroupLabelDetails(group.container, translations);
+        if (!details.label) return;
+        group.entries.forEach(function (entry) {
+          // 검색·수치 변경 별칭과 분리한다. 같은 `이성` alias를 현재값과
+          // 시작값 모두에 넣으면 `:이성-5`가 모호해지므로, 원본 UI 묶음은
+          // 선택 메타데이터로만 보존한다.
+          entry.field.groupLabel = details.label;
+          assigned[entry.field.name] = true;
+        });
+      });
+    }
+
+    var globalFields = (controlScopes.fields || []).filter(function (field) { return !field.section; });
+    apply(globalFields, controlScopes.nodes.global);
+    Object.keys(controlScopes.nodes.sections || {}).forEach(function (section) {
+      apply((controlScopes.fields || []).filter(function (field) { return field.section === section; }),
+        controlScopes.nodes.sections[section]);
+    });
+  }
+
+  function applyNamedResourcePairGroups(controlScopes, translations) {
+    function pairGroupDetails(container) {
+      for (var depth = 0; container && container.tag !== '#root' && depth < 6;
+        depth += 1, container = container.parent) {
+        var direct = resourceHeadingDetails(container, translations);
+        if (direct.label) return direct;
+        var siblings = elementChildren(container.parent);
+        var index = siblings.indexOf(container);
+        for (var offset = 1; index >= offset && offset <= 4; offset += 1) {
+          var previous = resourceHeadingDetails(siblings[index - offset], translations);
+          if (previous.label) return previous;
+        }
+      }
+      return { label: '', aliases: [] };
+    }
+
+    function sharedGroupDetails(leftNodes, rightNodes) {
+      var best = null;
+      (leftNodes || []).forEach(function (left) {
+        var ancestors = new Map();
+        var node = left && left.parent;
+        for (var distance = 0; node && node.tag !== '#root' && distance < 8;
+          distance += 1, node = node.parent) ancestors.set(node, distance);
+        (rightNodes || []).forEach(function (right) {
+          var candidate = right && right.parent;
+          for (var rightDistance = 0; candidate && candidate.tag !== '#root' && rightDistance < 8;
+            rightDistance += 1, candidate = candidate.parent) {
+            if (!ancestors.has(candidate)) continue;
+            var score = ancestors.get(candidate) + rightDistance;
+            if (best && best.score <= score) break;
+            var scalarCount = 0;
+            walk(candidate, function (child) {
+              if ((child.tag === 'input' || child.tag === 'textarea' || child.tag === 'select') &&
+                /^(?:text|number|range)$/.test(fieldNodeType(child)) && !hiddenFieldNode(child)) scalarCount += 1;
+            });
+            if (scalarCount > 4) break;
+            var details = pairGroupDetails(candidate);
+            if (details.label) best = { score: score, details: details };
+            break;
+          }
+        });
+      });
+      return best && best.details;
+    }
+
+    function apply(fields, nodes) {
+      var byName = dictionary();
+      (fields || []).forEach(function (field) { byName[field.name] = field; });
+      (fields || []).forEach(function (maximum) {
+        var match = /^(.+)_max$/i.exec(maximum.name || '');
+        if (!match || maximum.hidden || !/^(?:text|number|range)$/.test(maximum.type)) return;
+        var current = byName[match[1]];
+        if (!current || current.hidden || !current.numericCandidate ||
+          !/^(?:text|number|range)$/.test(current.type)) return;
+        var details = sharedGroupDetails(nodes[current.name], nodes[maximum.name]);
+        if (!details || !details.label) return;
+        [current, maximum].forEach(function (field) {
+          if (!field.groupLabel) field.groupLabel = details.label;
+        });
+      });
+    }
+
+    var globalFields = (controlScopes.fields || []).filter(function (field) { return !field.section; });
+    apply(globalFields, controlScopes.nodes.global);
+    Object.keys(controlScopes.nodes.sections || {}).forEach(function (section) {
+      apply((controlScopes.fields || []).filter(function (field) { return field.section === section; }),
+        controlScopes.nodes.sections[section]);
+    });
+  }
+
+  function applyResourcePairLabels(controlScopes) {
+    var fields = controlScopes.fields || [];
+    var global = dictionary();
+    var sections = dictionary();
+    fields.forEach(function (field) {
+      if (field.section) {
+        if (!sections[field.section]) sections[field.section] = dictionary();
+        sections[field.section][field.name] = field;
+      } else global[field.name] = field;
+    });
+    fields.filter(function (field) { return field.numericCandidate; }).forEach(function (field) {
+      var groups = field.section ? controlScopes.nodes.sections[field.section] : controlScopes.nodes.global;
+      var fieldMap = field.section ? sections[field.section] : global;
+      (groups && groups[field.name] || []).forEach(function (node) {
+        var siblings = (node.parent && node.parent.children || []).filter(function (child) {
+          return child.tag === 'input' && /^(?:text|number|range)$/.test(fieldNodeType(child)) && !hiddenFieldNode(child);
+        });
+        var siblingFields = uniqueTexts(siblings.map(function (child) { return baseAttrName(child.attrs.name); }))
+          .map(function (name) { return fieldMap[name]; }).filter(Boolean);
+        if (siblingFields.filter(function (candidate) { return candidate.numericCandidate; }).length !== 1) return;
+        var labels = uniqueTexts([field.label].concat(field.aliases || [])).filter(function (label) {
+          var normalized = normalizeText(label);
+          return searchableLabelText(label) && !valueLikePlaceholder(label) &&
+            normalized !== normalizeText(field.name) &&
+            !/^(?:현재|최대|시작|current|maximum|max|start|value|score|값|수치|점수)$/i.test(normalized);
+        });
+        if (!labels.length) return;
+        siblingFields.filter(function (candidate) {
+          return candidate !== field && /^(?:최대|maximum|max)(?:값|수치|점수)?$/i.test(normalizeText(candidate.label));
+        }).forEach(function (maximum) {
+          maximum.aliases = uniqueTexts((maximum.aliases || []).concat(labels));
+        });
+      });
+    });
+  }
+
+  function buildFields(groups, controls, labelsByFor, translations, section) {
+    return Object.keys(groups).sort().map(function (name) {
+      var nodes = groups[name];
+      var labels = { label: '', aliases: [] };
+      nodes.forEach(function (node) {
+        labels = mergeLabelDetails(labels, controlLabel(node, labelsByFor, translations));
+        // 현재/최대처럼 짧은 입력 라벨만 있는 시트도 같은 행·셀에 결속된
+        // 사용자 표시명을 함께 보존한다. 먼 상위 묶음의 설명·제작자 표기는 읽지 않는다.
+        if (!hiddenFieldNode(node))
+          labels = mergeLabelDetails(labels, fieldContextLabelDetails(node, translations));
+      });
+      var candidate = nodes.filter(function (node) {
+        return node.tag === 'input' && /^(?:text|number|range)$/.test(fieldNodeType(node)) &&
+          !hasAttr(node, 'readonly') && !hasAttr(node, 'disabled') && !hiddenFieldNode(node);
+      })[0];
+      var trackable = nodes.some(function (node) {
+        return node.tag === 'input' && /^(?:text|number|range|checkbox|radio)$/.test(fieldNodeType(node)) &&
+          !hasAttr(node, 'readonly') && !hasAttr(node, 'disabled') && !hiddenFieldNode(node);
+      });
+      return {
+        name: name,
+        type: candidate ? fieldNodeType(candidate) : controls[name].type,
+        label: labels.label || name,
+        aliases: labels.aliases,
+        section: section || null,
+        default: controls[name] && controls[name].default,
+        max: candidate && candidate.attrs.max || '',
+        onValue: controls[name] && controls[name].options && controls[name].options[0]
+          ? controls[name].options[0].value : '',
+        readonly: nodes.every(function (node) { return hasAttr(node, 'readonly'); }),
+        disabled: nodes.every(function (node) { return hasAttr(node, 'disabled'); }),
+        hidden: nodes.every(hiddenFieldNode),
+        numericCandidate: !!candidate,
+        trackCandidate: trackable
+      };
+    });
+  }
+
   function collectControls(root, translations) {
     var labelsByFor = dictionary();
     var globalGroups = dictionary();
@@ -1041,15 +1491,45 @@
       if (!groups[name]) groups[name] = [];
       groups[name].push(node);
     });
+    var global = buildControls(globalGroups, labelsByFor, translations);
     var sections = dictionary();
-    Object.keys(sectionGroups).forEach(function (section) {
+    var fields = buildFields(globalGroups, global, labelsByFor, translations, null);
+    Object.keys(sectionGroups).sort().forEach(function (section) {
       sections[section] = buildControls(sectionGroups[section], labelsByFor, translations);
+      fields = fields.concat(buildFields(sectionGroups[section], sections[section], labelsByFor, translations, section));
     });
     return {
-      global: buildControls(globalGroups, labelsByFor, translations),
+      global: global,
       sections: sections,
+      fields: fields,
       nodes: { global: globalGroups, sections: sectionGroups }
     };
+  }
+
+  function applyFieldVisibility(controlScopes, conditions) {
+    (controlScopes.fields || []).forEach(function (field) {
+      if (!field.trackCandidate) return;
+      var groups = field.section
+        ? controlScopes.nodes.sections[field.section]
+        : controlScopes.nodes.global;
+      var nodes = groups && groups[field.name] || [];
+      var seen = dictionary();
+      var conditionalNodes = 0;
+      var visibleWhen = nodes.map(function (node) {
+        var condition = conditions[node._kibSheetNodeId];
+        if (condition) conditionalNodes += 1;
+        return condition;
+      }).filter(function (condition) {
+        if (!condition) return false;
+        var key = JSON.stringify(condition);
+        if (seen[key]) return false;
+        seen[key] = true;
+        return true;
+      });
+      // One unconditional copy means the shared Roll20 attribute is always available.
+      if (nodes.length && conditionalNodes === nodes.length)
+        field.visibility = visibilityAny(visibleWhen);
+    });
   }
 
   function parseRefContent(content) {
@@ -1728,8 +2208,23 @@
     var controlScopes = collectControls(tree, translations);
     var globalControls = controlScopes.global;
     var rollNodes = collectRollNodes(tree);
-    var visibility = buildRollVisibility(tree, rollNodes, opts.css);
+    var visibilityNodes = rollNodes.slice();
+    var visibilitySeen = new Set(visibilityNodes);
+    (controlScopes.fields || []).filter(function (field) { return field.trackCandidate; }).forEach(function (field) {
+      var groups = field.section ? controlScopes.nodes.sections[field.section] : controlScopes.nodes.global;
+      (groups && groups[field.name] || []).forEach(function (node) {
+        if (!visibilitySeen.has(node)) { visibilitySeen.add(node); visibilityNodes.push(node); }
+      });
+    });
+    var visibility = visibilityNodes.length
+      ? buildRollVisibility(tree, visibilityNodes, opts.css)
+      : { rolls: dictionary(), controls: dictionary() };
+    applyFieldVisibility(controlScopes, visibility.rolls);
     var rolls = collectRolls(rollNodes, controlScopes, translations, visibility);
+    applyFieldRollLabels(controlScopes, rolls);
+    applyResourceGroupLabels(controlScopes, translations);
+    applyNamedResourcePairGroups(controlScopes, translations);
+    applyResourcePairLabels(controlScopes);
     var resultTemplates = collectResultTemplates(tree, rolls);
     var signature = compactSignature(globalControls, rolls);
     var attributes = dictionary();
@@ -1774,6 +2269,7 @@
       attributes: Object.keys(attributes).sort(),
       globalAttributes: Object.keys(globalAttributes).sort(),
       sections: sections,
+      fields: controlScopes.fields,
       controls: controls,
       rolls: rolls
     };

@@ -74,6 +74,47 @@ const html = `
 
 const contract = parseSheetContract(html, { name: '합성 시트', id: 'fixture', sourceHash: 'abc123' });
 
+function packedContractShape(sheet) {
+  const fieldKeys = [
+    'name', 'type', 'label', 'aliases', 'section', 'default', 'max', 'onValue', 'visibility',
+    'groupLabel', 'numericCandidate', 'trackCandidate', 'readonly', 'disabled', 'hidden',
+  ];
+  (sheet.fields || []).forEach((field) => {
+    const unknown = Object.keys(field).filter((key) => !fieldKeys.includes(key));
+    assert.deepStrictEqual(unknown, [], `필드 압축기가 보존하지 않는 새 속성이 있습니다: ${unknown.join(', ')}`);
+  });
+  return JSON.parse(JSON.stringify({
+    attributes: sheet.attributes || [],
+    globalAttributes: sheet.globalAttributes || [],
+    sections: sheet.sections || {},
+    controls: sheet.controls || {},
+    resultTemplates: sheet.resultTemplates || [],
+    rolls: (sheet.rolls || []).map((roll) => Object.assign({ modes: [] }, roll)),
+    fields: (sheet.fields || []).map((field) => ({
+      name: field.name,
+      type: field.type || 'text',
+      label: field.label || field.name,
+      aliases: field.aliases || [],
+      section: field.section || null,
+      default: field.default || '',
+      max: field.max || '',
+      onValue: field.onValue || '',
+      visibility: field.visibility || null,
+      groupLabel: field.groupLabel || '',
+      numericCandidate: field.numericCandidate === true,
+      trackCandidate: field.trackCandidate === true,
+      readonly: field.readonly === true,
+      disabled: field.disabled === true,
+      hidden: field.hidden === true,
+    })),
+  }));
+}
+
+const packedContractRuntime = { KIBSheetContracts: [] };
+vm.runInNewContext(render([contract]), packedContractRuntime);
+assert.deepStrictEqual(packedContractShape(packedContractRuntime.KIBSheetContracts[0]), packedContractShape(contract),
+  '시트 정보 압축·복원 과정에서 굴림·선택지·수치·반복 구역 정보가 달라지면 안 됩니다.');
+
 const sharedModeRuntime = { KIBSheetContracts: [] };
 vm.runInNewContext(render([{ id: 'shared-modes', rolls: [
   { name: 'first', modes: [{ overrides: { mode: 'normal' } }] },
@@ -92,6 +133,32 @@ sharedModeRolls[0].modes.push({ overrides: { mode: 'extra' } });
 assert.strictEqual(sharedModeRolls[1].modes.length, 1,
   '한 굴림의 선택 방식 추가가 다른 굴림을 오염시키면 안 됩니다.');
 
+const packedVisibilityRuntime = { KIBSheetContracts: [] };
+const packedVisibility = { not: { name: 'temporary_mode', op: 'eq', value: 'on', scope: 'global' } };
+vm.runInNewContext(render([{
+  id: 'shared-field-visibility', attributes: ['major_one', 'major_two'], sections: {}, rolls: [],
+  fields: [
+    { name: 'major_one', type: 'checkbox', label: '중상 1', trackCandidate: true, visibility: packedVisibility },
+    { name: 'major_two', type: 'checkbox', label: '중상 2', trackCandidate: true, visibility: packedVisibility },
+  ],
+}]), packedVisibilityRuntime);
+const restoredVisibilitySheet = packedVisibilityRuntime.KIBSheetContracts[0];
+assert(!Object.prototype.hasOwnProperty.call(restoredVisibilitySheet, 'fieldVisibilitySets'));
+assert.strictEqual(JSON.stringify(restoredVisibilitySheet.fields.map((field) => field.visibility)),
+  JSON.stringify([packedVisibility, packedVisibility]), '압축한 필드 표시 조건을 배포 런타임에서 그대로 복원해야 합니다.');
+assert(restoredVisibilitySheet.fields.every((field) => field.groupLabel === ''),
+  '자원 묶음 정보가 없는 기존 필드는 압축·복원 뒤 빈값으로 호환되어야 합니다.');
+
+const packedGlobalRuntime = { KIBSheetContracts: [] };
+vm.runInNewContext(render([{
+  id: 'packed-global-fields', attributes: ['fixed', 'shared', 'repeat_only'],
+  globalAttributes: ['fixed', 'shared'], sections: { repeating_test: ['shared', 'repeat_only'] },
+  rolls: [], fields: [],
+}]), packedGlobalRuntime);
+assert.strictEqual(JSON.stringify(packedGlobalRuntime.KIBSheetContracts[0].globalAttributes),
+  JSON.stringify(['fixed', 'shared']),
+  '일반·반복 구역에 같은 이름이 있어도 압축·복원 뒤 일반 속성 목록을 그대로 보존해야 합니다.');
+
 assert.strictEqual(contract.version, 1);
 assert.strictEqual(contract.id, 'fixture');
 assert.strictEqual(contract.sourceHash, 'abc123');
@@ -106,6 +173,98 @@ assert(contract.attributes.includes('free_formula'));
 assert(contract.attributes.includes('damage'));
 assert(contract.globalAttributes.includes('free_formula'));
 assert(!contract.globalAttributes.includes('damage'));
+
+const fieldContract = parseSheetContract(`
+  <label for="vital-current">체력</label><input id="vital-current" type="number" name="attr_vital_current" value="10">
+  <div class="resource"><strong>이성</strong><div><input title="현재" type="number" name="attr_mind_current" value="40"></div></div>
+  <div class="resource-box"><div class="resource-title">체력</div><input type="hidden" name="attr_health_ratio"><div><div><input title="현재" type="number" name="attr_health_current"><input title="최대" type="number" name="attr_health_max" value="20" disabled></div></div><div><input type="checkbox" name="attr_health_warning"><span>위험</span></div></div>
+  <div class="wide-resource"><div><strong>이성</strong><button type="roll" value="&{template:test} {{subject=이성}} {{success=[[@{sanity_current}]]}} {{roll=[[1d100]]}}"></button></div><div><input title="현재" type="number" name="attr_sanity_current"><input title="최대" type="number" name="attr_sanity_max" value="99" disabled></div><input title="시작" type="number" name="attr_sanity_start"><input title="행운" type="number" name="attr_extra_score"></div>
+  <div class="split-outer"><h4>MEMO</h4><div class="split-resource"><div class="split-start"><button type="roll" value="&{template:test} {{subject=정신 안정}} {{success=[[@{split_current}]]}}">정신 안정</button><input title="시작" type="number" name="attr_split_start"></div><div class="split-current"><input title="현재" type="number" name="attr_split_current"><input title="최대" type="number" name="attr_split_max"></div></div></div>
+  <div class="line-resource"><div class="sheet-tit"><strong>평정</strong><button type="roll" value="&{template:test} {{subject=평정}} {{success=[[@{line_current}]]}}"></button></div><div class="sheet-control"><strong>시작평정</strong><input title="시작" type="number" name="attr_line_start"></div><div class="sheet-graph"><div class="sheet-graph-input"><input title="현재" type="number" name="attr_line_current"><input title="최대" type="number" name="attr_line_max"></div></div></div>
+  <div class="bloody-resource"><div class="sheet-frame"><strong>정신 안정<button type="roll" value="&{template:test} {{speaker=@{narration_name}}} {{subject=정신 안정}} {{success=[[@{blood_current}]]}} {{roll=[[1d100]]}}"></button></strong><input title="현재" type="number" name="attr_blood_current"> / <input title="최대" type="number" name="attr_blood_limit" value="99" disabled readonly><div class="sheet-side"><input placeholder="시작" type="number" name="attr_blood_start"></div></div></div>
+  <input type="text" name="attr_narration_name">
+  <div class="official-resource"><h4 data-i18n="stability-title">Stability</h4><div class="section"><div class="sheet-row"><button type="roll" value="&{template:test} {{name=Stability Roll}} {{success=[[@{official_current}]]}} {{roll=[[1d100]]}}"></button><input placeholder="4/5" type="text" name="attr_official_threshold" readonly><input data-i18n-placeholder="current-label" placeholder="current" type="text" name="attr_official_current"> / <input placeholder="max" type="number" name="attr_official_limit" readonly><input data-i18n-placeholder="start-label" placeholder="start" type="text" name="attr_official_start"></div><div class="sheet-row"><input title="현재" type="number" name="attr_unrelated_current"></div></div></div>
+  <label>장기적 광기<input type="checkbox" name="attr_long_madness" value="checked-value"></label>
+  <button type="roll" value="&{template:test} {{subject=지능}} {{success=[[@{mind_score}]]}}">지능</button>
+  <input type="number" name="attr_mind_score" value="50">
+  <label>메모<textarea name="attr_note">기록</textarea></label>
+  <input type="hidden" name="attr_internal_total" value="10">
+  <label>잠금 수치<input name="attr_locked_value" value="10" readonly></label>
+  <label>비활성 수치<input name="attr_disabled_value" value="10" disabled></label>
+  <div class="field-row"><div class="field-name"><button type="roll" value="&{template:test} {{name=외모}} {{value=[[@{appearance}]]}}"><span>외모</span></button></div><div class="field-value"><input type="number" name="attr_appearance" value="50"></div></div>
+  <div class="free-row"><button type="roll" value="&{template:test} {{value=[[@{free_formula}]]}}"></button><input type="text" name="attr_free_formula" value="1d100"></div>
+  <input type="hidden" name="attr_template_data" value="{{name=@{character_name}}}">
+  <table><tr><td>행운</td><td><input type="number" name="attr_fortune" value="40"></td></tr></table>
+  <div class="sheet-credit">커스텀 시트 제작 : 예시 제작자 | 디자인 : 예시 디자이너</div>
+  <fieldset class="repeating_weapon"><label>내구도<input type="number" name="attr_durability"></label></fieldset>
+`, { translations: [{
+  'stability-title': '정신 안정',
+  'current-label': '현재',
+  'start-label': '시작',
+}] });
+const vitalField = fieldContract.fields.find((field) => field.name === 'vital_current');
+assert.strictEqual(vitalField.label, '체력');
+assert.strictEqual(vitalField.type, 'number');
+assert.strictEqual(vitalField.section, null);
+assert.strictEqual(vitalField.numericCandidate, true);
+assert.strictEqual(vitalField.trackCandidate, true);
+const mindField = fieldContract.fields.find((field) => field.name === 'mind_current');
+assert(mindField.aliases.includes('이성'), '현재 입력란은 상위 묶음의 사용자 표시명도 보존해야 합니다.');
+assert(fieldContract.fields.find((field) => field.name === 'health_current').aliases.includes('체력'),
+  '체크박스가 함께 있는 자원 묶음에서도 현재 수치의 상위 제목을 보존해야 합니다.');
+assert(fieldContract.fields.find((field) => field.name === 'health_max').aliases.includes('체력'),
+  '같은 자원 묶음의 최대 수치에도 현재 수치와 같은 원본 제목을 보존해야 합니다.');
+assert(fieldContract.fields.find((field) => field.name === 'sanity_current').aliases.includes('이성'),
+  '넓은 자원 묶음에서는 그 수치 하나를 참조하는 원본 굴림명을 별칭으로 보존해야 합니다.');
+assert(fieldContract.fields.find((field) => field.name === 'sanity_max').aliases.includes('이성'),
+  '같은 입력 묶음의 최대값은 원본 굴림에서 얻은 현재값 표시명을 공유해야 합니다.');
+['split_start', 'split_current', 'split_max'].forEach((name) => {
+  assert.strictEqual(fieldContract.fields.find((field) => field.name === name).groupLabel, '정신 안정',
+    `떨어진 시작·현재 입력 묶음의 ${name} 필드는 가까운 원본 굴림명을 사용해야 합니다.`);
+});
+['line_start', 'line_current', 'line_max'].forEach((name) => {
+  assert.strictEqual(fieldContract.fields.find((field) => field.name === name).groupLabel, '평정',
+    `중간 제어 상자의 텍스트가 ${name}의 상위 자원 제목을 덮어쓰면 안 됩니다.`);
+});
+['blood_current', 'blood_limit', 'blood_start'].forEach((name) => {
+  const field = fieldContract.fields.find((item) => item.name === name);
+  assert.strictEqual(field.groupLabel, '정신 안정',
+    `Bloody Mary형 중첩 자원 묶음의 ${name} 필드는 원본 제목으로 결속되어야 합니다.`);
+  assert(!field.aliases.includes('정신 안정'),
+    `Bloody Mary형 ${name}의 검색 별칭에 공통 제목을 넣어 현재값과 시작값을 모호하게 만들면 안 됩니다.`);
+});
+['official_threshold', 'official_current', 'official_limit', 'official_start'].forEach((name) => {
+  const field = fieldContract.fields.find((item) => item.name === name);
+  assert.strictEqual(field.groupLabel, '정신 안정',
+    `공식 시트형 자원 행의 ${name} 필드는 번역된 상위 제목으로 결속되어야 합니다.`);
+  assert(!field.aliases.includes('정신 안정'),
+    `공식 시트형 ${name}의 검색 별칭에 공통 제목을 넣어 현재값과 시작값을 모호하게 만들면 안 됩니다.`);
+});
+assert.strictEqual(fieldContract.fields.find((field) => field.name === 'unrelated_current').groupLabel, undefined,
+  '같은 큰 구역의 다른 행까지 자원 제목이 번지면 안 됩니다.');
+const groupedFieldRuntime = { KIBSheetContracts: [] };
+vm.runInNewContext(render([fieldContract]), groupedFieldRuntime);
+['blood_current', 'blood_limit', 'blood_start', 'official_threshold', 'official_current', 'official_limit', 'official_start']
+  .forEach((name) => {
+    assert.strictEqual(groupedFieldRuntime.KIBSheetContracts[0].fields.find((field) => field.name === name).groupLabel, '정신 안정',
+      `압축·복원 뒤에도 ${name}의 원본 자원 결속을 보존해야 합니다.`);
+  });
+assert.strictEqual(fieldContract.fields.find((field) => field.name === 'appearance').label, '외모',
+  '같은 항목 묶음의 유일한 굴림 버튼은 입력 필드의 사용자 표시명이어야 합니다.');
+assert.strictEqual(fieldContract.fields.find((field) => field.name === 'fortune').label, '행운',
+  '같은 표 행의 앞쪽 셀은 입력 필드의 사용자 표시명이어야 합니다.');
+const freeFormulaField = fieldContract.fields.find((field) => field.name === 'free_formula');
+[freeFormulaField, fieldContract.fields.find((field) => field.name === 'template_data')].forEach((field) => {
+  assert(![field.label].concat(field.aliases).some((label) =>
+    /커스텀 시트 제작|디자인\s*:/.test(label)),
+    '멀리 떨어진 제작자·디자인 표기를 입력 필드 라벨로 읽으면 안 됩니다.');
+});
+assert.strictEqual(fieldContract.fields.find((field) => field.name === 'long_madness').onValue, 'checked-value');
+assert.strictEqual(fieldContract.fields.find((field) => field.name === 'durability').section, 'repeating_weapon');
+['note', 'internal_total', 'locked_value', 'disabled_value'].forEach((name) => {
+  assert.strictEqual(fieldContract.fields.find((field) => field.name === name).numericCandidate, false,
+    `${name} 필드는 변경 가능한 수치 입력 후보가 아니어야 합니다.`);
+});
 
 const madness = contract.rolls.find((roll) => roll.name === 'madness');
 assert.strictEqual(madness.raw.startsWith('&{template:test}'), true);
@@ -275,8 +434,11 @@ assert.strictEqual(Object.prototype.hasOwnProperty.call(doubleQuery, 'modesIncom
 const visibilityHtml = `
   <input type="checkbox" class="sheet-route" name="attr_route" value="left" checked>
   <input type="checkbox" class="sheet-route" name="attr_route" value="right">
-  <div class="sheet-panel sheet-panel-left"><button type="roll" name="roll_left" value="&{template:test} {{roll=[[1d6]]}}">왼쪽</button></div>
-  <div class="sheet-panel sheet-panel-right"><button type="roll" name="roll_right" value="&{template:test} {{roll=[[1d8]]}}">오른쪽</button></div>
+  <div class="sheet-panel sheet-panel-left"><label>공용 상태<input type="checkbox" name="attr_shared_state" value="active"></label><button type="roll" name="roll_left" value="&{template:test} {{roll=[[1d6]]}}">왼쪽</button></div>
+  <div class="sheet-panel sheet-panel-right"><label>공용 상태<input type="checkbox" name="attr_shared_state" value="active"></label><button type="roll" name="roll_right" value="&{template:test} {{roll=[[1d8]]}}">오른쪽</button></div>
+  <input type="checkbox" class="sheet-temporary-mode" name="attr_temporary_mode" value="on">
+  <label class="sheet-major-field">중상<input type="checkbox" name="attr_major_state" value="active"></label>
+  <div class="sheet-temporary-panel"><label>임시 체력<input type="number" name="attr_temporary_health"></label></div>
   <div class="sheet-uncertain"><button type="roll" name="roll_uncertain" value="&{template:test} {{roll=[[1d10]]}}">미확정</button></div>
   <fieldset class="repeating_items">
     <input type="checkbox" class="sheet-row-route" name="attr_route" value="row-on" checked>
@@ -287,6 +449,9 @@ const visibilityCss = `
   .charsheet .sheet-panel, .charsheet .sheet-uncertain, .charsheet .sheet-row-panel { display: none; }
   .sheet-route[value="left"]:checked ~ .sheet-panel-left { display: block; }
   .sheet-route[value="right"]:checked ~ .sheet-panel-right { display: block; }
+  .sheet-temporary-panel { display: none; }
+  .sheet-temporary-mode[value="on"]:checked ~ .sheet-temporary-panel { display: block; }
+  .sheet-temporary-mode[value="on"]:checked ~ .sheet-major-field { display: none; }
   .charsheet:has(.sheet-future) .sheet-uncertain { display: block; }
   .sheet-row-route[value="row-on"]:checked ~ .sheet-row-panel { display: block; }
 `;
@@ -295,7 +460,17 @@ assert.deepStrictEqual(visibleContract.rolls.find((roll) => roll.name === 'left'
 assert.deepStrictEqual(visibleContract.rolls.find((roll) => roll.name === 'right').visibility, { name: 'route', op: 'eq', value: 'right', scope: 'global' });
 assert.strictEqual(Object.prototype.hasOwnProperty.call(visibleContract.rolls.find((roll) => roll.name === 'uncertain'), 'visibility'), false);
 assert.deepStrictEqual(visibleContract.rolls.find((roll) => roll.name === 'row').visibility, { name: 'route', op: 'eq', value: 'row-on', scope: 'row' });
+assert.deepStrictEqual(visibleContract.fields.find((field) => field.name === 'shared_state').visibility, {
+  any: [
+    { name: 'route', op: 'eq', value: 'left', scope: 'global' },
+    { name: 'route', op: 'eq', value: 'right', scope: 'global' },
+  ],
+}, '같은 속성을 쓰는 복제 UI의 표시 조건은 AND가 아니라 OR로 보존해야 합니다.');
+assert.deepStrictEqual(visibleContract.fields.find((field) => field.name === 'major_state').visibility, {
+  not: { name: 'temporary_mode', op: 'eq', value: 'on', scope: 'global' },
+}, '대체 화면에서 숨겨지는 상태 필드의 원본 CSS 조건을 보존해야 합니다.');
 assert.strictEqual(visibleContract.controls.route.default, 'left');
+assert.strictEqual(visibleContract.controls.temporary_mode.default, null);
 assert(visibleContract.rolls.filter((roll) => !roll.repeating).every((roll) => !roll.controls),
   '전역 가시성 컨트롤을 각 롤에 중복 저장하면 안 됩니다.');
 assert.strictEqual(visibleContract.rolls.find((roll) => roll.name === 'row').controls.route.repeating, 'repeating_items');

@@ -11,6 +11,7 @@ const ROOT = path.resolve(__dirname, '..');
 const SCRIPTS_ROOT = path.join(ROOT, 'public', 'scripts');
 const RECOGNITION_START = '/* KIB_SHEET_RECOGNITION_START */';
 const RECOGNITION_END = '/* KIB_SHEET_RECOGNITION_END */';
+const DEFAULT_REF = '13a57d4';
 const FIXTURE_SIZES = [10, 100, 1000];
 const PUBLIC_TEXT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json', '.md', '.svg', '.txt']);
 
@@ -18,12 +19,12 @@ function usage() {
   return [
     'Usage: node tools/benchmark.js [--ref <git-ref>]',
     '',
-    'Compares public/scripts at a Git ref (default: HEAD) with the worktree.',
+    `Compares public/scripts at a Git ref (default: ${DEFAULT_REF}) with the worktree.`,
   ].join('\n');
 }
 
 function parseArgs(argv) {
-  let ref = 'HEAD';
+  let ref = DEFAULT_REF;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--help' || arg === '-h') return { help: true, ref };
@@ -272,6 +273,39 @@ function modeIdentities(contracts) {
   };
 }
 
+function recognitionExecutionShape(contracts) {
+  return contracts.map((sheet) => {
+    const controlNames = new Set();
+    (sheet.rolls || []).forEach((roll) => {
+      (roll.modes || []).forEach((mode) => {
+        Object.keys((mode && mode.overrides) || {}).forEach((name) => controlNames.add(name));
+      });
+    });
+    const controls = {};
+    Array.from(controlNames).sort().forEach((name) => {
+      if (sheet.controls && Object.prototype.hasOwnProperty.call(sheet.controls, name))
+        controls[name] = sheet.controls[name];
+    });
+    return {
+      id: sheet.id,
+      sourceHash: sheet.sourceHash,
+      controls,
+      resultTemplates: sheet.resultTemplates || {},
+      rolls: (sheet.rolls || []).map((roll) => ({
+        key: roll.key,
+        raw: roll.raw,
+        template: roll.template,
+        repeating: roll.repeating,
+        controls: roll.controls,
+        modes: roll.modes,
+        staticLabels: roll.staticLabels,
+        labelRefs: roll.labelRefs,
+        expressionRefs: roll.expressionRefs,
+      })),
+    };
+  });
+}
+
 function referenceCounts(values) {
   const counts = new Map();
   values.forEach((value) => counts.set(value, (counts.get(value) || 0) + 1));
@@ -313,9 +347,9 @@ function printRecognition(baselineSource, candidateSource) {
   console.log('\nSheet recognition loader (21 samples, compile/context creation excluded)');
   const baseline = measureRecognition(baselineSource, 'baseline');
   const candidate = measureRecognition(candidateSource, 'worktree');
-  const before = stable(jsonClone(baseline.contracts));
-  const after = stable(jsonClone(candidate.contracts));
-  assert.deepStrictEqual(after, before, 'Sheet recognition output changed.');
+  const before = stable(jsonClone(recognitionExecutionShape(baseline.contracts)));
+  const after = stable(jsonClone(recognitionExecutionShape(candidate.contracts)));
+  assert.strictEqual(hash(after), hash(before), 'Sheet recognition roll execution changed.');
   [baseline, candidate].forEach((result, index) => {
     assert.strictEqual(
       result.identities.unsafeSharedArrays,

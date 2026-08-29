@@ -971,12 +971,13 @@ var KIBScene = KIBScene || {};
       commandRow('!!굴릴항목이름 선택할이름', '현재 시트의 선택 방식으로 실행') +
       commandRow('!!검색 이름', '항목과 현재 수치 검색') +
       commandRow('!!상태', 'PL용 현재 캐릭터의 굴림과 수치 확인') +
+      commandRow(':수치이름+3', '내 캐릭터 수치 변경. 예: :체력-1d3, :마력=10') +
       commandRow('!!점검', 'GM용 시트 인식 점검') +
       commandRow('!!화자 이름', 'GM용 채팅 화자 전환') +
-      commandRow('!!화자 본인', 'GM용 내 화자로 복귀') +
+      commandRow('!!화자 본인', '캐릭터 화자를 해제하고 GM 오너 프로필로 복귀') +
       commandRow('!!명령대상 이름', 'GM용 시트 명령 대상 변경') +
-      commandRow('!!추적 공개', 'GM용 수치 변화 표시 설정') +
-      commandRow('!!GM전용추적 켜기', 'GM 전용 캐릭터 변화 표시');
+      commandRow('!!변화알림 공개|GM|끄기', '수치 변화 알림을 전체 공개, GM만, 또는 끄기로 설정') +
+      commandRow('!!GM캐릭터알림 켜기|끄기', '플레이어 권한이 없는 GM 캐릭터도 변화 알림에 포함할지 설정');
     return moduleHelpSection(
       'sheet',
       '10 시트 헬퍼',
