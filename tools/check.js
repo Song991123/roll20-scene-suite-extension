@@ -9,7 +9,7 @@ const root = path.resolve(__dirname, '..');
 const publicRoot = path.join(root, 'public');
 const scriptsRoot = path.join(publicRoot, 'scripts');
 const sourcesFile = path.join(publicRoot, 'assets', 'sources.js');
-const contractParserFile = path.join(publicRoot, 'assets', 'sheet-contract-parser.js');
+const contractParserFile = path.join(root, 'tools', 'sheet-contract-parser.js');
 const scripts = Array.from({ length: 11 }, (_, index) =>
   fs
     .readdirSync(scriptsRoot)
@@ -27,12 +27,24 @@ const publicTextFiles = [
   path.join(root, 'THIRD_PARTY_NOTICE.md'),
   path.join(publicRoot, 'index.html'),
   path.join(publicRoot, 'assets', 'app.js'),
-  contractParserFile,
   path.join(publicRoot, 'assets', 'styles.css'),
 ];
 const publicText = publicTextFiles
   .map((file) => fs.readFileSync(file, 'utf8'))
   .join('\n');
+const artifactRoot = path.join(root, 'artifacts');
+const publicDocs = publicTextFiles.concat(
+  fs
+    .readdirSync(artifactRoot)
+    .filter((name) => /\.(?:md|html)$/i.test(name))
+    .map((name) => path.join(artifactRoot, name)),
+);
+publicDocs.forEach((file) =>
+  assert(
+    !/[A-Z]:\\/i.test(fs.readFileSync(file, 'utf8')),
+    `공개 문서에 개인 컴퓨터 경로가 남았습니다: ${path.relative(root, file)}`,
+  ),
+);
 const indexText = fs.readFileSync(path.join(publicRoot, 'index.html'), 'utf8');
 const appText = fs.readFileSync(
   path.join(publicRoot, 'assets', 'app.js'),
@@ -72,6 +84,9 @@ const scriptText = scripts
 const releaseText = `${publicText}\n${scriptText}`;
 new Function(scriptText);
 execFileSync(process.execPath, [path.join(root, 'tools', 'check-sheet-contract.js')], {
+  stdio: 'inherit',
+});
+execFileSync(process.execPath, [path.join(root, 'tools', 'check-handout-cutin-optimization.js')], {
   stdio: 'inherit',
 });
 
@@ -216,7 +231,7 @@ assert.deepStrictEqual(
 assert.strictEqual(
   vdRuntime.vdResolveCueCommand(['장면없음'], {
     explicitAs: true,
-    as: '이경태',
+    as: '인물A',
   }),
   '장면없음',
 );
@@ -224,7 +239,7 @@ vdRuntime.findObjs = (query) =>
   query && (query.type === 'page' || query._type === 'page')
     ? [{ get(key) { return key === '_id' ? 'page-1' : 'conversation'; } }]
     : [];
-assert.strictEqual(vdRuntime.vdValidateCue(['퇴장:이경태'], {}).ok, true);
+assert.strictEqual(vdRuntime.vdValidateCue(['퇴장:인물A'], {}).ok, true);
 assert.strictEqual(vdRuntime.vdValidateCue(['장면없음'], {}).ok, true);
 const tabletopCards = [
   roll20Object('card-front', {
@@ -281,8 +296,8 @@ narratorRuntime.KIBScene.handlers.vd = function () {};
 narratorRuntime.KIBScene.adapters.avatar = {};
 narratorRuntime.KIBScene.adapters.vd = {};
 [
-  '퇴장:이경태',
-  'exit:이경태',
+  '퇴장:인물A',
+  'exit:인물A',
   '숨김',
   '장면없음',
 ].forEach((command) => {
@@ -295,32 +310,32 @@ const expressionCue = narratorRuntime.ntExtractCues('대사 @난감').cues[0];
 assert.strictEqual(expressionCue.type, 'avatar');
 assert.strictEqual(expressionCue.args[0], '난감');
 const namedExpression = narratorRuntime.ntExtractCues(
-  '/desc [ 정선은 아쉬운 듯 돌아봅니다. @박정선:불안 ](#" style="font-size:13px;")',
+  '/desc [ 인물A는 아쉬운 듯 돌아봅니다. @인물A:불안 ](#" style="font-size:13px;")',
 );
 assert.strictEqual(namedExpression.cues.length, 1);
 assert.strictEqual(namedExpression.cues[0].type, 'avatar');
-assert.strictEqual(namedExpression.cues[0].args[0], '박정선:불안');
-assert(!namedExpression.text.includes('@박정선:불안'));
+assert.strictEqual(namedExpression.cues[0].args[0], '인물A:불안');
+assert(!namedExpression.text.includes('@인물A:불안'));
 assert(namedExpression.text.includes('](#" style="font-size:13px;")'));
 const multipleExpressions = narratorRuntime.ntExtractCues(
-  '/desc [ 정선은 아쉬운 듯 몇 번이나 당신을 돌아보지만 @박정선:불안 @박정수:기본 ](#" style="font-size:13px;")',
+  '/desc [ 인물A는 아쉬운 듯 몇 번이나 당신을 돌아보지만 @인물A:불안 @인물B:기본 ](#" style="font-size:13px;")',
 );
 assert.deepStrictEqual(
   Array.from(multipleExpressions.cues, (cue) => cue.args[0]),
-  ['박정선:불안', '박정수:기본'],
+  ['인물A:불안', '인물B:기본'],
 );
-assert(!multipleExpressions.text.includes('@박정선:불안'));
-assert(!multipleExpressions.text.includes('@박정수:기본'));
+assert(!multipleExpressions.text.includes('@인물A:불안'));
+assert(!multipleExpressions.text.includes('@인물B:기본'));
 assert(multipleExpressions.text.includes('](#" style="font-size:13px;")'));
 const mixedExpressions = narratorRuntime.ntExtractCues(
-  '대사 @오디오 재생|BGM @APNG 재생|연출 @박정선:불안 @박정수:기본',
+  '대사 @오디오 재생|BGM @APNG 재생|연출 @인물A:불안 @인물B:기본',
 );
 assert.deepStrictEqual(
   Array.from(mixedExpressions.cues, (cue) => cue.type),
   ['audio', 'apng', 'avatar', 'avatar'],
 );
 const expressionAndExit = narratorRuntime.ntExtractCues(
-  '대사 @박정선:불안 @퇴장:전원',
+  '대사 @인물A:불안 @퇴장:전원',
 );
 assert.deepStrictEqual(
   Array.from(expressionAndExit.cues, (cue) => cue.type),
@@ -442,7 +457,7 @@ narratorRuntime.getObj = (type, id) =>
     ? {
         id,
         get(key) {
-          return key === '_displayname' ? '마렌' : '';
+          return key === '_displayname' ? '테스터 GM' : '';
         },
       }
     : null;
@@ -452,7 +467,7 @@ narratorRuntime.findObjs = (query) =>
         {
           id: 'gm-1',
           get(key) {
-            return key === '_displayname' ? '마렌' : '';
+            return key === '_displayname' ? '테스터 GM' : '';
           },
         },
       ]
@@ -470,7 +485,7 @@ narratorRuntime.state.is_narrating = 2;
 narratorRuntime.narrate();
 assert.deepStrictEqual(
   Array.from(narratorSent, (entry) => entry.content),
-  ['/w HO4 비밀 지문', '/w "마렌" (To HO4): 비밀 지문'],
+  ['/w HO4 비밀 지문', '/w "테스터 GM" (To HO4): 비밀 지문'],
 );
 assert.strictEqual(narratorSent[1].options.noarchive, true);
 const captureNarratorChat = narratorRuntime.sendChat;
@@ -577,7 +592,7 @@ function roll20Object(id, values) {
 
 const avatarDeck = roll20Object('avatar-deck', { name: 'avatars' });
 const avatarCharacterValues = {
-  name: '이경태',
+  name: '인물A',
   avatar: 'original.png',
   controlledby: '',
 };
@@ -659,15 +674,15 @@ assert.strictEqual(avatarResult.skipped, true);
 assert.strictEqual(avatarWhispers, whispersBeforeSync);
 
 avatarCards = [
-  roll20Object('avatar-base', { name: '이경태', avatar: 'base.png' }),
+  roll20Object('avatar-base', { name: '인물A', avatar: 'base.png' }),
 ];
 avatarResult = avatarRuntime.avValidateChange(avatarRequest);
 assert.strictEqual(avatarResult.ok, false);
-assert(avatarResult.error.includes('이경태-난감'));
+assert(avatarResult.error.includes('인물A-난감'));
 
 avatarCards.push(
   roll20Object('avatar-expression', {
-    name: '이경태-난감',
+    name: '인물A-난감',
     avatar: 'awkward.png',
   }),
 );
@@ -679,12 +694,12 @@ assert.strictEqual(
   'avatar-expression',
 );
 avatarResult = avatarRuntime.avValidateCue(
-  ['이경태:난감'],
+  ['인물A:난감'],
   { explicitAs: false, chatType: 'desc' },
 );
 assert.strictEqual(avatarResult.ok, true, '이름을 적은 표정 명령은 /as 없이 검증되어야 합니다.');
 avatarResult = avatarRuntime.avRunCue(
-  ['이경태:난감'],
+  ['인물A:난감'],
   { explicitAs: false, chatType: 'desc' },
 );
 assert.strictEqual(avatarResult.ok, true);
@@ -742,7 +757,7 @@ assert(
   '!. 동시에 출력할 줄',
   '@다음줄 1.2초',
   '!@배경 장면명',
-  '@박정선:불안 @박정수:기본',
+  '@인물A:불안 @인물B:기본',
   '!컷인 URL|Roll20이미지주소|3초',
   '@컷인 카드명|줄=3',
   '!!도움말',
@@ -757,7 +772,7 @@ assert(
 assert(
   sceneDirectorText.includes("hasPlugin('apng') && hasPlugin('vd')") &&
     sceneDirectorText.includes("hasPlugin('vd') || hasPlugin('avatar')") &&
-    /hasPlugin\('narrator'\)[\s\S]+?@박정선:불안/.test(sceneDirectorText) &&
+    /hasPlugin\('narrator'\)[\s\S]+?@인물A:불안/.test(sceneDirectorText) &&
     /hasPlugin\('narrator'\)[\s\S]+?@컷인 카드명\|줄=3/.test(sceneDirectorText),
   '결합 기능의 도움말은 필요한 모듈이 설치됐을 때만 보여야 합니다.',
 );

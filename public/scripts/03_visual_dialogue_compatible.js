@@ -331,6 +331,26 @@ function vdRefreshHandout() {
   if (typeof KIBScene.refreshHandout === 'function') KIBScene.refreshHandout();
 }
 
+function vdCardUsesDeck(obj, prev, deckName) {
+  var ids = [obj && obj.get('_deckid'), prev && prev._deckid].filter(Boolean);
+  return ids.some(function (id) {
+    var deck = getObj('deck', id);
+    return deck && deck.get('name') == deckName;
+  });
+}
+
+function vdHandleCardChange(obj, prev) {
+  var standingChanged = vdCardUsesDeck(
+    obj,
+    prev,
+    vd_setting.deck_name,
+  );
+  var backgroundChanged = vdCardUsesDeck(obj, prev, 'background');
+  if (backgroundChanged) vdUpdateMacroSafe(obj);
+  if (standingChanged) vdScheduleExpressionHandouts();
+  if (standingChanged || backgroundChanged) vdRefreshHandout();
+}
+
 function vdPluginStatus() {
   vdInitState();
   var pageId = vdGetCurrentPage();
@@ -737,8 +757,14 @@ function vdTextStroke() {
   return vd_setting.stroke_enabled ? vd_setting.stroke_color : 'transparent';
 }
 
+function vdStandingDeck() {
+  return (
+    (findObjs({ _type: 'deck', name: vd_setting.deck_name }) || [])[0] || null
+  );
+}
+
 function vdStandingCardsByName(name) {
-  var deck = (findObjs({ _type: 'deck', name: vd_setting.deck_name }) || [])[0];
+  var deck = vdStandingDeck();
   return deck
     ? findObjs({
         _type: 'card',
@@ -751,7 +777,7 @@ function vdStandingCardsByName(name) {
 function vdStandingCardsByReference(reference) {
   var value = String(reference || '').trim();
   if (value.indexOf('id:') !== 0) return vdStandingCardsByName(value);
-  var deck = (findObjs({ _type: 'deck', name: vd_setting.deck_name }) || [])[0];
+  var deck = vdStandingDeck();
   var card = getObj('card', value.substring(3));
   return deck && card && card.get('_deckid') == deck.get('_id') ? [card] : [];
 }
@@ -778,6 +804,14 @@ function vdGraphicImage(url) {
     /\/(?:med|max|original)(\.[^/?]+)(\?.*)?$/i,
     '/thumb$1$2',
   );
+}
+
+function vdSetChanged(object, values) {
+  var updates = {};
+  Object.keys(values).forEach(function (key) {
+    if (object.get(key) !== values[key]) updates[key] = values[key];
+  });
+  if (Object.keys(updates).length) object.set(updates);
 }
 
 function vdSetBackgroundImage(token, url) {
@@ -848,12 +882,14 @@ function vdRegisterSelectedRatios(selected) {
   return count;
 }
 
-function vdStandingCardsForCharacter(characterName) {
-  var deck = (findObjs({ _type: 'deck', name: vd_setting.deck_name }) || [])[0];
-  if (!deck) return [];
+function vdStandingCardsForCharacter(characterName, deckCards) {
+  if (!Array.isArray(deckCards)) {
+    var deck = vdStandingDeck();
+    if (!deck) return [];
+    deckCards = findObjs({ _type: 'card', _deckid: deck.get('_id') }) || [];
+  }
   var base = String(characterName || '').trim();
-  var cards = findObjs({ _type: 'card', _deckid: deck.get('_id') }) || [];
-  return cards
+  return deckCards
     .filter(function (card) {
       var name = String(card.get('name') || '');
       return (
@@ -873,7 +909,7 @@ function vdStandingCardsForCharacter(characterName) {
 
 function vdCardBelongsToCharacter(card, characterName) {
   if (!card) return false;
-  var deck = (findObjs({ _type: 'deck', name: vd_setting.deck_name }) || [])[0];
+  var deck = vdStandingDeck();
   if (!deck || card.get('_deckid') != deck.get('_id') || !card.get('avatar'))
     return false;
   var name = String(card.get('name') || '');
@@ -883,13 +919,21 @@ function vdCardBelongsToCharacter(card, characterName) {
   );
 }
 
-function vdDefaultStandingCard(character) {
+function vdDefaultStandingCard(character, cards) {
   vdInitState();
   if (!character) return null;
-  var cards = vdStandingCardsForCharacter(character.get('name'));
+  cards = Array.isArray(cards)
+    ? cards
+    : vdStandingCardsForCharacter(character.get('name'));
   if (!cards.length) return null;
   var saved = getObj('card', state.KIBSceneVD.defaultExpressions[character.id]);
-  if (vdCardBelongsToCharacter(saved, character.get('name'))) return saved;
+  if (
+    saved &&
+    cards.some(function (card) {
+      return card.id == saved.id;
+    })
+  )
+    return saved;
   state.KIBSceneVD.defaultExpressions[character.id] = cards[0].id;
   return cards[0];
 }
@@ -1151,9 +1195,13 @@ function vdUpdateExpressionHandouts() {
   if (typeof createObj !== 'function') return;
   vdInitState();
   var characters = findObjs({ _type: 'character' }) || [];
+  var deck = vdStandingDeck();
+  var deckCards = deck
+    ? findObjs({ _type: 'card', _deckid: deck.get('_id') }) || []
+    : [];
   var active = {};
   characters.forEach(function (character) {
-    var cards = vdStandingCardsForCharacter(character.get('name'));
+    var cards = vdStandingCardsForCharacter(character.get('name'), deckCards);
     if (!cards.length) return;
     active[character.id] = true;
     var handoutId = state.KIBSceneVD.expressionHandouts[character.id];
@@ -1169,7 +1217,7 @@ function vdUpdateExpressionHandouts() {
         archived: false,
       });
     state.KIBSceneVD.expressionHandouts[character.id] = handout.id;
-    var selected = vdDefaultStandingCard(character);
+    var selected = vdDefaultStandingCard(character, cards);
     var cells = cards
       .map(function (card) {
         var expression = vdExpressionName(card, character.get('name'));
@@ -1193,7 +1241,7 @@ function vdUpdateExpressionHandouts() {
         );
       })
       .join('');
-    handout.set({
+    vdSetChanged(handout, {
       name: name,
       avatar: selected ? selected.get('avatar') : '',
       inplayerjournals: String(character.get('controlledby') || ''),
@@ -1219,7 +1267,11 @@ function vdUpdateExpressionHandouts() {
         state.KIBSceneVD.expressionHandouts[characterId],
       );
       if (stale)
-        stale.set({ archived: true, inplayerjournals: '', controlledby: '' });
+        vdSetChanged(stale, {
+          archived: true,
+          inplayerjournals: '',
+          controlledby: '',
+        });
     },
   );
 }
@@ -1236,7 +1288,7 @@ function vdPruneUnregisteredStandings() {
       ) {
         var currentSize = vdStandingSize(currentCard, character.get('name'));
         if (currentSize) {
-          token.set({
+          vdSetChanged(token, {
             width: currentSize.width,
             height: currentSize.height,
             top: vdStandingTop(token.get('_pageid'), currentSize.height),
@@ -1261,7 +1313,7 @@ function vdPruneUnregisteredStandings() {
         vdWarnMissingRatio(replacement);
         return;
       }
-      token.set({
+      vdSetChanged(token, {
         imgsrc: vdGraphicImage(replacement.get('avatar')),
         width: size.width,
         height: size.height,
@@ -1350,7 +1402,7 @@ on('ready', function () {
         '<code>!@배경 장면명</code> 배경 전환',
         '<code>!@표정명</code> 현재 화자 표정 변경',
         KIBScene.adapters.narrator
-          ? '<code>!... /desc 지문 @박정선:불안 @박정수:기본</code> 여러 캐릭터 표정 변경'
+          ? '<code>!... /desc 지문 @인물A:불안 @인물B:기본</code> 여러 캐릭터 표정 변경'
           : '',
         '<code>!@퇴장:캐릭터명</code> 캐릭터 퇴장',
       ].filter(Boolean),
@@ -1368,31 +1420,19 @@ on('ready', function () {
   showHideDecorations('vd_dialogue_box', false);
   vdScheduleExpressionHandouts();
 
-  on('add:card', function (obj) {
-    vdUpdateMacroSafe(obj);
-    vdScheduleExpressionHandouts();
-    vdRefreshHandout();
-  });
+  on('add:card', vdHandleCardChange);
   setTimeout(vdUpdateMacroSafe, 100);
 });
 
 on('destroy:deck', function (obj) {
-  setTimeout(vdUpdateMacroSafe, 100);
-  vdScheduleExpressionHandouts();
-  vdRefreshHandout();
+  var name = obj && obj.get('name');
+  if (name == 'background') setTimeout(vdUpdateMacroSafe, 100);
+  if (name == vd_setting.deck_name) vdScheduleExpressionHandouts();
+  if (name == 'background' || name == vd_setting.deck_name) vdRefreshHandout();
 });
 
-on('change:card', function (obj, prev) {
-  vdUpdateMacroSafe(obj);
-  vdScheduleExpressionHandouts();
-  vdRefreshHandout();
-});
-
-on('destroy:card', function (obj) {
-  vdUpdateMacroSafe(obj);
-  vdScheduleExpressionHandouts();
-  vdRefreshHandout();
-});
+on('change:card', vdHandleCardChange);
+on('destroy:card', vdHandleCardChange);
 
 on('add:character', vdScheduleExpressionHandouts);
 on('destroy:character', vdScheduleExpressionHandouts);

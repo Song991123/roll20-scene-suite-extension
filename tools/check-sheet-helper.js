@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { parseSheetContract } = require('../public/assets/sheet-contract-parser');
+const { parseSheetContract } = require('./sheet-contract-parser');
 
 const distributedSource = fs.readFileSync(
   path.resolve(__dirname, '../public/scripts/10_sheet_helper.js'),
@@ -25,16 +25,42 @@ vm.runInContext(recognitionBlock, recognitionRuntime);
 const embeddedSheets = recognitionRuntime.KIBSheetContracts;
 assert.strictEqual(embeddedSheets.length, 5,
   '배포용 10번에는 검증된 실제 시트 5종이 포함되어야 합니다.');
+const embeddedModeArrays = new Set();
+const repeatedModeArrays = new Map();
+let embeddedRollsWithModes = 0;
+let repeatedModeSets = 0;
 embeddedSheets.forEach((sheet) => {
   assert(!Object.prototype.hasOwnProperty.call(sheet, 'modeSets'),
     '복원 뒤 시트에 임시 modeSets가 남았습니다: ' + sheet.name);
   (sheet.rolls || []).forEach((roll) => {
     assert(Array.isArray(roll.modes),
       '복원 뒤 roll.modes가 배열이 아닙니다: ' + sheet.name + ' / ' + roll.key);
+    if (roll.modes.length) {
+      embeddedRollsWithModes++;
+      embeddedModeArrays.add(roll.modes);
+      assert(!Object.isFrozen(roll.modes),
+        '기존 확장 호환성을 위해 선택 방식 배열은 변경 가능해야 합니다: ' + sheet.name + ' / ' + roll.key);
+      roll.modes.forEach((mode) => {
+        assert(!Object.isFrozen(mode) && !Object.isFrozen(mode.overrides || {}),
+          '기존 확장 호환성을 위해 선택 방식 내용은 변경 가능해야 합니다: ' + sheet.name + ' / ' + roll.key);
+      });
+      const signature = JSON.stringify(roll.modes);
+      const previous = repeatedModeArrays.get(signature);
+      if (previous) {
+        repeatedModeSets++;
+        assert.notStrictEqual(previous, roll.modes,
+          '같은 선택 방식이라도 굴림마다 독립 배열이어야 합니다.');
+        assert.notStrictEqual(previous[0], roll.modes[0],
+          '같은 선택 방식이라도 굴림마다 독립 객체여야 합니다.');
+      } else repeatedModeArrays.set(signature, roll.modes);
+    }
     assert(!Object.prototype.hasOwnProperty.call(roll, 'm'),
       '복원 뒤 roll에 임시 mode 참조가 남았습니다: ' + sheet.name + ' / ' + roll.key);
   });
 });
+assert.strictEqual(embeddedModeArrays.size, embeddedRollsWithModes,
+  '선택 방식 배열은 굴림마다 독립적이어야 합니다.');
+assert(repeatedModeSets > 0, '동일한 선택 방식이 여러 굴림에 있는 검증 자료가 필요합니다.');
 assert(Buffer.byteLength(distributedSource, 'utf8') <= 1600000,
   '10번 임베드 데이터가 다시 비대해졌습니다: ' + Buffer.byteLength(distributedSource, 'utf8') + ' bytes');
 
@@ -122,6 +148,7 @@ const sent = [];
 const events = {};
 const sheetFieldDefaults = {};
 const getAttrByNameCalls = [];
+const characterFindCalls = [];
 const players = {
   gm: roll20Object('gm', { _displayname: '테스터 GM', speakingas: 'player|gm' }),
   'player-1': roll20Object('player-1', {
@@ -164,8 +191,10 @@ const runtime = {
       return attributeObjects.filter((item) =>
         !characterId || item.get('_characterid') === characterId).slice().reverse();
     }
-    if (query._type === 'character' || query.type === 'character')
+    if (query._type === 'character' || query.type === 'character') {
+      characterFindCalls.push({ ...query });
       return characters.slice();
+    }
     if (query._type === 'handout' || query.type === 'handout')
       return created.filter((item) =>
         item.get('_type') === 'handout' && (!query.name || item.get('name') === query.name));
@@ -275,7 +304,11 @@ Object.assign(fixtureValues, {
   free_expression: '1d6',
   repeating_skill_rowOne_item_name: '사용자 항목',
   repeating_skill_rowOne_item_value: '55',
-  _reporder_repeating_skill: 'rowOne',
+  repeating_skill_rowTwo_item_name: '두 번째 항목',
+  repeating_skill_rowTwo_item_value: '44',
+  repeating_skill_rowAlpha_item_name: '추가 항목',
+  repeating_skill_rowAlpha_item_value: '33',
+  _reporder_repeating_skill: 'rowTwo,rowOne,rowTwo,missing',
 });
 const fixtureCharacter = addCharacter(
   'generic-character',
@@ -298,8 +331,57 @@ let rolls = helper.contractRolls(fixtureCharacter.id);
 assert(rolls.some((item) => item.label === '정밀 관찰'));
 assert(rolls.some((item) => item.label === '사용자 항목'),
   '사용자가 추가한 반복 항목을 원본 굴림으로 찾지 못했습니다.');
+const repeatingRollKey = fixture.rolls.find((roll) => roll.repeating).key;
+assert.strictEqual(JSON.stringify(rolls
+  .filter((item) => item.roll.key === repeatingRollKey)
+  .map((item) => ({
+    key: item.key,
+    label: item.label,
+    rowId: item.row.id,
+    value: item.row.values.item_value,
+    ref: item.row.refs.item_value,
+  }))), JSON.stringify([
+  {
+    key: repeatingRollKey + '@rowTwo', label: '두 번째 항목', rowId: 'rowTwo', value: '44',
+    ref: 'repeating_skill_rowTwo_item_value',
+  },
+  {
+    key: repeatingRollKey + '@rowOne', label: '사용자 항목', rowId: 'rowOne', value: '55',
+    ref: 'repeating_skill_rowOne_item_value',
+  },
+  {
+    key: repeatingRollKey + '@rowTwo', label: '두 번째 항목', rowId: 'rowTwo', value: '44',
+    ref: 'repeating_skill_rowTwo_item_value',
+  },
+  {
+    key: repeatingRollKey + '@rowAlpha', label: '추가 항목', rowId: 'rowAlpha', value: '33',
+    ref: 'repeating_skill_rowAlpha_item_value',
+  },
+]), '반복행 정렬은 원본 _reporder의 순서·중복을 보존하고 유령 행만 제외해야 합니다.');
 assert(!rolls.some((item) => /^(?:HP|MP|메모)$/i.test(item.label)),
   '굴림이 아닌 수치나 메모를 굴림 항목으로 만들면 안 됩니다.');
+
+const speakingStatus = runApi('!!상태', '범용 탐사자', 'player-1');
+const fallbackFindsBefore = characterFindCalls.length;
+const fallbackStatus = runApi('!!상태', '테스터', 'player-1');
+assert.deepStrictEqual(fallbackStatus, speakingStatus,
+  '화자 이름 매칭과 권한 기반 매칭의 출력이 달라지면 안 됩니다.');
+assert.strictEqual(characterFindCalls.length - fallbackFindsBefore, 1,
+  '한 명령에서 캐릭터 전체 목록을 중복 조회하면 안 됩니다.');
+
+const blockedAttributeStart = attributeObjects.length;
+const blockedCharacter = addCharacter('blocked-character', '권한 없는 캐릭터', 'other-player', fixtureValues);
+const blockedMessages = runApi(
+  '!시트 굴림목록|blocked-character|' + encodeURIComponent('정밀 관찰') + '|0',
+  '테스터',
+  'player-1',
+);
+assert.strictEqual(blockedMessages.length, 1);
+assert.strictEqual(blockedMessages[0].content,
+  '/w "테스터" 이 캐릭터를 조작할 권한이 없습니다.',
+  '명시적 캐릭터 선택의 권한 오류 문구가 바뀌면 안 됩니다.');
+characters.splice(characters.indexOf(blockedCharacter), 1);
+attributeObjects.splice(blockedAttributeStart);
 
 const normal = helper.resolveContractAction(fixtureCharacter, '정밀 관찰', false);
 assert(normal.handled && normal.result.ok);
@@ -488,7 +570,7 @@ Object.entries(actualSheet.controls || {}).forEach(([name, control]) => {
   if (control && Object.prototype.hasOwnProperty.call(control, 'default'))
     sparseDefaults[name] = control.default === null ? '' : String(control.default);
 });
-const sparseCharacter = addCharacter('sparse-sheet-character', 'Itoskait Preh', 'player-1', {
+const sparseCharacter = addCharacter('sparse-sheet-character', '테스트 조사원', 'player-1', {
   ori_other_skills: '0',
   language_own: '50',
 });

@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { parseSheetContract } = require('../public/assets/sheet-contract-parser');
+const { parseSheetContract } = require('./sheet-contract-parser');
 const { readSheetSourceInputs } = require('./build-sheet-contract');
 
 const target = path.resolve(__dirname, '../public/scripts/10_sheet_helper.js');
@@ -45,7 +45,7 @@ function render(sheets) {
   const json = JSON.stringify(sheets.map(packModes))
     .replace(/</g, '\\u003c')
     .replace(/[\u2028\u2029]/g, (character) => `\\u${character.charCodeAt(0).toString(16)}`);
-  return `${start}\n(function () {\n  var embedded = ${json};\n  embedded.forEach(function (sheet) {\n    var modeSets = sheet.modeSets || [];\n    (sheet.rolls || []).forEach(function (roll) {\n      roll.modes = roll.m === undefined ? [] : JSON.parse(JSON.stringify(modeSets[roll.m]));\n      delete roll.m;\n    });\n    delete sheet.modeSets;\n    if (!KIBSheetContracts.some(function (current) { return current && current.id === sheet.id; }))\n      KIBSheetContracts.push(sheet);\n  });\n}());\n${end}`;
+  return `${start}\n(function () {\n  var embedded = ${json};\n  embedded.forEach(function (sheet) {\n    var modeSets = sheet.modeSets || [];\n    var serializedModes = modeSets.map(JSON.stringify);\n    (sheet.rolls || []).forEach(function (roll) {\n      roll.modes = roll.m === undefined ? [] : JSON.parse(serializedModes[roll.m]);\n      delete roll.m;\n    });\n    delete sheet.modeSets;\n    if (!KIBSheetContracts.some(function (current) { return current && current.id === sheet.id; }))\n      KIBSheetContracts.push(sheet);\n  });\n}());\n${end}`;
 }
 
 function embed(entries) {

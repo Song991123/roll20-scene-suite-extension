@@ -83,7 +83,9 @@ KIBScene.adapters = KIBScene.adapters || {};
     'change:macro:action',
     'destroy:macro',
   ].forEach(function (eventName) {
-    on(eventName, scheduleMacroOnly);
+    on(eventName, function (macro, prev) {
+      if (isTargetMacro(macro, prev)) scheduleMacroOnly();
+    });
   });
 
   function initState() {
@@ -453,15 +455,19 @@ KIBScene.adapters = KIBScene.adapters || {};
     function apply(currentNotes) {
       if (handled) return;
       handled = true;
-      var updates = {
+      var values = {
         name: SETTING.managerName,
         inplayerjournals: '',
         controlledby: '',
         archived: false,
       };
+      var updates = {};
+      Object.keys(values).forEach(function (key) {
+        if (manager.get(key) !== values[key]) updates[key] = values[key];
+      });
       if (String(currentNotes == null ? '' : currentNotes) !== notes)
         updates.notes = notes;
-      manager.set(updates);
+      if (Object.keys(updates).length) manager.set(updates);
     }
     var direct = manager.get('notes', apply);
     if (typeof direct === 'string') apply(direct);
@@ -533,7 +539,8 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function managerHtml() {
     var store = state.KIBSceneHandout;
-    var characters = all('character')
+    var allCharacters = all('character');
+    var characters = allCharacters
       .filter(function (character) {
         return csv(character.get('controlledby')).length > 0;
       })
@@ -559,7 +566,10 @@ KIBScene.adapters = KIBScene.adapters || {};
     var rows = handouts.length
       ? handouts
           .map(function (handout) {
-            var view = permissionNames(handout.get('inplayerjournals'));
+            var view = permissionNames(
+              handout.get('inplayerjournals'),
+              allCharacters,
+            );
             var cutin = KIBScene.adapters && KIBScene.adapters.cutin;
             var cutinControls =
               cutin && typeof cutin.handoutControls === 'function'
@@ -661,6 +671,14 @@ KIBScene.adapters = KIBScene.adapters || {};
     return value.indexOf(SETTING.command + ' 매크로|') === 0;
   }
 
+  function isTargetMacro(macro, prev) {
+    var key = normalizeMacroName(SETTING.macroName);
+    return (
+      (macro && normalizeMacroName(macro.get('name')) === key) ||
+      (prev && normalizeMacroName(prev.name) === key)
+    );
+  }
+
   function validateMacroTemplate(value) {
     var template = String(value || '');
     if (!/^\s*\/desc\b/i.test(template))
@@ -719,12 +737,12 @@ KIBScene.adapters = KIBScene.adapters || {};
       .filter(Boolean);
   }
 
-  function permissionNames(value) {
+  function permissionNames(value, characters) {
     var ids = csv(value);
     if (!ids.length) return '없음';
     if (ids.indexOf('all') >= 0) return '전원';
     var names = [];
-    all('character').forEach(function (character) {
+    (characters || all('character')).forEach(function (character) {
       var controllers = csv(character.get('controlledby'));
       if (
         !ids.some(function (id) {

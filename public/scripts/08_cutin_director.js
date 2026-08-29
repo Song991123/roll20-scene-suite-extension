@@ -80,15 +80,11 @@ KIBScene.adapters = KIBScene.adapters || {};
     }
   });
 
-  [
-    'add:card',
-    'change:card',
-    'destroy:card',
-    'add:deck',
-    'change:deck',
-    'destroy:deck',
-  ].forEach(function (eventName) {
-    on(eventName, scheduleRefresh);
+  ['add:card', 'change:card', 'destroy:card'].forEach(function (eventName) {
+    on(eventName, scheduleRefreshForCard);
+  });
+  ['add:deck', 'change:deck', 'destroy:deck'].forEach(function (eventName) {
+    on(eventName, scheduleRefreshForDeck);
   });
   on('destroy:handout', function (handout) {
     initState();
@@ -686,6 +682,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     });
     var characters = Array.from(layout.text);
     var shown = 0;
+    var rendered = '';
     var speed =
       typeof KIBScene.get === 'function'
         ? Number(KIBScene.get('timing.typeSpeed', 45))
@@ -695,7 +692,8 @@ KIBScene.adapters = KIBScene.adapters || {};
         if (activeCaptionInterval !== intervalId || !getObj('text', caption.id))
           return;
         shown++;
-        caption.set('text', characters.slice(0, shown).join(''));
+        rendered += characters[shown - 1];
+        caption.set('text', rendered);
         if (shown >= characters.length) {
           clearInterval(intervalId);
           if (activeCaptionInterval === intervalId)
@@ -1862,9 +1860,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       });
   }
 
-  function updateMacro() {
-    initState();
-    pruneState();
+  function cutinDeckSnapshot() {
     var decks = findObjs({ _type: 'deck', name: SETTING.deckName }) || [];
     var cards =
       decks.length === 1
@@ -1874,6 +1870,16 @@ KIBScene.adapters = KIBScene.adapters || {};
             })
             .sort(byName)
         : [];
+    return { decks: decks, cards: cards };
+  }
+
+  function updateMacro(snapshot) {
+    if (!snapshot) {
+      initState();
+      pruneState();
+      snapshot = cutinDeckSnapshot();
+    }
+    var cards = snapshot.cards;
     var playTarget =
       cards.length === 1
         ? 'id:' + cards[0].id
@@ -1931,7 +1937,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     return cards.length;
   }
 
-  function refreshManager() {
+  function refreshManager(snapshot) {
     initState();
     var managers =
       findObjs({ _type: 'handout', name: SETTING.managerName }) || [];
@@ -1959,7 +1965,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       '<div style="padding:12px;background:#111;color:#fff"><b style="font-size:18px">🎬 컷인 관리</b></div>' +
       captionManagerHtml() +
       sheetManagerHtml() +
-      cardManagerHtml() +
+      cardManagerHtml(snapshot) +
       '</div>';
     var handled = false;
     function apply(currentNotes) {
@@ -2027,17 +2033,11 @@ KIBScene.adapters = KIBScene.adapters || {};
       : '';
   }
 
-  function cardManagerHtml() {
+  function cardManagerHtml(snapshot) {
     initState();
-    var decks = findObjs({ _type: 'deck', name: SETTING.deckName }) || [];
-    var cards =
-      decks.length === 1
-        ? (findObjs({ _type: 'card', _deckid: decks[0].id }) || [])
-            .filter(function (card) {
-              return !!cleanImageUrl(card.get('avatar'));
-            })
-            .sort(byName)
-        : [];
+    snapshot = snapshot || cutinDeckSnapshot();
+    var decks = snapshot.decks;
+    var cards = snapshot.cards;
     var availableSheetItems = cards.length ? sheetItems() : [];
     var groups = {};
     cards.forEach(function (card) {
@@ -2227,11 +2227,36 @@ KIBScene.adapters = KIBScene.adapters || {};
     }, 100);
   }
 
+  function scheduleRefreshForCard(obj, prev) {
+    var ids = [obj && obj.get('_deckid'), prev && prev._deckid].filter(Boolean);
+    if (
+      ids.some(function (id) {
+        var deck = getObj('deck', id);
+        return deck && deck.get('name') == SETTING.deckName;
+      })
+    )
+      scheduleRefresh();
+  }
+
+  function scheduleRefreshForDeck(obj, prev) {
+    if (
+      (obj && obj.get('name') == SETTING.deckName) ||
+      (prev && prev.name == SETTING.deckName)
+    )
+      scheduleRefresh();
+  }
+
   function cutinRefreshSafe(includeMacro) {
     try {
-      if (includeMacro) updateMacro();
+      var snapshot = null;
+      if (includeMacro) {
+        initState();
+        pruneState();
+        snapshot = cutinDeckSnapshot();
+        updateMacro(snapshot);
+      }
       refreshHelp();
-      refreshManager();
+      refreshManager(snapshot);
     } catch (err) {
       whisper(
         '<b>컷인 관리 갱신 오류</b><br><code>cutin</code> 덱을 확인해 주세요.<br><span style="font-size:11px">오류: ' +

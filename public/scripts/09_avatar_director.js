@@ -86,11 +86,15 @@ function avCharacter(reference) {
   );
 }
 
-function avCards(character) {
-  var deck = avDeck();
-  if (!deck || !character) return [];
+function avCards(character, deckCards) {
+  if (!character) return [];
+  if (!Array.isArray(deckCards)) {
+    var deck = avDeck();
+    if (!deck) return [];
+    deckCards = findObjs({ _type: 'card', _deckid: deck.id }) || [];
+  }
   var base = String(character.get('name') || '').trim();
-  return (findObjs({ _type: 'card', _deckid: deck.id }) || [])
+  return deckCards
     .filter(function (card) {
       var name = String(card.get('name') || '');
       return (
@@ -106,10 +110,10 @@ function avCards(character) {
     });
 }
 
-function avCardBelongs(card, character) {
+function avCardBelongs(card, character, cards) {
   return (
     !!card &&
-    avCards(character).some(function (item) {
+    (Array.isArray(cards) ? cards : avCards(character)).some(function (item) {
       return item.id == card.id;
     })
   );
@@ -136,11 +140,11 @@ function avExpressionCard(character, expression, cardId) {
   );
 }
 
-function avSelectedCard(character) {
+function avSelectedCard(character, cards) {
   var data = avInitState();
   var selected = getObj('card', data.selectedCards[character.id]);
-  if (selected && avCardBelongs(selected, character)) return selected;
-  var cards = avCards(character);
+  cards = Array.isArray(cards) ? cards : avCards(character);
+  if (selected && avCardBelongs(selected, character, cards)) return selected;
   return cards[0] || null;
 }
 
@@ -665,9 +669,14 @@ function avRefreshSafe() {
 function avRefreshHandouts() {
   if (typeof createObj !== 'function') return;
   var data = avInitState();
+  var characters = avCharacters();
+  var deck = avDeck();
+  var deckCards = deck
+    ? findObjs({ _type: 'card', _deckid: deck.id }) || []
+    : [];
   var active = {};
-  avCharacters().forEach(function (character) {
-    var cards = avCards(character);
+  characters.forEach(function (character) {
+    var cards = avCards(character, deckCards);
     if (!cards.length) return;
     active[character.id] = true;
     if (avIsExcluded(character))
@@ -684,7 +693,7 @@ function avRefreshHandouts() {
         archived: false,
       });
     data.expressionHandouts[character.id] = handout.id;
-    var selected = avSelectedCard(character);
+    var selected = avSelectedCard(character, cards);
     var cells = cards
       .map(function (card) {
         var expression = avExpressionName(card, character);
@@ -706,7 +715,7 @@ function avRefreshHandouts() {
         );
       })
       .join('');
-    handout.set({
+    avSetChanged(handout, {
       name: name,
       avatar: selected ? selected.get('avatar') : '',
       inplayerjournals: String(character.get('controlledby') || ''),
@@ -725,7 +734,7 @@ function avRefreshHandouts() {
   Object.keys(data.expressionHandouts).forEach(function (characterId) {
     if (!active[characterId]) avArchiveExpressionHandout(characterId);
   });
-  return avRefreshManagementHandout();
+  return avRefreshManagementHandout(characters, deckCards);
 }
 
 function avArchiveExpressionHandout(characterId) {
@@ -734,11 +743,22 @@ function avArchiveExpressionHandout(characterId) {
     avInitState().expressionHandouts[characterId],
   );
   if (handout)
-    handout.set({ archived: true, inplayerjournals: '', controlledby: '' });
+    avSetChanged(handout, {
+      archived: true,
+      inplayerjournals: '',
+      controlledby: '',
+    });
 }
 
-function avRefreshManagementHandout() {
+function avRefreshManagementHandout(characters, deckCards) {
   var data = avInitState();
+  characters = Array.isArray(characters) ? characters : avCharacters();
+  if (!Array.isArray(deckCards)) {
+    var deck = avDeck();
+    deckCards = deck
+      ? findObjs({ _type: 'card', _deckid: deck.id }) || []
+      : [];
+  }
   var handout =
     getObj('handout', data.managementHandoutId) ||
     (findObjs({
@@ -756,9 +776,9 @@ function avRefreshManagementHandout() {
   data.managementHandoutId = handout.id;
   var defaults = avTargetButtons('기본', data.defaults);
   var rows =
-    avCharacters()
+    characters
       .filter(function (character) {
-        return avCards(character).length > 0;
+        return avCards(character, deckCards).length > 0;
       })
       .map(function (character) {
         var excluded = avIsExcluded(character);
@@ -790,7 +810,7 @@ function avRefreshManagementHandout() {
         );
       })
       .join('') || '<div style="margin-top:10px;padding:12px;background:#f3f3f3;border-left:4px solid #111">avatars 덱에 등록된 캐릭터가 없습니다.</div>';
-  handout.set({
+  avSetChanged(handout, {
     name: avatar_setting.management_handout_name,
     inplayerjournals: '',
     controlledby: '',
@@ -851,6 +871,14 @@ function avGraphicImage(url) {
     /\/(?:med|max|original)(\.[^/?]+)(\?.*)?$/i,
     '/thumb$1$2',
   );
+}
+
+function avSetChanged(object, values) {
+  var updates = {};
+  Object.keys(values).forEach(function (key) {
+    if (object.get(key) !== values[key]) updates[key] = values[key];
+  });
+  if (Object.keys(updates).length) object.set(updates);
 }
 
 function avEscape(value) {
@@ -981,16 +1009,19 @@ function avManagerOpenHtml(handout) {
   );
 }
 
-function avRelevantCard(obj) {
-  var deck = avDeck();
-  return !!deck && !!obj && obj.get('_deckid') == deck.id;
+function avRelevantCard(obj, prev) {
+  var ids = [obj && obj.get('_deckid'), prev && prev._deckid].filter(Boolean);
+  return ids.some(function (id) {
+    var deck = getObj('deck', id);
+    return deck && deck.get('name') == avatar_setting.deck_name;
+  });
 }
 
 on('add:card', function (obj) {
   if (avRelevantCard(obj)) avScheduleRefresh();
 });
-on('change:card', function (obj) {
-  if (avRelevantCard(obj)) avScheduleRefresh();
+on('change:card', function (obj, prev) {
+  if (avRelevantCard(obj, prev)) avScheduleRefresh();
 });
 on('destroy:card', function (obj) {
   if (avRelevantCard(obj)) avScheduleRefresh();

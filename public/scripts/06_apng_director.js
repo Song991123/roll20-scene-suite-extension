@@ -93,15 +93,11 @@ KIBScene.adapters = KIBScene.adapters || {};
     }
   });
 
-  [
-    'add:card',
-    'change:card',
-    'destroy:card',
-    'add:deck',
-    'change:deck',
-    'destroy:deck',
-  ].forEach(function (eventName) {
-    on(eventName, scheduleMacro);
+  ['add:card', 'change:card', 'destroy:card'].forEach(function (eventName) {
+    on(eventName, scheduleMacroForCard);
+  });
+  ['add:deck', 'change:deck', 'destroy:deck'].forEach(function (eventName) {
+    on(eventName, scheduleMacroForDeck);
   });
   on('destroy:jukeboxtrack', function (obj) {
     initState();
@@ -824,7 +820,12 @@ KIBScene.adapters = KIBScene.adapters || {};
     };
     if (macros.length) {
       var keeper = macros[0];
-      keeper.set(options);
+      if (
+        keeper.get('name') != options.name ||
+        keeper.get('action') != options.action ||
+        keeper.get('visibleto') != options.visibleto
+      )
+        keeper.set(options);
       macros.forEach(function (macro) {
         if (macro.id != keeper.id) macro.remove();
       });
@@ -841,6 +842,25 @@ KIBScene.adapters = KIBScene.adapters || {};
       macroTimer = null;
       apngRefreshSafe();
     }, 100);
+  }
+
+  function scheduleMacroForCard(obj, prev) {
+    var ids = [obj && obj.get('_deckid'), prev && prev._deckid].filter(Boolean);
+    if (
+      ids.some(function (id) {
+        var deck = getObj('deck', id);
+        return deck && deck.get('name') == SETTING.DECK_NAME;
+      })
+    )
+      scheduleMacro();
+  }
+
+  function scheduleMacroForDeck(obj, prev) {
+    if (
+      (obj && obj.get('name') == SETTING.DECK_NAME) ||
+      (prev && prev.name == SETTING.DECK_NAME)
+    )
+      scheduleMacro();
   }
 
   function apngRefreshSafe() {

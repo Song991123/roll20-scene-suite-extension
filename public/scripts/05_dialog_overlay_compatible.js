@@ -372,6 +372,8 @@ KIBScene.adapters = KIBScene.adapters || {};
     }, 100);
 
     var i = 0;
+    var wrappedText = '';
+    var lineLength = 0;
     activeInterval = setInterval(
       function () {
         i++;
@@ -380,12 +382,21 @@ KIBScene.adapters = KIBScene.adapters || {};
           return;
         }
 
-        bodyText.set({
-          text: wrapText(fullText.slice(0, i), SETTING.MAX_CHARS_PER_LINE),
-          font_size: SETTING.TEXT_SIZE,
-          color: SETTING.TEXT_COLOR,
-          font_family: SETTING.FONT_FAMILY,
-        });
+        var character = fullText.charAt(i - 1);
+        wrappedText += character;
+        if (character === '\n') lineLength = 0;
+        else if (++lineLength >= SETTING.MAX_CHARS_PER_LINE) {
+          wrappedText += '\n';
+          lineLength = 0;
+        }
+        var updates = { text: wrappedText };
+        if (bodyText.get('font_size') != SETTING.TEXT_SIZE)
+          updates.font_size = SETTING.TEXT_SIZE;
+        if (bodyText.get('color') != SETTING.TEXT_COLOR)
+          updates.color = SETTING.TEXT_COLOR;
+        if (bodyText.get('font_family') != SETTING.FONT_FAMILY)
+          updates.font_family = SETTING.FONT_FAMILY;
+        bodyText.set(updates);
 
         safeToFront(box);
         safeToFront(bodyText);
@@ -637,26 +648,6 @@ KIBScene.adapters = KIBScene.adapters || {};
       .replace(/___([^_]+)___/g, '$1')
       .replace(/__([^_]+)__/g, '$1')
       .replace(/_([^_]+)_/g, '$1');
-  }
-
-  function wrapText(text, maxChars) {
-    var result = '';
-    var lineLength = 0;
-    for (var i = 0; i < text.length; i++) {
-      var ch = text.charAt(i);
-      if (ch === '\n') {
-        result += ch;
-        lineLength = 0;
-        continue;
-      }
-      result += ch;
-      lineLength++;
-      if (lineLength >= maxChars) {
-        result += '\n';
-        lineLength = 0;
-      }
-    }
-    return result;
   }
 
   function statusHtml() {

@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const vm = require('vm');
-const { parseSheetContract } = require('../public/assets/sheet-contract-parser');
+const { parseSheetContract } = require('./sheet-contract-parser');
 const { buildSheetContract, readTranslationInputs } = require('./build-sheet-contract');
 const { readSheet, render } = require('./embed-sheet-recognition');
 
@@ -81,8 +81,16 @@ vm.runInNewContext(render([{ id: 'shared-modes', rolls: [
 ] }]), sharedModeRuntime);
 const sharedModeRolls = sharedModeRuntime.KIBSheetContracts[0].rolls;
 assert.notStrictEqual(sharedModeRolls[0].modes, sharedModeRolls[1].modes);
-assert.notStrictEqual(sharedModeRolls[0].modes[0], sharedModeRolls[1].modes[0],
-  '같은 선택 방식 묶음을 쓰는 굴림도 실행 중에는 서로 독립적이어야 합니다.');
+assert.notStrictEqual(sharedModeRolls[0].modes[0], sharedModeRolls[1].modes[0]);
+assert(!Object.isFrozen(sharedModeRolls[0].modes));
+assert(!Object.isFrozen(sharedModeRolls[0].modes[0]));
+assert(!Object.isFrozen(sharedModeRolls[0].modes[0].overrides));
+sharedModeRolls[0].modes[0].overrides.mode = 'changed';
+assert.strictEqual(sharedModeRolls[1].modes[0].overrides.mode, 'normal',
+  '한 굴림의 선택 방식 변경이 다른 굴림을 오염시키면 안 됩니다.');
+sharedModeRolls[0].modes.push({ overrides: { mode: 'extra' } });
+assert.strictEqual(sharedModeRolls[1].modes.length, 1,
+  '한 굴림의 선택 방식 추가가 다른 굴림을 오염시키면 안 됩니다.');
 
 assert.strictEqual(contract.version, 1);
 assert.strictEqual(contract.id, 'fixture');

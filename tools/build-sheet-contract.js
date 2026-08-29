@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { parseSheetContract } = require('../public/assets/sheet-contract-parser');
+const { parseSheetContract } = require('./sheet-contract-parser');
 
 function translationManifestName(file, isDefault) {
   const basename = path.basename(file);

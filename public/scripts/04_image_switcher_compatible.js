@@ -50,21 +50,16 @@ on('ready', function () {
       KIBScene.handlers.image = adapter.cue;
     }
   }
-  on('add:card', function (obj) {
-    isUpdateMacroSafe(obj);
-  });
+  on('add:card', isRefreshForCard);
 });
 on('destroy:deck', function (obj) {
+  if (!isDeckName(obj && obj.get('name'))) return;
   setTimeout(function () {
     isUpdateMacroSafe();
   }, 100);
 });
-on('change:card', function (obj, prev) {
-  isUpdateMacroSafe(obj);
-});
-on('destroy:card', function (obj) {
-  isUpdateMacroSafe(obj);
-});
+on('change:card', isRefreshForCard);
+on('destroy:card', isRefreshForCard);
 
 on('chat:message', function (msg) {
   if (msg.type == 'api') {
@@ -326,6 +321,21 @@ function isUpdateMacroSafe(obj) {
       err,
     );
   }
+}
+
+function isDeckName(name) {
+  return String(name || '').indexOf(is_setting.keyword) === 0;
+}
+
+function isRefreshForCard(obj, prev) {
+  var ids = [obj && obj.get('_deckid'), prev && prev._deckid].filter(Boolean);
+  if (
+    ids.some(function (id) {
+      var deck = getObj('deck', id);
+      return deck && isDeckName(deck.get('name'));
+    })
+  )
+    isUpdateMacroSafe(obj);
 }
 
 function isProblem(problem, fix, err) {

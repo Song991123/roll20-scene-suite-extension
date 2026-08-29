@@ -739,7 +739,14 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (!owner) return;
     var macros = findObjs({ _type: 'macro', name: name }) || [];
     var options = { name: name, action: action, visibleto: gmIds.join(',') };
-    if (macros.length) macros[0].set(options);
+    if (macros.length) {
+      if (
+        macros[0].get('name') != options.name ||
+        macros[0].get('action') != options.action ||
+        macros[0].get('visibleto') != options.visibleto
+      )
+        macros[0].set(options);
+    }
     else {
       options.playerid = owner;
       createObj('macro', options);

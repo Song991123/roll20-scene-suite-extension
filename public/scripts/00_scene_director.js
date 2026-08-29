@@ -779,7 +779,7 @@ var KIBScene = KIBScene || {};
       commandRow('!@', '기본 표정으로 변경') +
       (hasPlugin('narrator')
         ? commandRow(
-            '!... /desc 지문 @박정선:불안 @박정수:기본',
+            '!... /desc 지문 @인물A:불안 @인물B:기본',
             '한 줄에서 여러 캐릭터 표정 변경',
           )
         : '') +
