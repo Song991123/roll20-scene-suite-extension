@@ -86,6 +86,15 @@ new Function(scriptText);
 execFileSync(process.execPath, [path.join(root, 'tools', 'check-sheet-contract.js')], {
   stdio: 'inherit',
 });
+execFileSync(process.execPath, [path.join(root, 'tools', 'check-sheet-room-recognition.js')], {
+  stdio: 'inherit',
+});
+execFileSync(process.execPath, [path.join(root, 'tools', 'check-sheet-helper.js')], {
+  stdio: 'inherit',
+});
+execFileSync(process.execPath, [path.join(root, 'tools', 'check-sheet-cutin.js')], {
+  stdio: 'inherit',
+});
 execFileSync(process.execPath, [path.join(root, 'tools', 'check-handout-cutin-optimization.js')], {
   stdio: 'inherit',
 });

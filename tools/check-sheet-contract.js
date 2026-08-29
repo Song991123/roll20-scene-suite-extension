@@ -133,6 +133,21 @@ sharedModeRolls[0].modes.push({ overrides: { mode: 'extra' } });
 assert.strictEqual(sharedModeRolls[1].modes.length, 1,
   '한 굴림의 선택 방식 추가가 다른 굴림을 오염시키면 안 됩니다.');
 
+const packedRollVisibilityRuntime = { KIBSheetContracts: [] };
+const packedRollVisibility = { any: [{ name: 'display_mode', op: 'eq', value: 'detail', scope: 'global' }] };
+vm.runInNewContext(render([{ id: 'shared-roll-visibility', rolls: [
+  { key: 'first', modes: [], visibility: packedRollVisibility },
+  { key: 'second', modes: [], visibility: packedRollVisibility },
+  { key: 'third', modes: [] },
+] }]), packedRollVisibilityRuntime);
+const restoredRollVisibilitySheet = packedRollVisibilityRuntime.KIBSheetContracts[0];
+assert(!Object.prototype.hasOwnProperty.call(restoredRollVisibilitySheet, 'rollVisibilitySets'));
+assert.strictEqual(JSON.stringify(restoredRollVisibilitySheet.rolls.map((roll) => roll.visibility || null)),
+  JSON.stringify([packedRollVisibility, packedRollVisibility, null]),
+  '압축한 굴림 표시 조건을 원래 순서와 값으로 복원해야 합니다.');
+assert.strictEqual(restoredRollVisibilitySheet.rolls[0].visibility, restoredRollVisibilitySheet.rolls[1].visibility,
+  '같은 굴림 표시 조건은 중복 생성하지 않아야 합니다.');
+
 const packedVisibilityRuntime = { KIBSheetContracts: [] };
 const packedVisibility = { not: { name: 'temporary_mode', op: 'eq', value: 'on', scope: 'global' } };
 vm.runInNewContext(render([{

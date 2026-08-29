@@ -17,7 +17,7 @@ const PUBLIC_TEXT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json', '.md', 
 
 function usage() {
   return [
-    'Usage: node tools/benchmark.js [--ref <git-ref>]',
+    'Usage: node tools/benchmark.js [--ref <git-ref>] [--recognition-only|--rows-only]',
     '',
     `Compares public/scripts at a Git ref (default: ${DEFAULT_REF}) with the worktree.`,
   ].join('\n');
@@ -25,9 +25,19 @@ function usage() {
 
 function parseArgs(argv) {
   let ref = DEFAULT_REF;
+  let recognitionOnly = false;
+  let rowsOnly = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === '--help' || arg === '-h') return { help: true, ref };
+    if (arg === '--help' || arg === '-h') return { help: true, ref, recognitionOnly, rowsOnly };
+    if (arg === '--recognition-only') {
+      recognitionOnly = true;
+      continue;
+    }
+    if (arg === '--rows-only') {
+      rowsOnly = true;
+      continue;
+    }
     if (arg === '--ref') {
       assert(argv[index + 1], '--ref requires a Git ref.');
       ref = argv[index + 1];
@@ -36,7 +46,8 @@ function parseArgs(argv) {
     }
     throw new Error(`Unknown argument: ${arg}`);
   }
-  return { help: false, ref };
+  assert(!(recognitionOnly && rowsOnly), 'Choose one focused benchmark.');
+  return { help: false, ref, recognitionOnly, rowsOnly };
 }
 
 function git(args) {
@@ -298,6 +309,7 @@ function recognitionExecutionShape(contracts) {
         repeating: roll.repeating,
         controls: roll.controls,
         modes: roll.modes,
+        visibility: roll.visibility,
         staticLabels: roll.staticLabels,
         labelRefs: roll.labelRefs,
         expressionRefs: roll.expressionRefs,
@@ -1301,7 +1313,7 @@ function consumeRows(rows) {
   return checksum;
 }
 
-function benchmarkSheetInternals(baselineSource, candidateSource) {
+function benchmarkSheetInternals(baselineSource, candidateSource, rowsOnly) {
   assert(
     baselineSource.includes('if (ordered.indexOf(rowId) < 0) ordered.push(rowId);'),
     'Baseline 10 indexOf row membership was not found.',
@@ -1364,6 +1376,7 @@ function benchmarkSheetInternals(baselineSource, candidateSource) {
     return { length: rowCount, ...timing };
   });
   printGrowth('10 collectRows', results);
+  if (rowsOnly) return;
 
   const characters = [
     sheetCharacter('character-1', '가'),
@@ -1428,6 +1441,24 @@ function main() {
   const names = scriptNames();
   const baseline = readSources(names, commit);
   const candidate = readSources(names, null);
+  if (options.recognitionOnly) {
+    const sheetName = names.find((name) => name.startsWith('10_'));
+    console.log(`Baseline: ${options.ref} (${commit.slice(0, 12)})`);
+    console.log('Candidate: worktree');
+    printSizes([sheetName], baseline, candidate);
+    printRecognition(baseline[sheetName], candidate[sheetName]);
+    console.log('\nRecognition benchmark guards: PASS');
+    return;
+  }
+  if (options.rowsOnly) {
+    const sheetName = names.find((name) => name.startsWith('10_'));
+    console.log(`Baseline: ${options.ref} (${commit.slice(0, 12)})`);
+    console.log('Candidate: worktree');
+    printSizes([sheetName], baseline, candidate);
+    benchmarkSheetInternals(baseline[sheetName], candidate[sheetName], true);
+    console.log('\nRepeating-row benchmark guards: PASS');
+    return;
+  }
   const baselinePublicNames = gitPublicTextNames(commit);
   const candidatePublicNames = worktreePublicTextNames();
   const otherPublicNames = Array.from(

@@ -184,7 +184,6 @@ KIBScene.adapters = KIBScene.adapters || {};
         '<code>@컷인 핸드아웃|자료명|3초</code>',
         '<code>@컷인 URL|Roll20이미지주소|3초</code>',
         '<code>@컷인 중지</code>',
-        '<code>!컷인 시트연결목록</code>',
       ],
     };
     if (typeof KIBScene.register === 'function')
@@ -1588,8 +1587,12 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function validSheetRule(rule) {
     return !!rule && !Array.isArray(rule) && typeof rule === 'object' &&
-      trim(rule.itemKey) && trim(rule.outcome) && trim(rule.sourceKey) &&
-      isFinite(Number(rule.duration));
+      trim(rule.itemKey) && trim(rule.outcome) && trim(rule.sourceKey);
+  }
+
+  function sourceDuration(source) {
+    return (source && source.card && Number(state.KIBSceneCutin.durations[source.card.id])) ||
+      SETTING.defaultDuration;
   }
 
   function sheetChoiceQuery(label, choices) {
@@ -1618,8 +1621,8 @@ KIBScene.adapters = KIBScene.adapters || {};
   }
 
   function sheetBindButton(source, items) {
+    if (!KIBScene.adapters || !KIBScene.adapters.sheet || !source || !source.card) return '';
     var availableItems = sheetItems(items);
-    if (!source || !source.card) return '';
     var itemQuery = sheetChoiceQuery('판정 항목', availableItems.map(function (item) {
       return { label: item.displayLabel || item.label, value: item.key };
     }));
@@ -1629,13 +1632,13 @@ KIBScene.adapters = KIBScene.adapters || {};
     }));
     var controls = button(
       '판정 연결',
-      SETTING.command + ' 시트연결|*|' + outcomeQuery + '|' + safeQuery(source.key) + '|?{표시 시간|4초}',
+      SETTING.command + ' 시트연결|*|' + outcomeQuery + '|' + safeQuery(source.key),
       '#7654a8',
     );
     if (itemQuery)
       controls += ' ' + button(
         '특정 판정 연결',
-        SETTING.command + ' 시트연결|' + itemQuery + '|' + outcomeQuery + '|' + safeQuery(source.key) + '|?{표시 시간|4초}',
+        SETTING.command + ' 시트연결|' + itemQuery + '|' + outcomeQuery + '|' + safeQuery(source.key),
         '#53657d',
       );
     return controls;
@@ -1648,7 +1651,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       ? '판정 연결:<br>' + rules.map(function (rule) {
           return '<b>' + escapeHtml(rule.itemLabel || rule.itemKey) + '</b> / ' +
             escapeHtml(outcomes[rule.outcome] || rule.outcome) + ' / ' +
-            formatSeconds(rule.duration) + ' ' + sheetUnbindButton(rule);
+            formatSeconds(sourceDuration(source)) + ' ' + sheetUnbindButton(rule);
         }).join('<br>')
       : '판정 연결: 없음';
   }
@@ -1658,7 +1661,6 @@ KIBScene.adapters = KIBScene.adapters || {};
     var itemKey = trim(parts[0]);
     var outcome = trim(parts[1]).toLowerCase();
     var sourceKey = trim(parts[2]);
-    var duration = parseDuration(parts[3] || '4초');
     var item = itemKey === '*'
       ? { key: '*', label: '모든 판정' }
       : sheetItems().filter(function (candidate) { return candidate.key === itemKey; })[0];
@@ -1667,14 +1669,11 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (!outcomes[outcome]) return whisper('판정 결과를 확인해 주세요.');
     var source = sourceByKey(sourceKey);
     if (!source) return whisper('연결할 컷인 카드를 찾지 못했습니다.');
-    if (duration === null || duration < 100 || duration > 600000)
-      return whisper('표시 시간은 0.1초 이상 600초 이하로 입력해 주세요.');
     state.KIBSceneCutin.sheetRules[sheetRuleKey(itemKey, outcome)] = {
       itemKey: itemKey,
       itemLabel: item.displayLabel || item.label,
       outcome: outcome,
       sourceKey: source.key,
-      duration: duration,
     };
     refreshLinkedManagers();
     whisper('<b>' + escapeHtml(item.displayLabel || item.label) + '</b> ' + outcomes[outcome] + ' → ' + escapeHtml(sourceLabel(source)));
@@ -1729,8 +1728,8 @@ KIBScene.adapters = KIBScene.adapters || {};
       return { ok: true };
     }
     var args = source.handout
-      ? ['핸드아웃', 'id:' + source.handout.id, formatSeconds(rule.duration)]
-      : ['id:' + source.card.id, formatSeconds(rule.duration)];
+      ? ['핸드아웃', 'id:' + source.handout.id]
+      : ['id:' + source.card.id];
     var cutin = KIBScene.adapters && KIBScene.adapters.cutin;
     var shown = cutin && typeof cutin.cue === 'function'
       ? cutin.cue(args, { source: 'sheet', result: payload })
@@ -1747,7 +1746,8 @@ KIBScene.adapters = KIBScene.adapters || {};
       var source = sourceByKey(rule.sourceKey);
       return '<div style="margin-top:6px;padding:6px;border:1px solid #bbb"><b>' +
         escapeHtml(rule.itemLabel || rule.itemKey) + '</b> / ' + escapeHtml(outcomes[rule.outcome] || rule.outcome) +
-        '<br>' + escapeHtml(source ? sourceLabel(source) : '삭제된 컷인') + ' / ' + formatSeconds(rule.duration) + ' ' +
+        '<br>' + escapeHtml(source ? sourceLabel(source) : '삭제된 컷인') +
+        (source ? ' / ' + formatSeconds(sourceDuration(source)) : '') + ' ' +
         sheetUnbindButton(rule) +
         '</div>';
     }).join('');
@@ -1827,7 +1827,7 @@ KIBScene.adapters = KIBScene.adapters || {};
             })
             .join('') +
           '}';
-    var play = SETTING.command + ' 재생|' + playTarget + '|?{표시 시간|4초}';
+    var play = SETTING.command + ' 재생|' + playTarget;
     var action = cards.length
       ? '?{컷인 동작|재생,' +
         macroEscape(play) +
@@ -2049,7 +2049,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       metadata && metadata.width
         ? '있음 (' + metadata.width + '*' + metadata.height + ')'
         : '없음';
-    var play = SETTING.command + ' 재생|핸드아웃|' + handout.id + '|4초';
+    var play = SETTING.command + ' 재생|핸드아웃|' + handout.id;
     var sizeButton =
       SETTING.command +
       ' 핸드아웃크기|' +
@@ -2079,8 +2079,8 @@ KIBScene.adapters = KIBScene.adapters || {};
     var target = safeQuery(sourceLabel(source));
     var textRules = state.KIBSceneCutin.textRules[key] || [];
     var play = source.handout
-      ? SETTING.command + ' 재생|핸드아웃|' + target + '|4초'
-      : SETTING.command + ' 재생|' + target + '|4초';
+      ? SETTING.command + ' 재생|핸드아웃|' + target
+      : SETTING.command + ' 재생|' + target;
     var controls =
       button('재생', play, '#287a4b') +
       ' ' +
@@ -2132,6 +2132,9 @@ KIBScene.adapters = KIBScene.adapters || {};
   function compactRuleStatus(source) {
     var trackId = source.card && state.KIBSceneCutin.audioLinks[source.card.id];
     var track = trackId ? getObj('jukeboxtrack', trackId) : null;
+    var sheetStatus = KIBScene.adapters && KIBScene.adapters.sheet
+      ? '<br>' + compactSheetRuleStatus(source)
+      : '';
     return (
       ruleStatusBySource(source) +
       '<br>효과음: ' +
@@ -2140,7 +2143,7 @@ KIBScene.adapters = KIBScene.adapters || {};
         : trackId
           ? '(삭제된 음원)'
           : '없음') +
-      '<br>' + compactSheetRuleStatus(source)
+      sheetStatus
     );
   }
 

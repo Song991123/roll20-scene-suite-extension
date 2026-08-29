@@ -959,8 +959,8 @@ var KIBScene = KIBScene || {};
 
   function sheetHelpSection() {
     var setupItems = [
-      '화자를 사용할 캐릭터로 선택하거나 토큰 하나를 선택',
-      '<code>!!관리</code>에서 시트에서 인식한 굴림 확인',
+      '채팅창의 As에서 사용할 캐릭터를 선택',
+      '<code>!!관리</code>에서 캐릭터별 인식 항목과 현재 수치 현황 확인',
     ];
     if (hasPlugin('cutin')) setupItems.push('08 컷인에서 지원되는 판정 결과 또는 특정 항목에 컷인 연결');
     var setup = setupSteps(setupItems);
@@ -975,7 +975,6 @@ var KIBScene = KIBScene || {};
       commandRow('!!점검', 'GM용 시트 인식 점검') +
       commandRow('!!화자 이름', 'GM용 채팅 화자 전환') +
       commandRow('!!화자 본인', '캐릭터 화자를 해제하고 GM 오너 프로필로 복귀') +
-      commandRow('!!명령대상 이름', 'GM용 시트 명령 대상 변경') +
       commandRow('!!변화알림 공개|GM|끄기', '수치 변화 알림을 전체 공개, GM만, 또는 끄기로 설정') +
       commandRow('!!GM캐릭터알림 켜기|끄기', '플레이어 권한이 없는 GM 캐릭터도 변화 알림에 포함할지 설정');
     return moduleHelpSection(

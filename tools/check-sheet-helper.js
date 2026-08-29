@@ -237,6 +237,7 @@ const sheetFieldDefaults = {};
 const getAttrByNameCalls = [];
 const attributeFindCalls = [];
 const characterFindCalls = [];
+let roomCharacterIds = null;
 const players = {
   gm: roll20Object('gm', { _displayname: '테스터 GM', speakingas: 'player|gm' }),
   'player-1': roll20Object('player-1', {
@@ -279,11 +280,12 @@ const runtime = {
       attributeFindCalls.push({ ...query });
       const characterId = query._characterid || query.characterid;
       return attributeObjects.filter((item) =>
-        !characterId || item.get('_characterid') === characterId).slice().reverse();
+        characterId ? item.get('_characterid') === characterId :
+          !roomCharacterIds || roomCharacterIds.has(item.get('_characterid'))).slice().reverse();
     }
     if (query._type === 'character' || query.type === 'character') {
       characterFindCalls.push({ ...query });
-      return characters.slice();
+      return characters.filter((item) => !roomCharacterIds || roomCharacterIds.has(item.id));
     }
     if (query._type === 'handout' || query.type === 'handout')
       return created.filter((item) =>
@@ -342,6 +344,14 @@ assert.strictEqual(runtime.state.KIBSheetHelper.sheetSelections.preserved, 'keep
 events.ready();
 assert.strictEqual(runtime.state.KIBSheetHelper.trackingMode, 'gm',
   '구버전 비공개 변화 표시 설정을 업데이트 후 공개로 바꾸면 안 됩니다.');
+
+function useContracts(...contracts) {
+  runtime.KIBSheetContracts = contracts.slice();
+  if (contracts.length) helper.registerContract(contracts[0]);
+  else helper.refresh();
+}
+assert.strictEqual(runtime.state.KIBSheetHelper.trackGmOnly, false,
+  '새 설치에서 플레이어 권한이 없는 GM 캐릭터를 기본 공개 대상에 포함하면 안 됩니다.');
 const compactHelp = runtime.KIBScene.adapters.sheet.help.join('\n');
 [':수치이름+3', '!!화자 본인', '!!변화알림 공개|GM|끄기', '!!GM캐릭터알림 켜기|끄기']
   .forEach((command) => assert(compactHelp.includes(command), '!sd help에 명령이 없습니다: ' + command));
@@ -361,6 +371,11 @@ function addCharacter(id, name, controlledby, values) {
   return character;
 }
 
+function useRoomCharacters(...values) {
+  roomCharacterIds = new Set(values.map((value) => typeof value === 'string' ? value : value.id));
+  helper.refresh();
+}
+
 function addAttribute(characterId, name, current, id) {
   const attribute = roll20Object(
     id || characterId + '-attribute-' + attributeObjects.length,
@@ -377,7 +392,23 @@ function addAttribute(characterId, name, current, id) {
   return attribute;
 }
 
-function runApi(content, who, playerId) {
+function messageSpeakingAs(who, playerId, speakingAs) {
+  if (speakingAs !== undefined) return speakingAs;
+  const name = String(who || '범용 탐사자').replace(/\s*\(GM\)\s*$/, '');
+  const character = characters.find((item) => item.get('name') === name);
+  const player = players[playerId || 'player-1'];
+  return character ? 'character|' + character.id : player ? player.get('speakingas') : '';
+}
+
+function setPlayerSpeakingAs(who, playerId, speakingAs) {
+  const id = playerId || 'player-1';
+  const player = players[id];
+  const value = messageSpeakingAs(who, id, speakingAs);
+  if (player) player.set({ speakingas: value });
+}
+
+function runApi(content, who, playerId, speakingAs) {
+  setPlayerSpeakingAs(who, playerId, speakingAs);
   const before = sent.length;
   events['chat:message']({
     type: 'api',
@@ -388,7 +419,8 @@ function runApi(content, who, playerId) {
   return sent.slice(before);
 }
 
-function runGeneral(content, who, playerId) {
+function runGeneral(content, who, playerId, speakingAs) {
+  setPlayerSpeakingAs(who, playerId, speakingAs);
   const before = sent.length;
   events['chat:message']({
     type: 'general', content,
@@ -398,6 +430,7 @@ function runGeneral(content, who, playerId) {
 }
 
 helper.registerContract(fixture);
+useContracts(fixture);
 const fixtureValues = {};
 fixture.signature.forEach((entry) => {
   fixtureValues[typeof entry === 'string' ? entry : entry.name] = '1';
@@ -444,6 +477,35 @@ const fixtureCharacter = addCharacter(
   'player-1',
   fixtureValues,
 );
+useRoomCharacters(fixtureCharacter);
+
+// 새 설치는 안전한 비공개로 시작하고, 명시적으로 저장된 기존 설정은 그대로 보존해야 합니다.
+delete runtime.state.hide_tracking;
+delete runtime.state.KIBSheetHelper.trackingMode;
+delete runtime.state.KIBSheetHelper.trackGmOnly;
+helper.refresh();
+assert.strictEqual(runtime.state.KIBSheetHelper.trackingMode, 'gm');
+assert.strictEqual(runtime.state.KIBSheetHelper.trackGmOnly, false);
+runtime.state.KIBSheetHelper.trackingMode = 'off';
+runtime.state.KIBSheetHelper.trackGmOnly = true;
+helper.refresh();
+assert.strictEqual(runtime.state.KIBSheetHelper.trackingMode, 'off',
+  '사용자가 저장한 변화 알림 설정을 업데이트 중 초기화하면 안 됩니다.');
+assert.strictEqual(runtime.state.KIBSheetHelper.trackGmOnly, true,
+  '사용자가 저장한 GM 캐릭터 알림 설정을 업데이트 중 초기화하면 안 됩니다.');
+runtime.state.hide_tracking = false;
+delete runtime.state.KIBSheetHelper.trackingMode;
+delete runtime.state.KIBSheetHelper.trackGmOnly;
+helper.refresh();
+assert.strictEqual(runtime.state.KIBSheetHelper.trackingMode, 'public',
+  '구버전의 명시적인 공개 설정은 유지해야 합니다.');
+assert.strictEqual(runtime.state.KIBSheetHelper.trackGmOnly, false);
+runtime.state.hide_tracking = true;
+delete runtime.state.KIBSheetHelper.trackingMode;
+helper.refresh();
+assert.strictEqual(runtime.state.KIBSheetHelper.trackingMode, 'gm',
+  '구버전의 명시적인 GM 전용 설정은 유지해야 합니다.');
+runtime.state.KIBSheetHelper.trackGmOnly = false;
 
 function fixtureAttribute(name) {
   const attribute = attributeObjects.find((item) =>
@@ -475,6 +537,7 @@ function finishIntelligence(messages, total) {
   const pending = intelligenceRolls(messages);
   assert.strictEqual(pending.length, 1, '자동 지능 판정은 정확히 한 번만 실행해야 합니다.');
   const token = pending[0].content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  setPlayerSpeakingAs(fixtureCharacter.get('name'), 'player-1');
   const start = sent.length;
   events['chat:message']({
     type: 'general',
@@ -503,7 +566,7 @@ function addMinimalInsanityFixture(id, options) {
     `<input type="number" name="attr_${prefix}_intelligence" value="60">`,
     `<button type="roll" value="&{template:fixture} {{subject=지능}} {{success=[[@{${prefix}_intelligence}]]}} {{hard=[[floor(@{${prefix}_intelligence}/2)]]}} {{extreme=[[floor(@{${prefix}_intelligence}/5)]]}} {{roll=[[1d100]]}}">지능</button>`,
   ].join('\n'), { id: prefix, name: prefix, sourceHash: prefix });
-  helper.registerContract(contract);
+  useContracts(contract);
   const values = {};
   contract.signature.forEach((entry) => { values[typeof entry === 'string' ? entry : entry.name] = '1'; });
   Object.assign(values, {
@@ -515,6 +578,7 @@ function addMinimalInsanityFixture(id, options) {
   if (options.temporary) values[`${prefix}_temporary`] = '0';
   for (let index = 0; index < (options.longCount || 0); index++) values[`${prefix}_long_${index}`] = '0';
   const character = addCharacter(prefix + '_character', prefix, 'player-1', values);
+  useRoomCharacters(character);
   function attribute(suffix) {
     const name = prefix + '_' + suffix;
     return attributeObjects.find((item) => item.get('_characterid') === character.id && item.get('name') === name) || null;
@@ -541,8 +605,8 @@ assert.strictEqual(inspection.status, 'matched',
 assert.strictEqual(inspection.contract.id, fixture.id);
 let scan = helper.scan(fixtureCharacter.id, true);
 assert.strictEqual(scan.matched, true);
-assert.strictEqual(scan.profileName, fixture.name,
-  '외부 연동에서 쓰는 기존 런타임 필드는 유지해야 합니다.');
+assert(!Object.prototype.hasOwnProperty.call(scan, 'profileName'),
+  '사용자에게 보여 주지 않는 시트 이름을 런타임 결과에 다시 넣으면 안 됩니다.');
 assert(scan.resources.some((item) => item.label === '체력' && item.value === 10 && item.max === 20),
   '원본 시트의 표시명과 숫자 입력란에서 범용 수치 목록을 만들지 못했습니다.');
 assert(scan.resources.some((item) => item.label === '공식 수치' && item.value === 40),
@@ -586,14 +650,44 @@ assert.strictEqual(JSON.stringify(rolls
 ]), '반복행 정렬은 원본 _reporder의 순서·중복을 보존하고 유령 행만 제외해야 합니다.');
 assert(!rolls.some((item) => /^(?:HP|MP|메모)$/i.test(item.label)),
   '굴림이 아닌 수치나 메모를 굴림 항목으로 만들면 안 됩니다.');
+const unrelatedAttribute = addAttribute(fixtureCharacter.id, 'private_note', '이전');
+const unrelatedScanCalls = attributeFindCalls.length;
+unrelatedAttribute.set({ current: '변경' });
+events['change:attribute'](unrelatedAttribute, { current: '이전' });
+assert.strictEqual(attributeFindCalls.length, unrelatedScanCalls,
+  '인식 대상이 아닌 메모 속성 변경으로 캐릭터 전체를 다시 분석하면 안 됩니다.');
+assert(!runtime.KIBScene.adapters.cutin,
+  '10 단독 검사에 컷인 adapter가 섞였습니다.');
+const standaloneSheetManager = helper.refresh();
+assert(standaloneSheetManager && !String(standaloneSheetManager.get('notes') || '').includes('판정 컷인'),
+  '컷인 코드가 없는데 시트 관리 화면에 컷인 연결 기능이 표시됩니다.');
 
 const speakingStatus = runApi('!!상태', '범용 탐사자', 'player-1');
 const fallbackFindsBefore = characterFindCalls.length;
-const fallbackStatus = runApi('!!상태', '테스터', 'player-1');
-assert.deepStrictEqual(fallbackStatus, speakingStatus,
-  '화자 이름 매칭과 권한 기반 매칭의 출력이 달라지면 안 됩니다.');
-assert.strictEqual(characterFindCalls.length - fallbackFindsBefore, 1,
-  '한 명령에서 캐릭터 전체 목록을 중복 조회하면 안 됩니다.');
+const profileStatus = runApi('!!상태', '테스터', 'player-1', 'player|player-1');
+assert(speakingStatus.some((item) => item.content && item.content.includes('범용 탐사자 / 시트 현황')),
+  'As 캐릭터의 상태를 보여주지 못했습니다.');
+assert(profileStatus.some((item) => item.content && item.content.includes('As를 사용할 캐릭터로 바꾼 뒤')),
+  '플레이어 프로필 화자에서 임의의 조작 가능 캐릭터로 대신 실행하면 안 됩니다.');
+assert.strictEqual(characterFindCalls.length - fallbackFindsBefore, 0,
+  'As 캐릭터를 찾을 때 캐릭터 전체를 이름으로 다시 검색하면 안 됩니다.');
+
+const currentSpeaker = addCharacter('current-speaker', '현재 As 캐릭터', 'player-1', {
+  ...fixtureValues,
+  vital_current: '7',
+});
+runtime.state.KIBSheetHelper.activeCharacterId = fixtureCharacter.id;
+const storedTargetBefore = fixtureAttribute('vital_current').get('current');
+const currentSpeakerHealth = attributeObjects.find((item) =>
+  item.get('_characterid') === currentSpeaker.id && item.get('name') === 'vital_current');
+runGeneral(':체력+3', currentSpeaker.get('name'), 'player-1', 'character|' + currentSpeaker.id);
+assert.strictEqual(currentSpeakerHealth.get('current'), '10',
+  ':수치 변경은 이전에 확인한 캐릭터가 아니라 현재 As 캐릭터에 적용해야 합니다.');
+assert.strictEqual(fixtureAttribute('vital_current').get('current'), storedTargetBefore,
+  '현재 As와 다른 activeCharacterId의 수치를 바꾸면 안 됩니다.');
+characters.splice(characters.indexOf(currentSpeaker), 1);
+for (let index = attributeObjects.length - 1; index >= 0; index--)
+  if (attributeObjects[index].get('_characterid') === currentSpeaker.id) attributeObjects.splice(index, 1);
 
 const blockedAttributeStart = attributeObjects.length;
 const blockedCharacter = addCharacter('blocked-character', '권한 없는 캐릭터', 'other-player', fixtureValues);
@@ -604,7 +698,7 @@ const missingMessages = runApi(
 );
 assert.strictEqual(missingMessages.length, 1);
 assert.strictEqual(missingMessages[0].content,
-  '/w "테스터" 선택한 캐릭터를 찾지 못했습니다.',
+  '/w "테스터" 버튼에 기록된 캐릭터를 찾지 못했습니다.',
   '삭제된 관리 버튼의 캐릭터 ID를 다른 조작 가능 캐릭터로 대신 실행하면 안 됩니다.');
 const blockedMessages = runApi(
   '!시트 굴림목록|blocked-character|' + encodeURIComponent('정밀 관찰') + '|0',
@@ -727,14 +821,16 @@ assert(rollGroupContents['주문'].includes('별빛 주문') &&
   rollGroupContents['주문'].includes('개량 주문') &&
   !rollGroupContents['주문'].includes('연습용 칼'),
   '원본 주문 구역과 사용자 추가 주문은 주문 구역에만 보여야 합니다.');
-assert(rollGroupContents['광기'].includes('광기 발작') &&
-  rollGroupContents['광기'].includes('실시간 / 요약') &&
+assert(rollGroupContents['광기'].includes('광기 2개') &&
+  rollGroupContents['광기'].includes('실시간') &&
+  rollGroupContents['광기'].includes('요약') &&
+  !rollGroupContents['광기'].includes('광기 발작') &&
   !rollGroupContents['광기'].includes('자유 굴림'),
-  '광기 굴림은 광기 구역에만 보여야 합니다.');
+  '광기 굴림은 묶음 이름 대신 시트에 실제로 있는 선택지를 광기 구역에 보여야 합니다.');
 assert(rollGroupContents['기타 주사위'].includes('자유 굴림'),
   '판정 결과 구조나 원본 구역 근거가 없는 굴림은 기타 주사위에 보여야 합니다.');
-assert(status.content.includes('선택할 수 있는 방식'),
-  '원본 선택 방식은 굴림 구역과 관계를 새로 만들지 말고 별도 목록으로 유지해야 합니다.');
+assert(!status.content.includes('선택할 수 있는 방식'),
+  '시트에 종속된 선택지를 의미가 불분명한 전역 목록으로 보여주면 안 됩니다.');
 ['1d4', '2d6', '1d8', '2d8', '1d10', '1d20'].forEach((rawMode) => {
   assert(!status.content.includes('선택 방식: ' + rawMode) &&
     !status.content.includes(', ' + rawMode) && !status.content.includes(rawMode + ','),
@@ -785,8 +881,27 @@ assert(freshStatus && freshStatus.content.includes('13 / 20 (65%)'),
 resetFixture({ vital_current: 10, temporary_mode: '', major_state: 0 });
 
 const manager = helper.refresh();
-assert(manager && manager.get('notes').includes('시트에서 인식한 항목'));
-assert(!manager.get('notes').includes('원본 시트 계약'));
+const managerNotes = manager && manager.get('notes');
+assert(managerNotes && managerNotes.includes('<table') &&
+  managerNotes.includes('기능 / 판정') && managerNotes.includes('무기') &&
+  managerNotes.includes('주문') && managerNotes.includes('광기') &&
+  managerNotes.includes('수치') && managerNotes.includes('기타 주사위'),
+  'GM 관리 화면은 현재 캐릭터에서 인식한 모든 종류를 분류별 표로 보여야 합니다.');
+assert(managerNotes.includes('체력') && managerNotes.includes('10 / 20 (50%)') &&
+  managerNotes.includes('실시간') && managerNotes.includes('요약'),
+  'GM 관리 표에는 현재 수치와 시트에 실제로 있는 광기 선택지가 보여야 합니다.');
+assert(managerNotes.includes('캐릭터별 현황 보기') && managerNotes.includes('API가 인식한 캐릭터들의 현재 현황') &&
+  managerNotes.includes('현황 확인 중</b> 표시와 아래 표만') &&
+  managerNotes.includes('현재 <code>As</code> 캐릭터에만 적용') && managerNotes.includes('현황 확인 중:') &&
+  managerNotes.includes('!시트 현황보기|') && !managerNotes.includes('!시트 관리대상|'),
+  '캐릭터별 현황 보기에는 현황 확인 중인 캐릭터와 현재 As의 차이를 분명히 보여야 합니다.');
+assert(!managerNotes.includes('원본 시트 계약') && !managerNotes.includes('서로 다른 이름') &&
+  !/외 \d+개는/.test(managerNotes),
+  'GM 관리 화면에 개발 용어나 일부 항목만 보여 주는 축약 안내가 남으면 안 됩니다.');
+assert((managerNotes.match(/두 번째 항목/g) || []).length >= 2,
+  'GM 관리 화면은 같은 표시 이름을 가진 실제 반복행도 이름만으로 합쳐 숨기면 안 됩니다.');
+assert(!managerNotes.includes('!시트 굴림선택|') && !managerNotes.includes('!시트 굴림목록|'),
+  '캐릭터별 현황 보기에는 현황을 바꾸는 버튼만 있어야 합니다.');
 const playerHelp = created.find((item) => item.get('name') === '[PL] 시트 헬퍼 사용법');
 assert(playerHelp && playerHelp.get('notes').includes('!!굴릴항목이름'));
 assert(playerHelp.get('notes').includes('<table'));
@@ -843,6 +958,77 @@ assert.strictEqual(fixtureAttribute('dying_state').get('current'), 'active',
   '중상 상태에서 체력이 0 이하가 되면 빈사를 활성화해야 합니다.');
 runApi('!!변화알림 공개', '테스터 GM (GM)', 'gm');
 assert.strictEqual(runtime.state.KIBSheetHelper.trackingMode, 'public');
+
+// GM 전용 캐릭터 알림 설정은 실제 속성 변화 메시지에만 영향을 줘야 합니다.
+const gmOnlyAttributeStart = attributeObjects.length;
+const gmOnlyCharacter = addCharacter('gm-only-character', 'GM 전용 탐사자', '', {
+  ...fixtureValues,
+  vital_current: '10',
+});
+const gmOnlyHealth = attributeObjects.find((item) =>
+  item.get('_characterid') === gmOnlyCharacter.id && item.get('name') === 'vital_current');
+helper.scan(gmOnlyCharacter.id, true);
+runtime.state.KIBSheetHelper.trackingMode = 'gm';
+runtime.state.KIBSheetHelper.trackGmOnly = true;
+let gmOnlyMessageStart = sent.length;
+gmOnlyHealth.set('current', '9');
+events['change:attribute'](gmOnlyHealth, { current: '10' });
+assert(sent.slice(gmOnlyMessageStart).some((item) =>
+  item.content && item.content.startsWith('/w gm ') && item.content.includes('GM 전용 탐사자 / 체력')) &&
+  !sent.slice(gmOnlyMessageStart).some((item) => item.content && item.content.startsWith('/direct ')),
+  '공개 범위가 GM이면 GM 전용 캐릭터 알림도 전체 공개하면 안 됩니다.');
+runtime.state.KIBSheetHelper.trackingMode = 'public';
+runtime.state.KIBSheetHelper.trackGmOnly = false;
+gmOnlyMessageStart = sent.length;
+gmOnlyHealth.set('current', '8');
+events['change:attribute'](gmOnlyHealth, { current: '9' });
+assert(!sent.slice(gmOnlyMessageStart).some((item) =>
+  item.content && item.content.includes('GM 전용 탐사자 / 체력')),
+  'GM 캐릭터 알림을 끄면 플레이어 권한이 없는 캐릭터의 변화를 보내면 안 됩니다.');
+runtime.state.KIBSheetHelper.trackGmOnly = true;
+gmOnlyMessageStart = sent.length;
+gmOnlyHealth.set('current', '7');
+events['change:attribute'](gmOnlyHealth, { current: '8' });
+assert(sent.slice(gmOnlyMessageStart).some((item) =>
+  item.content && item.content.startsWith('/direct ') && item.content.includes('GM 전용 탐사자 / 체력')),
+  'GM 캐릭터 알림을 켜면 플레이어 권한이 없는 캐릭터의 변화를 보내야 합니다.');
+characters.splice(characters.indexOf(gmOnlyCharacter), 1);
+attributeObjects.splice(gmOnlyAttributeStart);
+runtime.state.KIBSheetHelper.trackGmOnly = false;
+
+// 최대 체력식을 계산하지 못해도 기존 중상 상태에서 체력 0이 되면 빈사는 계속 연동합니다.
+const unreadableMaximumContract = parseSheetContract([
+  '<input name="attr_unreadable_marker_a">',
+  '<input name="attr_unreadable_marker_b">',
+  '<input name="attr_unreadable_marker_c">',
+  '<label>체력 <input type="number" name="attr_unreadable_health" max="floor(@{missing_maximum})"></label>',
+  '<label>중상 <input type="checkbox" name="attr_unreadable_major" value="active"></label>',
+  '<label>빈사 <input type="checkbox" name="attr_unreadable_dying" value="active"></label>',
+].join('\n'), { id: 'unreadable-maximum', sourceHash: 'unreadable-maximum' });
+useContracts(unreadableMaximumContract);
+const unreadableAttributeStart = attributeObjects.length;
+const unreadableCharacter = addCharacter('unreadable-maximum-character', '최대 체력 미입력', 'player-1', {
+  unreadable_marker_a: '1',
+  unreadable_marker_b: '1',
+  unreadable_marker_c: '1',
+  unreadable_health: '1',
+  unreadable_major: 'active',
+  unreadable_dying: '0',
+});
+const unreadableHealth = attributeObjects.find((item) =>
+  item.get('_characterid') === unreadableCharacter.id && item.get('name') === 'unreadable_health');
+const unreadableDying = attributeObjects.find((item) =>
+  item.get('_characterid') === unreadableCharacter.id && item.get('name') === 'unreadable_dying');
+useRoomCharacters(unreadableCharacter);
+helper.scan(unreadableCharacter.id, true);
+unreadableHealth.set('current', '0');
+events['change:attribute'](unreadableHealth, { current: '1' });
+assert.strictEqual(unreadableDying.get('current'), 'active',
+  '최대 체력을 읽지 못해도 이미 중상이면 체력 0에서 빈사를 활성화해야 합니다.');
+characters.splice(characters.indexOf(unreadableCharacter), 1);
+attributeObjects.splice(unreadableAttributeStart);
+useRoomCharacters(fixtureCharacter);
+useContracts(fixture);
 
 resetFixture({ mind_current: 50, long_madness: 0, temporary_madness: 0 });
 assert.strictEqual(intelligenceRolls(changeFixture('mind_current', 46)).length, 0,
@@ -960,6 +1146,8 @@ assert(missingTemporaryMessages.some((item) => item.content && item.content.incl
 finishIntelligence(missingTemporaryMessages, 40);
 assert.strictEqual(missingTemporary.attribute('temporary'), null,
   '원본 시트에 없는 일시적 광기 체크 속성을 새로 만들면 안 됩니다.');
+useRoomCharacters(fixtureCharacter);
+useContracts(fixture);
 
 resetFixture({ vital_current: 20, major_state: 0, temporary_mode: 'on' });
 const hiddenMajor = changeFixture('vital_current', 10);
@@ -1002,6 +1190,7 @@ assert(helper.cutinItems().some((item) =>
   '실행 결과의 컷인 키와 관리 화면의 컷인 항목이 같아야 합니다.');
 
 const directResultBefore = sent.length;
+setPlayerSpeakingAs(fixtureCharacter.get('name'), 'player-1');
 events['chat:message']({
   type: 'general',
   rolltemplate: 'fixture',
@@ -1030,6 +1219,7 @@ assert(!sent.slice(unidentifiedDirectResultBefore).some((item) => item.event ===
   'subject 등 시트 굴림 식별 필드가 없으면 공통 템플릿 필드만으로 판정하면 안 됩니다.');
 
 function captureRepeatingDirect(subject, includeSubject) {
+  setPlayerSpeakingAs(fixtureCharacter.get('name'), 'player-1');
   const before = sent.length;
   events['chat:message']({
     type: 'general',
@@ -1092,7 +1282,7 @@ assert(!helper.contractRolls(fixtureCharacter.id).some((item) => item.label === 
     '삭제한 사용자 반복행이 굴림 목록에 남으면 안 됩니다: ' + label);
 });
 
-// 저장 구조가 같은 시트는 GM 선택을 받고, 시트가 바뀌면 예전 선택을 강제하지 않습니다.
+// 저장 구조가 같은 시트도 사용자에게 수동 시트 선택 기능을 노출하지 않습니다.
 const twinA = parseSheetContract([
   '<input name="attr_twin_a"><input name="attr_twin_b"><input name="attr_twin_c">',
   '<button type="roll" value="&{template:test} {{subject=쌍둥이 A}} {{roll=[[1d6]]}}"></button>',
@@ -1103,19 +1293,27 @@ const twinB = parseSheetContract([
 ].join('\n'), { id: 'twin-b', name: '쌍둥이 시트 B' });
 helper.registerContract(twinA);
 helper.registerContract(twinB);
+useContracts(twinA, twinB);
+const twinAttributeStart = attributeObjects.length;
 const twinCharacter = addCharacter('twin-character', '쌍둥이 캐릭터', '', {
   twin_a: '1', twin_b: '1', twin_c: '1',
 });
+useRoomCharacters(twinCharacter);
 inspection = helper.inspectContracts(twinCharacter.id);
 assert.strictEqual(inspection.status, 'ambiguous');
 runtime.state.KIBSheetHelper.managerCharacterId = twinCharacter.id;
 const twinManager = helper.refresh().get('notes');
-assert(twinManager.includes('후보 1 / 굴림 1개') && twinManager.includes('후보 2 / 굴림 1개'),
-  '동일 저장 구조 후보는 시트 이름 대신 실제 굴림 수가 붙은 선택 버튼으로 보여야 합니다.');
-runApi('!시트 인식선택|' + twinCharacter.id + '|' + twinA.id,
-  '테스터 GM (GM)', 'gm');
+assert(!twinManager.includes('!시트 인식선택|') && !twinManager.includes('시트 선택'),
+  '관리 화면에 사용자가 고르는 시트 후보나 수동 선택 버튼을 노출하면 안 됩니다.');
+runtime.state.KIBSheetHelper.sheetSelections[twinCharacter.id] = twinA.id;
+helper.scan(twinCharacter.id, true);
 assert.strictEqual(runtime.state.KIBSheetHelper.sheetSelections[twinCharacter.id], twinA.id);
-assert.strictEqual(helper.inspectContracts(twinCharacter.id).contract.id, twinA.id);
+assert.strictEqual(helper.inspectContracts(twinCharacter.id).status, 'ambiguous',
+  '구버전 캐릭터별 시트 선택값이 방 자동 인식을 강제로 바꾸면 안 됩니다.');
+characters.splice(characters.indexOf(twinCharacter), 1);
+attributeObjects.splice(twinAttributeStart);
+useRoomCharacters(fixtureCharacter);
+useContracts(fixture);
 
 // 배포본에 함께 넣은 실제 시트 5종의 추출 결과와 런타임 실행을 회귀 검증합니다.
 const expectedEmbeddedStats = [
@@ -1172,7 +1370,7 @@ embeddedSheets.forEach((sheet) => helper.registerContract(sheet));
 
 // Roll20은 시트 기본 필드를 Attribute 객체로 만들지 않을 수 있습니다.
 // 존재하지 않는 다른 시트 필드를 getAttrByName으로 조회하면 Roll20 콘솔에 오류가
-// 남으므로, 저장 증거가 부족하면 필드를 추측하지 않고 GM 선택을 받아야 합니다.
+// 남으므로, 저장 증거가 부족하면 필드를 추측하거나 사용자가 시트를 고르게 하면 안 됩니다.
 const sparseDefaults = {};
 (actualSheet.globalAttributes || []).forEach((name) => {
   sparseDefaults[name] = '';
@@ -1189,6 +1387,8 @@ const sparseCharacter = addCharacter('sparse-sheet-character', '테스트 조사
   ori_other_skills: '0',
   language_own: '50',
 });
+useContracts(actualSheet, publicSheet);
+useRoomCharacters(sparseCharacter);
 sheetFieldDefaults[sparseCharacter.id] = sparseDefaults;
 const sparseCallsBefore = getAttrByNameCalls.length;
 const sparseInspection = helper.inspectContracts(sparseCharacter.id);
@@ -1196,10 +1396,9 @@ const sparseCalls = getAttrByNameCalls.slice(sparseCallsBefore).filter((call) =>
   call.characterId === sparseCharacter.id);
 assert.strictEqual(sparseInspection.status, 'ambiguous',
   '저장 Attribute가 적으면 다른 시트 필드를 조회해 자동 확정하면 안 됩니다.');
-assert.strictEqual(sparseInspection.manualFallback, true);
 assert(sparseInspection.matches.some((match) => match.id === actualSheet.id) &&
   sparseInspection.matches.some((match) => match.id === publicSheet.id),
-  '증거가 부족하면 등록된 시트를 GM 선택지로 제공해야 합니다.');
+  '증거가 부족할 때 비교한 후보 정보는 유지해야 합니다.');
 assert.strictEqual(attributeObjects.filter((item) =>
   item.get('_characterid') === sparseCharacter.id).length, 2,
   '시트 인식을 위해 Attribute 객체를 새로 만들면 안 됩니다.');
@@ -1207,123 +1406,29 @@ assert.strictEqual(sparseCalls.length, 0,
   '시트 인식 단계에서 getAttrByName으로 다른 시트 필드를 probe하면 안 됩니다.');
 
 const fallbackCallsBefore = getAttrByNameCalls.length;
-runtime.state.KIBSheetHelper.activeCharacterId = sparseCharacter.id;
+runtime.state.KIBSheetHelper.managerCharacterId = sparseCharacter.id;
 const sparseInspectionMessages = runApi('!!점검', '테스터 GM (GM)', 'gm');
 const fallbackCalls = getAttrByNameCalls.slice(fallbackCallsBefore).filter((call) =>
   call.characterId === sparseCharacter.id);
 assert(sparseInspectionMessages.some((item) =>
-  item.content && item.content.includes('시트 선택') &&
-  item.content.includes('background:#111') &&
-  item.content.includes('후보 1 / 굴림') &&
-  item.content.includes('!시트 인식선택|')),
-  '실제 희소 캐릭터의 첫 !!점검은 오류 대신 GM 검정 선택 버튼을 보여줘야 합니다.');
+  item.content && item.content.includes('안전하게 확인할 수 없습니다') &&
+  !item.content.includes('!시트 인식선택|')),
+  '실제 희소 캐릭터의 !!점검에 수동 시트 선택 버튼을 보여주면 안 됩니다.');
 assert.strictEqual(fallbackCalls.length, 0,
-  'GM 선택 화면을 만들 때도 다른 시트 필드를 probe하면 안 됩니다.');
-
-runApi('!시트 인식선택|' + sparseCharacter.id + '|' + actualSheet.id,
-  '테스터 GM (GM)', 'gm');
-assert.strictEqual(runtime.state.KIBSheetHelper.sheetSelections[sparseCharacter.id], actualSheet.id,
-  'GM이 고른 시트는 state에 저장되어야 합니다.');
-const selectedCallsBefore = getAttrByNameCalls.length;
-const selectedInspectionMessages = runApi('!!점검', '테스터 GM (GM)', 'gm');
-const selectedCalls = getAttrByNameCalls.slice(selectedCallsBefore).filter((call) =>
-  call.characterId === sparseCharacter.id);
-assert(selectedInspectionMessages.some((item) =>
-  item.content && item.content.includes('인식 완료') &&
-  !item.content.includes('시트 선택')),
-  'GM 선택 뒤 !!점검은 저장한 시트의 인식 결과를 보여줘야 합니다.');
-assert.strictEqual(runtime.state.KIBSheetHelper.sheetSelections[sparseCharacter.id], actualSheet.id,
-  '!!점검은 캐시만 비우고 GM의 저장 선택을 지우면 안 됩니다.');
-const actualStatus = runApi('!!상태', '테스터 GM (GM)', 'gm').find((item) => item.who === '시트 헬퍼');
-const actualCheckAt = actualStatus && actualStatus.content.indexOf('font-weight:bold">기능 / 판정 ');
-const actualMadnessAt = actualStatus && actualStatus.content.indexOf('font-weight:bold">광기 ');
-assert(actualCheckAt >= 0 && actualMadnessAt > actualCheckAt &&
-  actualStatus.content.slice(actualCheckAt, actualMadnessAt).includes('근력'),
-  '실제 배포 시트의 선택 방식으로 주사위 필드를 넣는 판정도 기능 / 판정 구역에 보여야 합니다.');
-const selectedFieldNames = new Set(actualSheet.globalAttributes || []);
-assert(selectedCalls.length > 0,
-  'GM 선택 뒤에는 선택한 시트의 실제 굴림값을 읽어야 합니다.');
-assert(selectedCalls.every((call) => selectedFieldNames.has(call.name)),
-  'GM 선택 뒤에는 선택한 시트에 없는 필드를 조회하면 안 됩니다: ' +
-    selectedCalls.filter((call) => !selectedFieldNames.has(call.name)).map((call) => call.name).join(', '));
-const sparseReadBefore = getAttrByNameCalls.length;
-const sparseSelectedData = helper.scan(sparseCharacter.id, true);
-const sparseHealth = sparseSelectedData.resources.find((item) => item.aliases.includes('체력'));
-const sparseMana = sparseSelectedData.resources.find((item) => item.aliases.includes('마력'));
-const sparseSanity = sparseSelectedData.resources.find((item) => item.aliases.includes('이성'));
-assert(sparseHealth && sparseHealth.value === 10 && sparseHealth.max === 20,
-  'Attribute 객체가 없는 원본 시트 기본 체력도 현재값과 계산된 최대값으로 인식해야 합니다.');
-assert.strictEqual(sparseHealth.label, '체력', '체력의 숫자 placeholder를 표시명으로 쓰면 안 됩니다.');
-assert(sparseMana && sparseMana.label === '마력' && sparseMana.value === 10 && sparseMana.max === 10,
-  'Attribute 객체가 없는 마력도 원본 표시명과 현재/최대값으로 인식해야 합니다.');
-assert(sparseSanity && sparseSanity.label === '이성' && sparseSanity.value === 50 && sparseSanity.max === 99,
-  'Attribute 객체가 없는 이성도 원본 표시명과 현재/최대값으로 인식해야 합니다.');
-const sparseReadNames = getAttrByNameCalls.slice(sparseReadBefore).map((call) => call.name);
-assert(sparseReadNames.includes('hp'), '선택한 시트의 현재/최대 자원은 저장 객체가 없어도 실제 값을 읽어야 합니다.');
-assert(!sparseReadNames.includes('str'),
-  '현재/최대 자원이 아닌 빈 기능치까지 모두 조회하면 대형 시트에서 다시 느려집니다.');
-assert(!sparseReadNames.some((name) => /^_reporder_|^repeating_/.test(name)),
-  '저장 객체가 없는 반복행이나 reporder를 추측해서 조회하면 안 됩니다.');
-const sparseReadCounts = sparseReadNames.reduce((counts, name) => {
-  counts[name] = (counts[name] || 0) + 1;
-  return counts;
-}, {});
-assert(Math.max(...Object.values(sparseReadCounts)) <= 5,
-  '같은 표시 조건을 필드마다 반복 조회하면 안 됩니다: ' + JSON.stringify(sparseReadCounts));
-const sparseSanitySearch = runApi('!!검색 이성', sparseCharacter.get('name'));
-assert(sparseSanitySearch.some((item) =>
-  item.content && item.content.includes('<b>이성</b>') &&
-  item.content.includes('50 / 시작 미입력 / 최대 99')),
-  '희소 캐릭터에서도 시작 이성을 최대 이성으로 대신 계산하지 않아야 합니다: ' +
-    JSON.stringify(sparseSanitySearch));
-const sparseHealthChangeMessages = runGeneral(':체력+3', sparseCharacter.get('name'));
-assert(sparseHealthChangeMessages.some((item) =>
-  item.content && item.content.includes('체력') && item.content.includes('10') && item.content.includes('13')),
-  'Attribute 객체가 없던 체력도 원본 실제값에서 변경해야 합니다: ' +
-    JSON.stringify(sparseHealthChangeMessages));
-assert.strictEqual(attributeObjects.find((item) => item.get('_characterid') === sparseCharacter.id &&
-  item.get('name') === 'hp').get('current'), '13');
-runGeneral(':체력=10', sparseCharacter.get('name'));
-helper.scan(sparseCharacter.id, true);
-const cachedReadBefore = getAttrByNameCalls.length;
-helper.scan(sparseCharacter.id, false);
-assert.strictEqual(getAttrByNameCalls.length, cachedReadBefore,
-  '변경되지 않은 캐릭터의 재조회는 스캔 캐시를 사용해야 합니다.');
-
-const publicSparseCharacter = addCharacter('sparse-public-sheet', '공개 시트 희소 시험', 'player-1', {});
-sheetFieldDefaults[publicSparseCharacter.id] = {};
-Object.entries(publicSheet.controls || {}).forEach(([name, control]) => {
-  if (control && Object.prototype.hasOwnProperty.call(control, 'default'))
-    sheetFieldDefaults[publicSparseCharacter.id][name] = control.default === null ? '' : String(control.default);
-});
-runtime.state.KIBSheetHelper.sheetSelections[publicSparseCharacter.id] = publicSheet.id;
-const publicSparseReadBefore = getAttrByNameCalls.length;
-helper.scan(publicSparseCharacter.id, true);
-const publicSparseReads = getAttrByNameCalls.slice(publicSparseReadBefore).filter((call) =>
-  call.characterId === publicSparseCharacter.id).map((call) => call.name);
-const publicSparseCounts = publicSparseReads.reduce((counts, name) => {
-  counts[name] = (counts[name] || 0) + 1;
-  return counts;
-}, {});
-assert(publicSparseReads.length <= 250 && Math.max(...Object.values(publicSparseCounts)) <= 5,
-  '공개 대형 시트에서 같은 표시 조건을 수백 번 다시 읽으면 안 됩니다: ' +
-    publicSparseReads.length + ' / ' + JSON.stringify(publicSparseCounts));
-assert(publicSparseReads.every((name) => (publicSheet.globalAttributes || []).includes(name)),
-  '공개 시트 선택 뒤 다른 시트의 필드를 조회하면 안 됩니다.');
-assert(!publicSparseReads.some((name) => /^_reporder_|^repeating_/.test(name)),
-  '공개 희소 시트에서도 존재하지 않는 반복행을 추측 조회하면 안 됩니다.');
+  '방 자동 인식을 검사할 때도 다른 시트 필드를 probe하면 안 됩니다.');
 
 const publicResourceValues = {
   hp: '10', hp_max: '20', mp: '8', mp_max: '10',
   major_wound_toggle: '0', dying: '0', hptemp: '', showpulp: '',
 };
-const publicSignatureField = typeof publicSheet.signature[0] === 'string'
-  ? publicSheet.signature[0]
-  : publicSheet.signature[0].name;
-publicResourceValues[publicSignatureField] = publicResourceValues[publicSignatureField] || '1';
+publicSheet.signature.forEach((entry) => {
+  const name = typeof entry === 'string' ? entry : entry.name;
+  publicResourceValues[name] = publicResourceValues[name] || '1';
+});
 const publicResourceCharacter = addCharacter(
   'public-resource-sheet', '공개 시트 자원 시험', 'player-1', publicResourceValues);
-runtime.state.KIBSheetHelper.sheetSelections[publicResourceCharacter.id] = publicSheet.id;
+useContracts(publicSheet);
+useRoomCharacters(publicResourceCharacter);
 const publicResourceData = helper.scan(publicResourceCharacter.id, true);
 const publicHealth = publicResourceData.resources.find((item) => item.label === '체력');
 const publicMana = publicResourceData.resources.find((item) => item.label === '마력');
@@ -1355,7 +1460,6 @@ assert.strictEqual(publicAttribute('major_wound_toggle').get('current'), '1',
 changePublicResource('hp', 0);
 assert.strictEqual(publicAttribute('dying').get('current'), '1',
   '공개 CoC 시트에서도 중상 상태에서 체력 0은 빈사를 활성화해야 합니다.');
-runtime.state.KIBSheetHelper.activeCharacterId = '';
 
 function sourceRefName(ref) {
   return typeof ref === 'string'
@@ -1407,10 +1511,10 @@ function addSourceCharacter(sheet, id, name) {
     if ((roll.expressionRefs || []).length)
       satisfySimpleVisibility(roll.visibility, values);
   });
-  return {
-    character: addCharacter(id, name, 'player-1', values),
-    values,
-  };
+  const character = addCharacter(id, name, 'player-1', values);
+  useContracts(sheet);
+  useRoomCharacters(character);
+  return { character, values };
 }
 
 // 실제 배포 시트의 사용자 추가 기능은 생성·변경을 모두 따라가야 합니다.
@@ -1429,11 +1533,7 @@ const actualCharacter = addCharacter(
   'player-1',
   actualValues,
 );
-if (helper.inspectContracts(actualCharacter.id).status === 'ambiguous') {
-  runApi('!시트 인식선택|' + actualCharacter.id + '|' + actualSheet.id,
-    '테스터 GM (GM)', 'gm');
-}
-assert.strictEqual(helper.inspectContracts(actualCharacter.id).status, 'matched');
+useContracts(actualSheet);
 const actualRow = [
   addAttribute(actualCharacter.id, 'repeating_science_rowTest_science_title', '테스트'),
   addAttribute(actualCharacter.id, 'repeating_science_rowTest_science_base', '1'),
@@ -1442,6 +1542,12 @@ const actualRow = [
   addAttribute(actualCharacter.id, 'repeating_science_rowTest_science_checkbox', '1'),
   addAttribute(actualCharacter.id, '_reporder_repeating_science', 'rowTest'),
 ];
+useRoomCharacters(actualCharacter);
+const actualInspection = helper.inspectContracts(actualCharacter.id);
+assert.strictEqual(actualInspection.status, 'matched', JSON.stringify(actualInspection.matches.map((item) => ({
+  id: item.id, score: item.score, ratio: item.ratio, repeatingHits: item.repeatingHits,
+  repeatingRatio: item.repeatingRatio, rankScore: item.rankScore, eligible: item.eligible,
+}))));
 const actualName = actualRow[0];
 const actualValue = actualRow[3];
 assert(helper.contractRolls(actualCharacter.id).some((item) => item.label === '테스트'));
@@ -1557,11 +1663,9 @@ const hojilRuntime = addSourceCharacter(
   '변형 A 원본 시험',
 );
 inspection = helper.inspectContracts(hojilRuntime.character.id);
-assert.strictEqual(inspection.status, 'ambiguous',
-  '저장 구조가 같은 실제 시트를 근거 없이 자동 선택하면 안 됩니다.');
-runApi('!시트 인식선택|' + hojilRuntime.character.id + '|' + hojilSheet.id,
-  '테스터 GM (GM)', 'gm');
-assert.strictEqual(helper.inspectContracts(hojilRuntime.character.id).contract.id, hojilSheet.id);
+assert.strictEqual(inspection.status, 'matched',
+  inspection.error || '한 종류의 시트만 적용된 방에서 변형 A를 인식하지 못했습니다.');
+assert.strictEqual(inspection.contract.id, hojilSheet.id);
 assert(runApi('!!일시적', hojilRuntime.character.get('name')).some((item) =>
   item.content && item.content.includes('{{madness_type=[[1]]}}')));
 assert(runApi('!!장기적', hojilRuntime.character.get('name')).some((item) =>
@@ -1704,7 +1808,7 @@ const pairingSheet = parseSheetContract([
   '  <button type="roll" name="roll_pair" value="&{template:pair} {{subject=@{item_name}}} {{success=[[@{current_value}]]}} {{roll=[[1d100]]}}">굴림</button>',
   '</fieldset>',
 ].join('\n'), { id: 'pairing-scale', name: '반복 수치 성능 시험' });
-helper.registerContract(pairingSheet);
+useContracts(pairingSheet);
 
 function addPairingCharacter(id, size, duplicateNames) {
   const values = {
@@ -1737,6 +1841,7 @@ function pairingScanMilliseconds(character, rounds) {
 }
 
 const ambiguousPairing = addPairingCharacter('pairing-ambiguous', 2, true);
+useRoomCharacters(ambiguousPairing);
 const ambiguousResources = helper.scan(ambiguousPairing.id, true).resources.filter((item) =>
   /_current_value$/.test(item.name));
 assert.strictEqual(ambiguousResources.length, 2);
@@ -1745,6 +1850,7 @@ assert(ambiguousResources.every((item) => item.max === null),
 
 const smallPairing = addPairingCharacter('pairing-small', 100, false);
 const largePairing = addPairingCharacter('pairing-large', 800, false);
+useRoomCharacters(ambiguousPairing, smallPairing, largePairing);
 const largePairingData = helper.scan(largePairing.id, true);
 const pairedResources = largePairingData.resources.filter((item) => /_current_value$/.test(item.name));
 assert.strictEqual(pairedResources.length, 800);

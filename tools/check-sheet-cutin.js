@@ -72,6 +72,12 @@ function matches(object, query) {
 const runtime = {
   state: {
     KIBSceneCutin: {
+      durations: {
+        [exactCard.id]: 2750,
+        [genericCard.id]: 3200,
+        [globalExactCard.id]: 3600,
+        [globalRollCard.id]: 4100,
+      },
       overlayImages: {
         [page.id]: 'https://files.d20.io/images/100/overlay/thumb.png?1',
       },
@@ -239,6 +245,16 @@ function buttonCommand(html, label) {
   return match ? match[1] : '';
 }
 
+function ruleUnbindCommand(html, itemKey, outcome) {
+  const wanted = `!컷인 시트연결해제|${itemKey}|${outcome}`;
+  const links = String(html || '').matchAll(/<a href="([^"]+)"/g);
+  for (const link of links) {
+    const command = link[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+    if (command === wanted) return command;
+  }
+  return '';
+}
+
 const manager = runtime.findObjs({ _type: 'handout', name: '[GM] 컷인 관리' })[0];
 const initialManagerNotes = manager && manager.get('notes');
 const globalSheetControls = adapter.sheetControls();
@@ -269,7 +285,8 @@ check(
 check(
   '기본 판정 연결은 항목 질문 없이 전역 결과에 연결',
   buttonCommand(initialManagerNotes, '판정 연결').includes('시트연결|*|') &&
-    !buttonCommand(initialManagerNotes, '판정 연결').includes('?{판정 항목'),
+    !buttonCommand(initialManagerNotes, '판정 연결').includes('?{판정 항목') &&
+    !buttonCommand(initialManagerNotes, '판정 연결').includes('표시 시간'),
   '기본 판정 연결이 전역 * 규칙을 쓰지 않거나 판정 항목을 묻습니다.',
 );
 check(
@@ -291,6 +308,18 @@ check(
     initialManagerNotes.includes('첫 번째 자동 대사') &&
     initialManagerNotes.includes('둘째 &lt;자동 대사&gt;'),
   '카드 행이 등록 대사 전체 또는 HTML 이스케이프된 미리보기를 표시하지 않습니다.',
+);
+check(
+  '공용 재생 버튼은 저장된 카드 시간 사용',
+  !initialManagerNotes.includes('표시 시간|4초') &&
+    !initialManagerNotes.includes('|4초'),
+  '관리 핸드아웃 재생 버튼이 4초를 강제합니다.',
+);
+const cutinMacro = runtime.findObjs({ _type: 'macro' })[0];
+check(
+  '컷인 매크로는 저장된 카드 시간 사용',
+  cutinMacro && !String(cutinMacro.get('action') || '').includes('표시 시간|4초'),
+  '공용 컷인 매크로가 4초를 강제합니다.',
 );
 
 const listener = adapter.events['sheet:result'];
@@ -315,8 +344,15 @@ check(
 );
 check(
   'sheet:result가 공개 adapter.cue 경유',
-  cueCalls.length === 1 && cueCalls[0].context && cueCalls[0].context.source === 'sheet',
+  cueCalls.length === 1 && cueCalls[0].context && cueCalls[0].context.source === 'sheet' &&
+    cueCalls[0].args.length === 1,
   'sheet listener가 adapter.cue를 거치지 않고 내부 parsePlay/show를 직접 호출합니다.',
+);
+const storedDurationPlay = adapter.cue([`id:${exactCard.id}`], {});
+check(
+  '카드 컷인의 저장 재생시간 자동 사용',
+  storedDurationPlay.ok && storedDurationPlay.duration === 2750,
+  '명시 시간이 없을 때 카드에 저장된 2.75초를 사용하지 않습니다.',
 );
 
 delete runtime.state.KIBSceneCutin.sheetRules['coc7:관찰력|success'];
@@ -417,10 +453,20 @@ runtime.state.KIBSceneCutin.sheetRules['sheet:shared-a|hard'] = {
   itemKey: 'sheet:shared-a', itemLabel: '공유 판정 A', outcome: 'hard',
   sourceKey: `card:${genericCard.id}`, duration: 4000,
 };
+const translatedUnbindCommand = ruleUnbindCommand(
+  adapter.sheetControls(),
+  'sheet:translated',
+  'hard',
+);
+check(
+  '관리 화면의 실제 특정 판정 해제 버튼 명령',
+  translatedUnbindCommand === '!컷인 시트연결해제|sheet:translated|hard',
+  '표시된 해제 버튼이 저장된 exact 항목키와 결과키를 전달하지 않습니다.',
+);
 (events['chat:message'] || []).forEach((callback) => callback({
   type: 'api',
   playerid: gm.id,
-  content: '!컷인 시트연결해제|sheet:translated|hard',
+  content: translatedUnbindCommand,
 }));
 check(
   '현재 exact 연결만 해제하고 구형·다른 시트 규칙은 보존',
@@ -430,6 +476,11 @@ check(
     runtime.state.KIBSceneCutin.sheetRules['contract-absent:Custom%20Check|hard'] &&
     runtime.state.KIBSceneCutin.sheetRules['sheet:shared-a|hard'],
   '해제 대상 exact 키 외의 구형 또는 현재 목록에 없는 시트 규칙이 삭제되었습니다.',
+);
+check(
+  '특정 판정 해제 뒤 관리 화면에서도 즉시 제거',
+  !ruleUnbindCommand(manager.get('notes'), 'sheet:translated', 'hard'),
+  'state에서 삭제한 특정 판정 연결이 관리 핸드아웃 갱신 중 다시 나타났습니다.',
 );
 delete runtime.state.KIBSceneCutin.sheetRules['sheet:shared-a|hard'];
 runtime.state.KIBSceneCutin.sheetRules['contract-a:Shared%20Old|extreme'] = {
@@ -470,24 +521,13 @@ check(
 (events['chat:message'] || []).forEach((callback) => callback({
   type: 'api',
   playerid: gm.id,
-  content: `!컷인 시트연결|*|hard|card:${exactCard.id}|601초`,
-}));
-check(
-  '600초 초과 설정은 저장하지 않음',
-  !runtime.state.KIBSceneCutin.sheetRules['*|hard'],
-  '실행할 수 없는 표시 시간이 state에 저장됐습니다.',
-);
-
-(events['chat:message'] || []).forEach((callback) => callback({
-  type: 'api',
-  playerid: gm.id,
   content: `!컷인 시트연결|*|hard|card:${exactCard.id}|3초`,
 }));
 check(
-  '기본 판정 연결 명령은 전역 규칙 저장',
+  '기본 판정 연결은 컷인 자체 시간 사용',
   runtime.state.KIBSceneCutin.sheetRules['*|hard'] &&
     runtime.state.KIBSceneCutin.sheetRules['*|hard'].sourceKey === `card:${exactCard.id}` &&
-    runtime.state.KIBSceneCutin.sheetRules['*|hard'].duration === 3000,
+    !Object.prototype.hasOwnProperty.call(runtime.state.KIBSceneCutin.sheetRules['*|hard'], 'duration'),
   '전역 *|outcome 규칙이 저장되지 않았습니다.',
 );
 
@@ -499,7 +539,7 @@ check(
 check(
   '기존 명령과 sheetRules 스키마로 카드 연결 변경',
   runtime.state.KIBSceneCutin.sheetRules['coc7:관찰력|success'].sourceKey === `card:${genericCard.id}` &&
-    runtime.state.KIBSceneCutin.sheetRules['coc7:관찰력|success'].duration === 3000,
+    !Object.prototype.hasOwnProperty.call(runtime.state.KIBSceneCutin.sheetRules['coc7:관찰력|success'], 'duration'),
   '기존 시트연결 명령이 같은 itemKey|outcome 규칙을 갱신하지 못했습니다.',
 );
 
@@ -513,6 +553,30 @@ check(
   !runtime.state.KIBSceneCutin.sheetRules['coc7:듣기|failure'],
   '전역 호환 목록의 삭제된 원본 규칙을 기존 명령으로 해제하지 못했습니다.',
 );
+
+const sheetAdapter = runtime.KIBScene.adapters.sheet;
+delete runtime.KIBScene.adapters.sheet;
+(events['chat:message'] || []).forEach((callback) => callback({
+  type: 'api',
+  playerid: gm.id,
+  content: '!컷인 관리',
+}));
+const standaloneManagerNotes = manager.get('notes');
+check(
+  '08 단독 사용 시 시트 연결 UI 숨김',
+  !standaloneManagerNotes.includes('판정 컷인') &&
+    !standaloneManagerNotes.includes('판정 연결') &&
+    !adapter.help.some((line) => line.includes('시트연결')),
+  '시트 헬퍼가 없는데 컷인 관리 또는 도움말에 시트 연결 기능이 표시됩니다.',
+);
+const standalonePlay = adapter.cue([`id:${exactCard.id}`], {});
+check(
+  '08 단독 사용 시 기존 컷인 재생 유지',
+  standalonePlay.ok && standalonePlay.duration === 2750 &&
+    activeGraphic() && activeGraphic().get('imgsrc') === exactCard.get('avatar'),
+  '시트 헬퍼가 없을 때 일반 카드 컷인 재생이 손상됐습니다.',
+);
+runtime.KIBScene.adapters.sheet = sheetAdapter;
 
 if (failures.length) {
   console.error(`\n${failures.length}개 계약 검사 실패`);
