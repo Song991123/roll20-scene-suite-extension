@@ -23,3 +23,65 @@
 - 똣의 [범용 컷인 API](https://www.postype.com/@ttospt/post/21806654)
 
 현재 코드는 카드덱, 핸드아웃, Narrator 연결과 관리 기능을 중심으로 별도 구현했으며 위 코드의 개정판으로 배포하지 않습니다.
+
+## 시트 인식 데이터용 Brotli 디코더
+
+`tools/vendor/brotli-json-decoder.es5.min.js`는 Roll20 샌드박스에서 별도 패키지 없이
+시트 인식 데이터를 복원하기 위해 저장소에 고정한 ES5 번들입니다. 검토와 재생성을 위한
+읽기 쉬운 동일 번들은 `tools/vendor/brotli-json-decoder.es5.js`에 보존합니다.
+
+- `brotli.js` 1.3.3 (`devongovett/brotli.js`, 패키지 선언 라이선스 MIT)
+  - 포함한 디코더 구현: Copyright 2013 Google Inc., Apache License 2.0
+- `base64-js` 1.5.1: Copyright (c) 2014 Jameson Little, MIT
+- Browserify runtime: Copyright (c) 2010 James Halliday, MIT
+- 생성 방법: 위 두 패키지를 Browserify 17.0.1의 `DecodeBrotliJson` 단일 UMD 함수로 묶고,
+  Terser 5.44.0의 `ecma: 5`, `compress: { passes: 2 }`, `mangle: true`로 한 번 축소했습니다.
+  읽기 쉬운 번들의 첫 모듈에 Base64 변환, Brotli 복원, 8,192바이트 문자열 변환 진입점이
+  그대로 남아 있습니다. 이 두 생성 도구는 배포 코드나 빌드 의존성이 아닙니다.
+- 고정 파일 SHA-256: `e24014b18c2c874aa99fa80a0d964e9aa1584eb05d0c7382314763cdf63094af`
+
+배포용 빌드는 네트워크나 외부 패키지를 사용하지 않으며 Node.js 기본 모듈의
+`zlib.brotliCompressSync`와 위 고정 디코더만 사용합니다.
+아래 MIT 및 Apache License 2.0 전문은 사용자가 복사하는 `10_sheet_helper.js`에도
+주석으로 함께 포함됩니다.
+
+### MIT License notices
+
+Copyright (c) Devon Govett
+
+Copyright (c) 2014 Jameson Little
+
+Copyright (c) 2010 James Halliday (mail@substack.net)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+### Apache License 2.0 notice
+
+Copyright 2013 Google Inc. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at:
+
+<https://www.apache.org/licenses/LICENSE-2.0>
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.

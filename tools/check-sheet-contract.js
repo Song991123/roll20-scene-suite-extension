@@ -6,7 +6,40 @@ const path = require('path');
 const vm = require('vm');
 const { parseSheetContract } = require('./sheet-contract-parser');
 const { buildSheetContract, readTranslationInputs } = require('./build-sheet-contract');
-const { readSheet, render } = require('./embed-sheet-recognition');
+const {
+  brotliBase64,
+  readSheet,
+  render,
+  renderBrotliDecoder,
+} = require('./embed-sheet-recognition');
+
+const decoderRuntime = {
+  module: { exports: 'must-not-be-used' },
+  exports: { mustNotBeUsed: true },
+  define() { throw new Error('AMD must not be used.'); },
+  window: { mustNotBeUsed: true },
+  global: { mustNotBeUsed: true },
+};
+vm.runInNewContext(renderBrotliDecoder(), decoderRuntime);
+const brotliRoundTripText = JSON.stringify({
+  kind: 'sheet-contract-round-trip',
+  values: Array.from({ length: 256 }, (_, index) => `field-${index}:${index % 17}`),
+});
+const brotliRoundTripPayload = brotliBase64(brotliRoundTripText);
+assert.strictEqual(
+  decoderRuntime.DecodeBrotliJson(brotliRoundTripPayload),
+  brotliRoundTripText,
+  'Node 기본 Brotli 압축 결과를 Roll20용 ES5 디코더가 그대로 복원해야 합니다.',
+);
+[
+  brotliRoundTripPayload.slice(0, -4),
+  `*${brotliRoundTripPayload.slice(1)}`,
+].forEach((malformed) => {
+  assert.throws(
+    () => decoderRuntime.DecodeBrotliJson(malformed),
+    '잘리거나 잘못 인코딩된 Brotli 데이터는 복원 중 즉시 거부해야 합니다.',
+  );
+});
 
 const html = `
 <div class="madness-control">

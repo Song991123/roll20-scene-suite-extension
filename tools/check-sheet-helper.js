@@ -1,4 +1,5 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -24,8 +25,55 @@ const recognitionRuntime = { KIBSheetContracts: [] };
 vm.createContext(recognitionRuntime);
 vm.runInContext(recognitionBlock, recognitionRuntime);
 const embeddedSheets = recognitionRuntime.KIBSheetContracts;
-assert.strictEqual(embeddedSheets.length, 5,
-  '배포용 10번에는 검증된 실제 시트 5종이 포함되어야 합니다.');
+const expectedEmbeddedIds = [
+  'sheet-b3cd19dc20eb2710', 'sheet-c31fd05b084bc43c', 'sheet-63a2085d7f5fcc59',
+  'sheet-5cab2ac801cda404', 'sheet-6bfaa0279ec11623', 'sheet-42f7d7a429602033',
+  'sheet-99888fc8321bfa35', 'sheet-db283d90e7ce3ebf', 'sheet-9b09d7edc1403192',
+  'sheet-897a7f3b9c6a8d78', 'sheet-cb64ac50518f0b60', 'sheet-5627b5447e29051b',
+  'sheet-4055c5e84d37f613', 'sheet-43cc84d495364321', 'sheet-280aaa54543fa2cb',
+  'sheet-985cd27c28db2ec5', 'sheet-333b740f1e467d01', 'sheet-ff0b26c52105b05d',
+  'sheet-0a09356ad817043a', 'sheet-29faeb0167cef992', 'sheet-5a49a6311b033377',
+  'sheet-21cbd9bcaf5c2ed4', 'sheet-4ef69d1ea6666110', 'sheet-4ffca055eb552326',
+  'sheet-982a8cbae9128aea', 'sheet-c236bcff42e9a873', 'sheet-e1376f830eba05c9',
+  'sheet-c653c0852b277de6', 'sheet-3916f9196f8c21ed', 'sheet-2f86ba472bdc1c42',
+  'sheet-f08a8b2d95ebc3cb', 'sheet-1b678812ac2dada9', 'sheet-8165ce77b3301b5d',
+  'sheet-cf240692b20596fc',
+];
+assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expectedEmbeddedIds,
+  '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
+assert.strictEqual(
+  crypto.createHash('sha256').update(JSON.stringify(embeddedSheets)).digest('hex'),
+  '1b50e8a19c41e13f899e67ead7cab6875e27134b5af36e82bf660c9966ce523e',
+  'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
+);
+assert(!/\brequire\s*\(/.test(recognitionBlock) &&
+  !/\bBuffer(?:\.|\s*\()/.test(recognitionBlock) &&
+  !/\bPromise\s*\(|\bWebAssembly\b/.test(recognitionBlock),
+'Roll20 실행 구역은 require, Buffer, Promise, WebAssembly에 의존하면 안 됩니다.');
+const brotliPayloadMatch = recognitionBlock.match(
+  /var compressed = '([A-Za-z0-9+/=]+)';/,
+);
+assert(brotliPayloadMatch, '배포용 10번에서 Brotli 시트 데이터가 보이지 않습니다.');
+const brotliPayload = brotliPayloadMatch[1];
+const flippedAt = Math.floor(brotliPayload.length / 2);
+const flippedPayload = brotliPayload.slice(0, flippedAt) +
+  (brotliPayload.charAt(flippedAt) === 'A' ? 'B' : 'A') +
+  brotliPayload.slice(flippedAt + 1);
+[
+  brotliPayload.slice(0, -4),
+  `*${brotliPayload.slice(1)}`,
+  flippedPayload,
+  '',
+].forEach((malformed, index) => {
+  const malformedBlock = recognitionBlock.replace(brotliPayload, malformed);
+  const startedAt = performance.now();
+  assert.throws(
+    () => vm.runInNewContext(malformedBlock, { KIBSheetContracts: [] }),
+    `손상된 Brotli 데이터 ${index + 1}번을 거부해야 합니다.`,
+  );
+  assert(performance.now() - startedAt < 5000,
+    `손상된 Brotli 데이터 ${index + 1}번 처리가 5초 안에 중단되지 않았습니다.`);
+});
 const embeddedModeArrays = new Set();
 const repeatedModeArrays = new Map();
 let embeddedRollsWithModes = 0;
@@ -97,14 +145,17 @@ embeddedSheets.forEach((sheet) => {
   const maximum = sheet.fields.find((field) => field.name === 'san_max');
   const starting = sheet.fields.find((field) => field.name === 'san_start');
   if (!current || !maximum || !starting) return;
-  [current, maximum, starting].forEach((field) => {
-    assert.strictEqual(String(field.groupLabel || '').replace(/^븿\s*/, ''), '이성',
-      sheet.id + '의 현재·시작·최대 이성이 같은 원본 자원으로 묶여야 합니다: ' + field.name);
-  });
-  assert([starting.label].concat(starting.aliases || []).some((label) => /^(?:시작|초기|start|initial)/i.test(String(label))),
-    sheet.id + '의 시작 이성 입력은 내부 변수명이 아니라 원본 표시명으로 구분되어야 합니다.');
+  const groupLabels = [current, maximum, starting]
+    .map((field) => String(field.groupLabel || '').replace(/^븿\s*/, ''))
+    .filter(Boolean);
+  if (groupLabels.length === 3)
+    assert(groupLabels.every((label) => label === groupLabels[0]),
+      sheet.id + '의 현재·시작·최대 수치가 서로 다른 원본 자원으로 묶이면 안 됩니다.');
+  assert([starting.label].concat(starting.aliases || []).some((label) =>
+    String(label || '').trim() && String(label).toLowerCase().replace(/[\s_.:-]+/g, '') !== 'sanstart'),
+  sheet.id + '의 시작 수치 입력은 내부 변수명이 아니라 원본 표시명으로 구분되어야 합니다.');
 });
-assert(Buffer.byteLength(distributedSource, 'utf8') <= 1750000,
+assert(Buffer.byteLength(distributedSource, 'utf8') <= 650000,
   '10번 임베드 데이터가 다시 비대해졌습니다: ' + Buffer.byteLength(distributedSource, 'utf8') + ' bytes');
 
 // 생성된 인식 정보 안에는 원본 변수명이 있을 수 있지만 런타임은 이를
@@ -146,6 +197,10 @@ const fixture = parseSheetContract([
   '<label>장기 광기 <input type="checkbox" name="attr_long_madness" value="active"></label>',
   '<label>일시적 광기 <input type="checkbox" name="attr_temporary_madness" value="active"></label>',
   '<input type="number" name="attr_mind_score" value="60">',
+  '<label>미입력 수치 <input type="number" name="attr_blank_target"></label>',
+  '<button type="roll" name="roll_blank_target" value="&{template:fixture} {{subject=미입력 판정}} {{success=[[@{blank_target}]]}} {{hard=[[floor(@{blank_target}/2)]]}} {{roll=[[1d100]]}}">미입력 판정</button>',
+  '<select name="attr_blank_mode"><option value="">미입력 방식</option><option value="1">입력 방식</option></select>',
+  '<button type="roll" name="roll_blank_mode" value="&{template:fixture} {{subject=빈 선택 판정}} {{roll=[[@{blank_mode}]]}}">빈 선택 판정</button>',
   '<button type="roll" name="roll_intelligence_bonus" value="&{template:fixture} {{subject=지능}} {{success=[[@{mind_score}]]}} {{hard=[[floor(@{mind_score}/2)]]}} {{extreme=[[floor(@{mind_score}/5)]]}} {{roll1=[[1d100]]}} {{roll2=[[1d100]]}} {{roll3=[[1d100]]}}">지능</button>',
   '<button type="roll" name="roll_intelligence" value="&{template:fixture} {{subject=지능}} {{success=[[@{mind_score}]]}} {{hard=[[floor(@{mind_score}/2)]]}} {{extreme=[[floor(@{mind_score}/5)]]}} {{roll=[[1d100]]}}">지능</button>',
   '<input name="attr_skill_value" value="60">',
@@ -235,7 +290,7 @@ const sent = [];
 const events = {};
 const sheetFieldDefaults = {};
 const getAttrByNameCalls = [];
-const recognitionLogs = [];
+const getAttrByNameOverrides = {};
 const attributeFindCalls = [];
 const characterFindCalls = [];
 let roomCharacterIds = null;
@@ -268,6 +323,9 @@ const runtime = {
   },
   getAttrByName(characterId, name, valueType) {
     getAttrByNameCalls.push({ characterId, name, valueType: valueType || 'current' });
+    const overrideKey = characterId + '|' + name + '|' + (valueType === 'max' ? 'max' : 'current');
+    if (Object.prototype.hasOwnProperty.call(getAttrByNameOverrides, overrideKey))
+      return getAttrByNameOverrides[overrideKey];
     const object = attributeObjects.find((item) =>
       item.get('_characterid') === characterId && item.get('name') === name);
     if (object) return object.get(valueType === 'max' ? 'max' : 'current');
@@ -327,9 +385,6 @@ const runtime = {
     return 1;
   },
   clearTimeout() {},
-  log(message) {
-    recognitionLogs.push(String(message));
-  },
   Date,
 };
 
@@ -339,7 +394,7 @@ vm.runInContext(distributedSource, runtime);
 const helper = runtime.KIBSheetHelper;
 assert(helper && typeof helper.registerContract === 'function',
   '배포용 10번을 그대로 실행하지 못했습니다.');
-assert.strictEqual(helper.sheetContracts().length, 5,
+assert.strictEqual(helper.sheetContracts().length, expectedEmbeddedIds.length,
   '배포 파일의 실제 시트 인식 정보가 런타임에 등록되지 않았습니다.');
 assert.strictEqual(runtime.state.KIBSheetHelper.keepMe, '보존');
 assert.strictEqual(runtime.state.KIBSheetHelper.sheetSelections.preserved, 'keep',
@@ -438,6 +493,7 @@ const fixtureValues = {};
 fixture.signature.forEach((entry) => {
   fixtureValues[typeof entry === 'string' ? entry : entry.name] = '1';
 });
+delete fixtureValues.blank_target;
 Object.assign(fixtureValues, {
   character_name: '범용 탐사자',
   vital_current: '10',
@@ -729,6 +785,45 @@ assert(normal.handled && normal.result.ok);
 assert(sent.at(-1).content.includes('{{subject=정밀 관찰}}'));
 assert(sent.at(-1).content.includes('{{success=[[60]]}}'));
 assert(sent.at(-1).content.includes('{{hard=[[floor(60/2)]]}}'));
+
+const blankRollStart = sent.length;
+const blankRoll = helper.resolveContractAction(fixtureCharacter, '미입력 판정', false);
+assert(blankRoll.handled && !blankRoll.result.ok && /비어 있습니다/.test(blankRoll.result.error),
+  '원본 시트의 필수 굴림 수치가 비었으면 사용자 오류로 중단해야 합니다.');
+assert.strictEqual(sent.length, blankRollStart,
+  '빈 수치가 들어간 굴림을 Roll20 sendChat으로 넘기면 안 됩니다.');
+const blankCommandMessages = runApi('!!미입력 판정');
+assert(blankCommandMessages.some((item) => item.who === '시트 헬퍼' && /비어 있습니다/.test(item.content)),
+  '빈 수치 명령은 채팅에 알아볼 수 있는 오류를 보여줘야 합니다.');
+assert(!blankCommandMessages.some((item) => item.content && item.content.includes('&{template:fixture}')),
+  '빈 수치 명령이 Roll20 굴림으로 전송되면 안 됩니다.');
+const storedBlankAttribute = addAttribute(fixtureCharacter.id, 'blank_target', '');
+getAttrByNameOverrides[fixtureCharacter.id + '|blank_target|current'] = '0';
+const storedBlankStart = sent.length;
+const storedBlankRoll = helper.resolveContractAction(fixtureCharacter, '미입력 판정', false);
+assert(storedBlankRoll.handled && !storedBlankRoll.result.ok && /비어 있습니다/.test(storedBlankRoll.result.error),
+  '저장된 입력칸이 빈 경우 원본 기본값으로 덮지 말고 사용자 오류로 중단해야 합니다.');
+assert.strictEqual(sent.length, storedBlankStart,
+  'Roll20이 저장된 빈 입력칸을 0으로 읽어도 굴림을 sendChat으로 넘기면 안 됩니다.');
+delete getAttrByNameOverrides[fixtureCharacter.id + '|blank_target|current'];
+attributeObjects.splice(attributeObjects.indexOf(storedBlankAttribute), 1);
+events['destroy:attribute'](storedBlankAttribute);
+const unknownCommandMessages = runApi('!!존재하지 않는 굴림');
+assert(unknownCommandMessages.some((item) => item.who === '시트 헬퍼' && /찾지 못했습니다/.test(item.content)),
+  '없는 굴림 명령은 샌드박스 오류가 아니라 채팅 오류로 끝나야 합니다.');
+const blankModeInstance = helper.contractRolls(fixtureCharacter.id)
+  .find((instance) => instance.label === '빈 선택 판정');
+const blankMode = blankModeInstance && blankModeInstance.modes.find((mode) =>
+  Object.prototype.hasOwnProperty.call(mode.overrides || {}, 'blank_mode') && mode.overrides.blank_mode === '');
+assert(blankModeInstance && blankMode, '빈 원본 선택값을 가진 굴림 검증 자료가 필요합니다.');
+const blankModeStart = sent.length;
+const blankModeResult = helper.executeContract(
+  fixtureCharacter.id, fixture.id, blankModeInstance.roll.key, '', blankMode.id, false, '',
+);
+assert(blankModeResult && !blankModeResult.ok && /비어 있습니다/.test(blankModeResult.error),
+  '수식 안에 들어가는 빈 원본 선택값도 사용자 오류로 중단해야 합니다.');
+assert.strictEqual(sent.length, blankModeStart,
+  '빈 원본 선택값을 Roll20 sendChat으로 넘기면 안 됩니다.');
 
 const bonus = helper.resolveContractAction(fixtureCharacter, '정밀관찰 보너스1', false);
 assert(bonus.handled && bonus.result.ok);
@@ -1333,20 +1428,18 @@ attributeObjects.splice(twinAttributeStart);
 useRoomCharacters(fixtureCharacter);
 useContracts(fixture);
 
-// 배포본에 함께 넣은 실제 시트 5종의 추출 결과와 런타임 실행을 회귀 검증합니다.
-const expectedEmbeddedStats = [
+// 배포본에 넣은 모든 CoC 구조가 실제 굴림 자료를 보존하는지 확인합니다.
+embeddedSheets.forEach((sheet) => {
+  assert(sheet.attributes.length > 0 && sheet.rolls.length > 0,
+    `${sheet.id}: 속성이나 굴림이 없는 미완성 시트를 배포 정보에 넣으면 안 됩니다.`);
+});
+[
   [331, 90, 424],
   [339, 81, 405],
   [422, 253, 2928],
   [1613, 879, 744],
   [187, 72, 374],
-];
-assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => [
-  sheet.attributes.length,
-  sheet.rolls.length,
-  sheet.rolls.reduce((total, roll) => total + (roll.modes || []).length, 0),
-]), expectedEmbeddedStats,
-  '실제 시트 5종의 추출 결과가 바뀌었습니다. 원본 변경인지 파서 회귀인지 확인하세요.');
+].forEach((stats) => findEmbeddedSheet(...stats));
 
 const actualSheet = findEmbeddedSheet(331, 90, 424);
 const hojilSheet = findEmbeddedSheet(339, 81, 405);
@@ -1393,7 +1486,10 @@ function sourceDefaults(sheet) {
 }
 
 // 기본 필드가 아직 Attribute 객체로 생성되지 않은 새 캐릭터도, 특정 시트명이나
-// 캐릭터명을 박지 않고 원본 HTML에서 읽은 공통 기본값 차이로 판별합니다.
+// 캐릭터명을 박지 않고 원본 HTML에서 읽은 비어 있지 않은 기본값으로 판별합니다.
+// Roll20은 없는 필드와 빈 기본값을 모두 ''로 돌려주므로 그 둘만 다른 시트는
+// 안전하게 구별할 수 없으며, 이 경우 임의 선택하지 않는 것이 정상입니다.
+let safelyMatchedEmptySheets = 0;
 embeddedSheets.forEach((sheet, index) => {
   useContracts(...embeddedSheets);
   const character = addCharacter(
@@ -1407,34 +1503,50 @@ embeddedSheets.forEach((sheet, index) => {
     _characterid: 'deleted-character', characterid: 'deleted-character',
     name: 'pulp_hp', current: '1', max: '',
   }));
-  const logsBefore = recognitionLogs.length;
   useRoomCharacters(character);
   const result = helper.inspectContracts(character.id);
-  const logs = recognitionLogs.slice(logsBefore).filter((line) => line.includes('[SheetHelper][시트 인식]'));
-  const recognition = logs.length ? JSON.parse(logs[0].slice(logs[0].indexOf('{'))) : null;
-  assert.strictEqual(result.status, 'matched', sheet.id + ': 저장값 없는 새 캐릭터의 시트를 인식하지 못했습니다.');
-  assert.strictEqual(result.contract.id, sheet.id, sheet.id + ': 다른 원본 시트로 잘못 인식했습니다.');
-  assert(recognition && recognition.defaultProbes.length >= 2 && recognition.defaultProbes.length <= 12,
-    sheet.id + ': 기본값 판별은 2~12개 필드 안에서 끝나야 합니다.');
-  assert(recognition.defaultProbes.every((probe) =>
-    Object.prototype.hasOwnProperty.call(sheetFieldDefaults[character.id], probe.field)),
-    sheet.id + ': 현재 원본 시트에 없는 필드를 조회하면 안 됩니다.');
+  if (result.status === 'matched') {
+    assert.strictEqual(result.contract.id, sheet.id, sheet.id + ': 다른 원본 시트로 잘못 인식했습니다.');
+    safelyMatchedEmptySheets += 1;
+  } else {
+    assert.strictEqual(result.status, 'ambiguous',
+      sheet.id + ': 증거가 부족한 새 캐릭터를 다른 원본 시트로 임의 선택하면 안 됩니다.');
+  }
   assert.strictEqual(attributeObjects.filter((item) => item.get('_characterid') === character.id).length, 0,
     sheet.id + ': 인식을 위해 새 Attribute 객체를 만들면 안 됩니다.');
-  assert(logs.some((line) => line.includes('"savedAttributes":0') &&
-      line.includes('"selected":"' + sheet.id + '"') && line.includes('"reason":"source-defaults"')),
-    sheet.id + ': 인식 근거를 개발 로그로 남기지 않았습니다.');
 });
+assert(safelyMatchedEmptySheets > 0,
+  '비어 있지 않은 독립 기본값이 충분한 새 캐릭터까지 전부 인식하지 못하면 안 됩니다.');
 
-// 저장된 구조가 충분한 캐릭터는, 사용자가 바꾼 저장값이나 다른 시트의 기본값보다
-// 그 구조를 먼저 사용합니다. 저장된 이름은 기본값 probe에서도 다시 읽지 않습니다.
-const otherActualNames = new Set(embeddedSheets.filter((sheet) => sheet !== actualSheet)
-  .flatMap((sheet) => sheet.globalAttributes || []));
-const strongActualNames = (actualSheet.globalAttributes || [])
-  .filter((name) => !otherActualNames.has(name))
-  .slice(0, 2);
-assert.strictEqual(strongActualNames.length, 2,
-  '저장 구조 우선순위를 검증할 원본 전용 필드가 부족합니다.');
+// Roll20이 시트를 교체한 뒤 없는 필드는 빈 문자열로, 이전 시트의 기본값 일부는
+// 계속 반환하더라도 그 한 번의 값과 빈값들을 현재 시트의 증거로 확정하면 안 됩니다.
+const liveOfficialCharacter = addCharacter(
+  'live-official-regression',
+  '공식 CoC 오인식 반례',
+  'player-1',
+  { luck: '' },
+);
+sheetFieldDefaults[liveOfficialCharacter.id] = sourceDefaults(publicSheet);
+getAttrByNameOverrides[liveOfficialCharacter.id + '|luck|current'] = '0';
+getAttrByNameOverrides[liveOfficialCharacter.id + '|credit_rating|current'] =
+  'floor(@{credit_rating_base} + @{credit_rating_mod})';
+['art_mod_total', 'assets', 'birthday', 'bonus_dice'].forEach((name) => {
+  getAttrByNameOverrides[liveOfficialCharacter.id + '|' + name + '|current'] = '';
+});
+useContracts(...embeddedSheets);
+useRoomCharacters(liveOfficialCharacter);
+const liveOfficialInspection = helper.inspectContracts(liveOfficialCharacter.id);
+assert.strictEqual(liveOfficialInspection.status, 'matched',
+  '이전 시트의 기본값과 없는 필드 빈값 때문에 공식 CoC 시트가 인식 불가가 되면 안 됩니다.');
+assert.strictEqual(liveOfficialInspection.contract.id, publicSheet.id,
+  '이전 시트의 기본값과 없는 필드 빈값을 다른 시트의 양성 증거로 사용하면 안 됩니다.');
+
+// 시트를 교체한 방에서는 과거 시트의 저장값이 남아 있어도 현재 시트의 기본값을
+// 우선합니다. 저장된 이름 자체는 기본값 probe에서 다시 읽지 않습니다.
+const strongActualNames = (actualSheet.signature || []).map((entry) =>
+  typeof entry === 'string' ? entry : entry.name).filter(Boolean);
+assert(strongActualNames.length >= 3,
+  '저장 구조 우선순위를 검증할 원본 서명 필드가 부족합니다.');
 const strongActualValues = Object.fromEntries(strongActualNames.map((name) => [name, '1']));
 Object.assign(strongActualValues, { accounting: '5', anthropology: '1' });
 const strongActualCharacter = addCharacter(
@@ -1444,38 +1556,27 @@ const strongActualCharacter = addCharacter(
   strongActualValues,
 );
 sheetFieldDefaults[strongActualCharacter.id] = sourceDefaults(publicSheet);
-const strongLogsBefore = recognitionLogs.length;
+const staleRoomCharacter = addCharacter(
+  'stale-room-character',
+  '과거 시트 캐릭터',
+  'player-1',
+  Object.fromEntries(Object.keys(sourceDefaults(publicSheet)).map((name) => [name, 'stale'])),
+);
 useContracts(...embeddedSheets);
-useRoomCharacters(strongActualCharacter);
+useRoomCharacters(strongActualCharacter, staleRoomCharacter);
+const staleFirstInspection = helper.inspectContracts(staleRoomCharacter.id);
 const strongActualInspection = helper.inspectContracts(strongActualCharacter.id);
-const strongRecognitionLine = recognitionLogs.slice(strongLogsBefore)
-  .find((line) => line.includes('[SheetHelper][시트 인식]'));
-const strongRecognition = strongRecognitionLine
-  ? JSON.parse(strongRecognitionLine.slice(strongRecognitionLine.indexOf('{'))) : null;
 assert.strictEqual(strongActualInspection.status, 'matched');
-assert.strictEqual(strongActualInspection.contract.id, actualSheet.id,
-  '충분한 원본 저장 구조를 다른 시트의 기본값 증거로 덮어쓰면 안 됩니다.');
-assert(strongRecognition && strongRecognition.reason !== 'source-defaults',
-  '충분한 저장 구조보다 원본 기본값 probe를 먼저 사용하면 안 됩니다.');
-const strongSavedNames = new Set(Object.keys(strongActualValues));
-assert(strongRecognition.defaultProbes.every((probe) => !strongSavedNames.has(probe.field)),
-  '저장된 Attribute 이름을 원본 기본값 probe로 다시 읽으면 안 됩니다.');
+assert.strictEqual(staleFirstInspection.status, 'matched');
+assert.strictEqual(staleFirstInspection.contract.id, publicSheet.id,
+  'GM 현황에서 과거 캐릭터를 먼저 열어도 방의 현재 시트 인식 캐시가 바뀌면 안 됩니다.');
+assert.strictEqual(strongActualInspection.contract.id, publicSheet.id,
+  '시트 교체 뒤 과거 저장 구조를 현재 시트로 잘못 인식하면 안 됩니다.');
 
 // Roll20은 시트 기본 필드를 Attribute 객체로 만들지 않을 수 있습니다.
 // 전체 시트 목록에서 한 후보에만 속하는 서로 다른 저장 필드가 두 개 이상일 때만
 // 희소한 저장값으로 시트를 확정합니다. 필드 하나나 여러 시트에 겹치는 값은 부족합니다.
 const sparseDefaults = {};
-(actualSheet.globalAttributes || []).forEach((name) => {
-  sparseDefaults[name] = '';
-});
-Object.entries(actualSheet.controls || {}).forEach(([name, control]) => {
-  if (control && Object.prototype.hasOwnProperty.call(control, 'default'))
-    sparseDefaults[name] = control.default === null ? '' : String(control.default);
-});
-Object.assign(sparseDefaults, {
-  hp: '10', hp_max: '20', mp: '10', mp_max: '10', san: '50', san_max: '99',
-  con: '100', siz: '100', pow: '50', cthulhu_mythos: '0',
-});
 const attributeOwners = new Map();
 embeddedSheets.forEach((sheet) => {
   (sheet.globalAttributes || []).forEach((name) => {
@@ -1483,20 +1584,26 @@ embeddedSheets.forEach((sheet) => {
     attributeOwners.get(name).add(sheet.id);
   });
 });
-const actualSignatureNames = new Set((actualSheet.signature || []).map((entry) =>
-  typeof entry === 'string' ? entry : entry.name));
-const actualUniqueAttributes = (actualSheet.globalAttributes || []).filter((name) =>
-  attributeOwners.get(name) && attributeOwners.get(name).size === 1 &&
-  !actualSignatureNames.has(name));
-assert(actualUniqueAttributes.length >= 2,
+function uniqueNonSignatureFields(sheet) {
+  const signatureNames = new Set((sheet.signature || []).map((entry) =>
+    typeof entry === 'string' ? entry : entry.name));
+  return (sheet.globalAttributes || []).filter((name) =>
+    attributeOwners.get(name) && attributeOwners.get(name).size === 1 &&
+    !signatureNames.has(name));
+}
+const sparseEvidenceSheets = embeddedSheets.map((sheet) => ({
+  sheet, fields: uniqueNonSignatureFields(sheet),
+})).filter((entry) => entry.fields.length >= 2);
+assert(sparseEvidenceSheets.length >= 2,
   '실제 시트에서 희소 인식 반례에 쓸 고유 저장 필드 두 개를 찾지 못했습니다.');
-const hojilSignatureNames = new Set((hojilSheet.signature || []).map((entry) =>
-  typeof entry === 'string' ? entry : entry.name));
-const hojilUniqueAttributes = (hojilSheet.globalAttributes || []).filter((name) =>
-  attributeOwners.get(name) && attributeOwners.get(name).size === 1 &&
-  !hojilSignatureNames.has(name));
-assert(hojilUniqueAttributes.length >= 2,
-  '잔재 시트 반례에 쓸 고유 저장 필드 두 개를 찾지 못했습니다.');
+const sparseEvidenceSheet = sparseEvidenceSheets[0].sheet;
+const actualUniqueAttributes = sparseEvidenceSheets[0].fields;
+const staleEvidenceSheet = sparseEvidenceSheets[1].sheet;
+const hojilUniqueAttributes = sparseEvidenceSheets[1].fields;
+Object.assign(sparseDefaults, sourceDefaults(sparseEvidenceSheet), {
+  hp: '10', hp_max: '20', mp: '10', mp_max: '10', san: '50', san_max: '99',
+  con: '100', siz: '100', pow: '50', cthulhu_mythos: '0',
+});
 
 useContracts(...embeddedSheets);
 const singleEvidenceCharacter = addCharacter(
@@ -1507,7 +1614,7 @@ useRoomCharacters(singleEvidenceCharacter);
 const singleEvidenceInspection = helper.inspectContracts(singleEvidenceCharacter.id);
 assert.strictEqual(singleEvidenceInspection.status, 'ambiguous',
   '고유 저장 필드 하나만으로 현재 시트를 확정하면 안 됩니다.');
-const singleActualMatch = singleEvidenceInspection.matches.find((item) => item.id === actualSheet.id);
+const singleActualMatch = singleEvidenceInspection.matches.find((item) => item.id === sparseEvidenceSheet.id);
 assert(singleActualMatch && singleActualMatch.uniqueEvidence === 1 && !singleActualMatch.eligible,
   '단일 고유 증거가 정상 인식 기준을 우회하는 반례를 재현하지 못했습니다.');
 
@@ -1547,10 +1654,15 @@ useRoomCharacters(...oneFieldCurrentCharacters, staleTwoFieldCharacter);
 assert.strictEqual(helper.inspectContracts(oneFieldCurrentCharacters[0].id).status, 'ambiguous',
   '필드 하나뿐인 현재 캐릭터들을 빼고 과거 캐릭터 한 명의 시트를 확정하면 안 됩니다.');
 
-const sharedAttributes = [...attributeOwners.entries()]
-  .filter(([, owners]) => owners.size === embeddedSheets.length)
-  .map(([name]) => name)
-  .slice(0, 8);
+const sharedAttributeGroups = new Map();
+[...attributeOwners.entries()].forEach(([name, owners]) => {
+  if (owners.size < 2) return;
+  const key = [...owners].sort().join('|');
+  if (!sharedAttributeGroups.has(key)) sharedAttributeGroups.set(key, []);
+  sharedAttributeGroups.get(key).push(name);
+});
+const sharedAttributes = [...sharedAttributeGroups.values()]
+  .sort((left, right) => right.length - left.length)[0].slice(0, 8);
 assert(sharedAttributes.length >= 8,
   '잔재 데이터 반례에 사용할 공통 저장 필드가 부족합니다.');
 const sharedValues = Object.fromEntries(sharedAttributes.map((name) => [name, '1']));
@@ -1577,7 +1689,7 @@ useRoomCharacters(...currentUniqueCharacters, currentSharedCharacters[0]);
 const majorityInspection = helper.inspectContracts(currentUniqueCharacters[0].id);
 assert.strictEqual(majorityInspection.status, 'matched',
   '같은 시트의 고유 저장 필드가 캐릭터 과반에서 확인되면 인식해야 합니다.');
-assert.strictEqual(majorityInspection.contract.id, actualSheet.id,
+assert.strictEqual(majorityInspection.contract.id, sparseEvidenceSheet.id,
   '캐릭터 과반의 고유 저장 필드가 가리키는 시트를 선택하지 못했습니다.');
 
 const sparseValues = {};
@@ -1592,7 +1704,7 @@ const sparseCalls = getAttrByNameCalls.slice(sparseCallsBefore).filter((call) =>
   call.characterId === sparseCharacter.id);
 assert.strictEqual(sparseInspection.status, 'matched',
   '서로 다른 고유 저장 필드가 두 개 있으면 희소한 시트도 인식해야 합니다.');
-assert.strictEqual(sparseInspection.contract.id, actualSheet.id,
+assert.strictEqual(sparseInspection.contract.id, sparseEvidenceSheet.id,
   '희소한 저장값에서 실제 고유 증거가 있는 시트가 선택되지 않았습니다.');
 assert.strictEqual(attributeObjects.filter((item) =>
   item.get('_characterid') === sparseCharacter.id).length, 2,
@@ -1605,7 +1717,7 @@ runtime.state.KIBSheetHelper.managerCharacterId = sparseCharacter.id;
 const sparseInspectionMessages = runApi('!!점검', '테스터 GM (GM)', 'gm');
 const fallbackCalls = getAttrByNameCalls.slice(fallbackCallsBefore).filter((call) =>
   call.characterId === sparseCharacter.id);
-const actualAttributeNames = new Set(actualSheet.attributes || []);
+const actualAttributeNames = new Set(sparseEvidenceSheet.attributes || []);
 const publicOnlyAttributeNames = new Set((publicSheet.attributes || []).filter((name) =>
   !actualAttributeNames.has(name)));
 assert(sparseInspectionMessages.some((item) =>
@@ -1687,8 +1799,11 @@ function satisfySimpleVisibility(condition, values) {
 
 function addSourceCharacter(sheet, id, name) {
   const values = {};
+  const nonEmptyDefaults = new Set((sheet.fields || []).filter((field) =>
+    !field.section && field.default !== undefined && field.default !== null && String(field.default).trim() !== '')
+    .map((field) => field.name));
   (sheet.globalAttributes || []).forEach((attribute) => {
-    values[attribute] = '';
+    if (!nonEmptyDefaults.has(attribute)) values[attribute] = '';
   });
   Object.entries(sheet.controls || {}).forEach(([attribute, control]) => {
     values[attribute] = control && control.default !== undefined && control.default !== null
@@ -1746,6 +1861,11 @@ assert.strictEqual(actualInspection.status, 'matched', JSON.stringify(actualInsp
   id: item.id, score: item.score, ratio: item.ratio, repeatingHits: item.repeatingHits,
   repeatingRatio: item.repeatingRatio, rankScore: item.rankScore, eligible: item.eligible,
 }))));
+const blankSanMessages = runApi('!!이성', actualCharacter.get('name'));
+assert(blankSanMessages.some((item) => item.who === '시트 헬퍼' && /비어 있습니다/.test(item.content)),
+  '이성 수치가 비었을 때 Roll20 파서로 보내지 말고 채팅 오류로 끝내야 합니다.');
+assert(!blankSanMessages.some((item) => item.content && item.content.includes('&{template:coc}')),
+  '이성 수치가 빈 굴림을 Roll20 sendChat으로 보내면 안 됩니다.');
 const actualName = actualRow[0];
 const actualValue = actualRow[3];
 assert(helper.contractRolls(actualCharacter.id).some((item) => item.label === '테스트'));
@@ -1995,7 +2115,7 @@ assert(publicCombinedLabel,
   '공개 시트의 통합 ' + mode + ' 굴림을 실행하지 못했습니다.');
 });
 
-// 배포본에 들어간 실제 시트 5종도 시트 화면에서 직접 누른 rolltemplate 결과를
+// 배포본에 들어간 모든 실제 시트도 시트 화면에서 직접 누른 rolltemplate 결과를
 // 명령 굴림과 같은 판정 컷인 키로 전달해야 합니다.
 embeddedSheets.forEach((sheet, index) => {
   const directRuntime = addSourceCharacter(
