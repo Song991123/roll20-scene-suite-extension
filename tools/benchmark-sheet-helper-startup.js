@@ -6,8 +6,8 @@ const { performance } = require('perf_hooks');
 
 const ROOT = path.resolve(__dirname, '..');
 const SOURCE_PATH = path.join(ROOT, 'public', 'scripts', '10_sheet_helper.js');
-const RECOGNITION_START = '/* KIB_SHEET_RECOGNITION_START */';
-const RECOGNITION_END = '/* KIB_SHEET_RECOGNITION_END */';
+const RECOGNITION_START = '/* SCENE_SUITE_SHEET_RECOGNITION_START */';
+const RECOGNITION_END = '/* SCENE_SUITE_SHEET_RECOGNITION_END */';
 
 function parseArgs(argv) {
   const options = { samples: 15, warmups: 3 };

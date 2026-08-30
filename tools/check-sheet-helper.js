@@ -10,8 +10,8 @@ const distributedSource = fs.readFileSync(
   path.resolve(__dirname, '../public/scripts/10_sheet_helper.js'),
   'utf8',
 );
-const recognitionStart = '/* KIB_SHEET_RECOGNITION_START */';
-const recognitionEnd = '/* KIB_SHEET_RECOGNITION_END */';
+const recognitionStart = '/* SCENE_SUITE_SHEET_RECOGNITION_START */';
+const recognitionEnd = '/* SCENE_SUITE_SHEET_RECOGNITION_END */';
 const recognitionStartAt = distributedSource.indexOf(recognitionStart);
 const recognitionEndAt = distributedSource.indexOf(recognitionEnd);
 assert(recognitionStartAt >= 0 && recognitionEndAt > recognitionStartAt,
@@ -787,8 +787,12 @@ assert.strictEqual(blockedMessages[0].content,
 characters.splice(characters.indexOf(blockedCharacter), 1);
 attributeObjects.splice(blockedAttributeStart);
 
+helper.scan(fixtureCharacter.id, true);
+const cachedExactFinds = attributeFindCalls.length;
 const normal = helper.resolveContractAction(fixtureCharacter, '정밀 관찰', false);
 assert(normal.handled && normal.result.ok);
+assert.strictEqual(attributeFindCalls.length, cachedExactFinds,
+  '캐시된 굴림을 정확히 찾을 때 캐릭터 Attribute를 다시 전부 조회하면 안 됩니다.');
 assert(sent.at(-1).content.includes('{{subject=정밀 관찰}}'));
 assert(sent.at(-1).content.includes('{{success=[[60]]}}'));
 assert(sent.at(-1).content.includes('{{hard=[[floor(60/2)]]}}'));
@@ -815,9 +819,13 @@ assert.strictEqual(sent.length, storedBlankStart,
 delete getAttrByNameOverrides[fixtureCharacter.id + '|blank_target|current'];
 attributeObjects.splice(attributeObjects.indexOf(storedBlankAttribute), 1);
 events['destroy:attribute'](storedBlankAttribute);
+helper.scan(fixtureCharacter.id, true);
+const cachedMissFinds = attributeFindCalls.length;
 const unknownCommandMessages = runApi('!!존재하지 않는 굴림');
 assert(unknownCommandMessages.some((item) => item.who === '시트 헬퍼' && /찾지 못했습니다/.test(item.content)),
   '없는 굴림 명령은 샌드박스 오류가 아니라 채팅 오류로 끝나야 합니다.');
+assert.strictEqual(attributeFindCalls.length, cachedMissFinds,
+  '없는 굴림을 두 단계로 찾을 때 같은 캐릭터 Attribute를 다시 전부 조회하면 안 됩니다.');
 const blankModeInstance = helper.contractRolls(fixtureCharacter.id)
   .find((instance) => instance.label === '빈 선택 판정');
 const blankMode = blankModeInstance && blankModeInstance.modes.find((mode) =>

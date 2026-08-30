@@ -5,8 +5,8 @@ const { parseSheetContract } = require('./sheet-contract-parser');
 const { readSheetSourceInputs } = require('./build-sheet-contract');
 
 const target = path.resolve(__dirname, '../public/scripts/10_sheet_helper.js');
-const start = '/* KIB_SHEET_RECOGNITION_START */';
-const end = '/* KIB_SHEET_RECOGNITION_END */';
+const start = '/* SCENE_SUITE_SHEET_RECOGNITION_START */';
+const end = '/* SCENE_SUITE_SHEET_RECOGNITION_END */';
 const brotliDecoderPath = path.resolve(
   __dirname,
   'vendor/brotli-json-decoder.es5.min.js',

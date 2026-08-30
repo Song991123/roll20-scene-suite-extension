@@ -9,8 +9,8 @@ const { performance } = require('perf_hooks');
 
 const ROOT = path.resolve(__dirname, '..');
 const SCRIPTS_ROOT = path.join(ROOT, 'public', 'scripts');
-const RECOGNITION_START = '/* KIB_SHEET_RECOGNITION_START */';
-const RECOGNITION_END = '/* KIB_SHEET_RECOGNITION_END */';
+const RECOGNITION_START = '/* SCENE_SUITE_SHEET_RECOGNITION_START */';
+const RECOGNITION_END = '/* SCENE_SUITE_SHEET_RECOGNITION_END */';
 const DEFAULT_REF = '13a57d4';
 const FIXTURE_SIZES = [10, 100, 1000];
 const PUBLIC_TEXT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json', '.md', '.svg', '.txt']);

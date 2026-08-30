@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.12
+ * Scene Suite 10 - Sheet Helper 0.6.13
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -9,7 +9,7 @@ var KIBScene = KIBScene || {};
 var KIBSheetHelper = KIBSheetHelper || {};
 var KIBSheetContracts = KIBSheetContracts || [];
 
-/* KIB_SHEET_RECOGNITION_START */
+/* SCENE_SUITE_SHEET_RECOGNITION_START */
 (function () {
   /*!
    * Self-contained Brotli JSON decoder bundle
@@ -317,7 +317,7 @@ var KIBSheetContracts = KIBSheetContracts || [];
       KIBSheetContracts.push(sheet);
   });
 }());
-/* KIB_SHEET_RECOGNITION_END */
+/* SCENE_SUITE_SHEET_RECOGNITION_END */
 
 // ===== 사용자 설정 =====
 var sheet_helper_setting = {
@@ -333,8 +333,9 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.12';
+  var VERSION = '0.6.13';
   var cache = {};
+  var attributeObjectCache = {};
   var refreshTimer = null;
   var pendingResults = {};
   var contractIndexCache = {};
@@ -1952,17 +1953,21 @@ var sheet_helper_setting = {
   function invalidate(characterId) {
     if (characterId) {
       delete cache[characterId];
+      delete attributeObjectCache[characterId];
     } else {
       cache = {};
+      attributeObjectCache = {};
       contractMatchCache = {};
     }
   }
 
   function scan(characterId, force) {
-    if (!force && cache[characterId]) return cache[characterId];
     var character = getObj('character', characterId);
     if (!character) return { ok: false, error: '캐릭터를 찾지 못했습니다.' };
+    if (!force && cache[characterId] && cache[characterId].characterName === trim(character.get('name')))
+      return cache[characterId];
     var objects = attrObjects(characterId);
+    attributeObjectCache[characterId] = objects;
     var contractMatch = contractMatchCache[characterId] || inspectContracts(characterId, objects);
     var value = {};
     value.warnings = [];
@@ -1984,6 +1989,11 @@ var sheet_helper_setting = {
     value.fieldReferences = fields.references;
     cache[characterId] = value;
     return value;
+  }
+
+  function scannedContractRolls(characterId, includeHidden) {
+    var data = scan(characterId);
+    return (includeHidden ? data.contractAllRolls : data.contractRolls) || [];
   }
 
   var DETECTED_ROLE_LABELS = {
@@ -2848,7 +2858,7 @@ var sheet_helper_setting = {
     function savedAttribute(name) {
       if (!savedAttributes) {
         savedAttributes = dictionary();
-        attrObjects(characterId).forEach(function (attribute) {
+        (attributeObjectCache[characterId] || attrObjects(characterId)).forEach(function (attribute) {
           savedAttributes[trim(attribute.get('name'))] = attribute;
         });
       }
@@ -3051,7 +3061,7 @@ var sheet_helper_setting = {
     if (inspection.status !== 'matched') return { ok: false, error: SHEET_NOT_RECOGNIZED };
     if (String(inspection.contract.id) !== String(contractId))
       return { ok: false, error: '선택한 굴림 정보가 현재 캐릭터와 더 이상 맞지 않습니다.' };
-    var matches = contractRolls(characterId, inspection, null, !!includeHidden).filter(function (instance) {
+    var matches = scannedContractRolls(characterId, !!includeHidden).filter(function (instance) {
       return String(instance.roll.key) === String(rollKey) && String(instance.row ? instance.row.id : '') === String(rowId || '');
     });
     return matches.length === 1
@@ -3255,7 +3265,7 @@ var sheet_helper_setting = {
     var inspection = inspectContracts(character.id);
     if (inspection.status === 'ambiguous') return { handled: true, result: { ok: false, error: inspection.error } };
     if (inspection.status !== 'matched') return { handled: false, result: null };
-    var instances = contractRolls(character.id, inspection, null, true).map(function (instance) {
+    var instances = scannedContractRolls(character.id, true).map(function (instance) {
       instance.characterId = character.id;
       return instance;
     });
@@ -3307,7 +3317,7 @@ var sheet_helper_setting = {
     if (inspection.status !== 'matched') return null;
     var safe = safeUserRollExpression(character.id, expressionText);
     if (!safe) return { ok: false, error: '자유 주사위 식은 2d6+3처럼 완전한 식으로 적어 주세요.' };
-    var instances = contractRolls(character.id, inspection).filter(function (instance) {
+    var instances = scannedContractRolls(character.id).filter(function (instance) {
       return !!contractExpressionRef(character.id, instance);
     }).map(function (instance) {
       instance.characterId = character.id;
@@ -3897,12 +3907,7 @@ var sheet_helper_setting = {
 
   function playerHelpHtml() {
     var character = profileCharacters()[0];
-    var contractFree = !!character && contractRolls(
-      character.id,
-      inspectContracts(character.id),
-      null,
-      true,
-    ).some(function (instance) {
+    var contractFree = !!character && scannedContractRolls(character.id, true).some(function (instance) {
       return !!contractExpressionRef(character.id, instance);
     });
     var rows = [
@@ -4470,7 +4475,7 @@ var sheet_helper_setting = {
         var inspection = inspectContracts(character.id);
         if (inspection.status !== 'matched')
           return { ok: false, error: inspection.error || SHEET_NOT_RECOGNIZED };
-        var matches = contractRolls(character.id, inspection).filter(function (instance) {
+        var matches = scannedContractRolls(character.id).filter(function (instance) {
           return normalize(instance.label) === normalize(listLabel.value);
         }).map(function (instance) {
           instance.characterId = character.id;
@@ -4629,7 +4634,7 @@ var sheet_helper_setting = {
     membershipChanged = !!membershipChanged || !!(previous && own(previous, 'name') && trim(previous.name) !== name);
     if (!characterId || (!membershipChanged && !contractRelevant(name))) return;
     if (membershipChanged) invalidate();
-    else delete cache[characterId];
+    else invalidate(characterId);
     scheduleManager();
   }
 
