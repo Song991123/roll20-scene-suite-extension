@@ -142,11 +142,15 @@ assert(!firstRollLabels.includes('다른 캐릭터 기능'),
   const added = attribute(secondCharacter.id, name, name.endsWith('_name') ? '오래된 항목' : '20');
   events['add:attribute'](added);
 });
-const ambiguous = helper.inspectContracts(firstCharacter.id);
-assert.strictEqual(ambiguous.status, 'ambiguous', JSON.stringify((ambiguous.matches || []).map((item) => ({
+const afterResidue = helper.inspectContracts(firstCharacter.id);
+assert.strictEqual(afterResidue.status, 'matched', JSON.stringify((afterResidue.matches || []).map((item) => ({
   id: item.id, score: item.score, ratio: item.ratio, rankScore: item.rankScore, eligible: item.eligible,
 }))));
-assert(ambiguous.error && !/골라|선택/.test(ambiguous.error),
-  '방 증거가 충돌할 때 GM에게 시트를 고르게 하면 안 됩니다.');
+assert.strictEqual(afterResidue.contract.id, first.id,
+  '한 캐릭터에 남은 과거 시트 데이터가 현재 방 전체의 시트 인식을 막으면 안 됩니다.');
+const firstMatch = afterResidue.matches.find((item) => item.id === first.id);
+const residueMatch = afterResidue.matches.find((item) => item.id === second.id);
+assert(firstMatch && residueMatch && firstMatch.supportCount > residueMatch.supportCount,
+  '현재 시트와 과거 잔재를 구분할 캐릭터별 증거 범위를 유지해야 합니다.');
 
 console.log('Sheet room recognition: ok');

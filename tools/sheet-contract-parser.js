@@ -233,6 +233,73 @@
     return Object.prototype.hasOwnProperty.call(node.attrs, name);
   }
 
+  function jsObjectProperties(source, openAt) {
+    var parts = [];
+    var start = openAt + 1;
+    var braces = 1;
+    var brackets = 0;
+    var parens = 0;
+    var quote = '';
+    var lineComment = false;
+    var blockComment = false;
+    for (var i = start; i < source.length; i += 1) {
+      var ch = source.charAt(i);
+      var next = source.charAt(i + 1);
+      if (lineComment) {
+        if (ch === '\n' || ch === '\r') lineComment = false;
+        continue;
+      }
+      if (blockComment) {
+        if (ch === '*' && next === '/') { blockComment = false; i += 1; }
+        continue;
+      }
+      if (quote) {
+        if (ch === '\\') i += 1;
+        else if (ch === quote) quote = '';
+        continue;
+      }
+      if (ch === '/' && next === '/') { lineComment = true; i += 1; continue; }
+      if (ch === '/' && next === '*') { blockComment = true; i += 1; continue; }
+      if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
+      if (ch === '{') braces += 1;
+      else if (ch === '}' && --braces === 0) {
+        parts.push(source.slice(start, i));
+        return { parts: parts, end: i };
+      } else if (ch === '[') brackets += 1;
+      else if (ch === ']' && brackets) brackets -= 1;
+      else if (ch === '(') parens += 1;
+      else if (ch === ')' && parens) parens -= 1;
+      else if (ch === ',' && braces === 1 && !brackets && !parens) {
+        parts.push(source.slice(start, i));
+        start = i + 1;
+      }
+    }
+    return { parts: [], end: source.length };
+  }
+
+  function workerStoredAttributes(root) {
+    var found = dictionary();
+    walk(root, function (node) {
+      if (node.tag !== 'script' || normalizeText(node.attrs.type).toLowerCase() !== 'text/worker') return;
+      var source = (node.children || []).filter(function (child) { return child.tag === '#text'; })
+        .map(function (child) { return child.text; }).join('\n');
+      var pattern = /\bsetAttrs\s*\(\s*\{/g;
+      var match;
+      while ((match = pattern.exec(source))) {
+        var openAt = source.indexOf('{', match.index);
+        var object = jsObjectProperties(source, openAt);
+        object.parts.forEach(function (part) {
+          var clean = part.replace(/^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))+/, '');
+          var key = clean.match(/^(?:["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\]|([A-Za-z_$\u0080-\uFFFF][\w$\u0080-\uFFFF-]*))\s*(?=:|$)/);
+          var name = baseAttrName(key && (key[1] || key[2] || key[3]) || '');
+          if (name) found[name] = true;
+        });
+        pattern.lastIndex = object.end + 1;
+      }
+    });
+    return Object.keys(found).sort();
+  }
+
   function elementChildren(node) {
     return (node && node.children || []).filter(function (child) { return child.tag !== '#text'; });
   }
@@ -1452,6 +1519,10 @@
         return node.tag === 'input' && /^(?:text|number|range|checkbox|radio)$/.test(fieldNodeType(node)) &&
           !hasAttr(node, 'readonly') && !hasAttr(node, 'disabled') && !hiddenFieldNode(node);
       });
+      var persistable = nodes.some(function (node) {
+        return (node.tag === 'input' || node.tag === 'select' || node.tag === 'textarea') &&
+          !hasAttr(node, 'readonly') && !hasAttr(node, 'disabled') && !hiddenFieldNode(node);
+      });
       return {
         name: name,
         type: candidate ? fieldNodeType(candidate) : controls[name].type,
@@ -1466,7 +1537,8 @@
         disabled: nodes.every(function (node) { return hasAttr(node, 'disabled'); }),
         hidden: nodes.every(hiddenFieldNode),
         numericCandidate: !!candidate,
-        trackCandidate: trackable
+        trackCandidate: trackable,
+        persistCandidate: persistable
       };
     });
   }
@@ -1818,23 +1890,39 @@
     return result;
   }
 
-  function compactSignature(controls, rolls) {
+  function compactSignature(controls, rolls, fields) {
     var frequencies = dictionary();
     var tokenFrequencies = dictionary();
-    Object.keys(controls).forEach(function (name) {
+    var persistable = dictionary();
+    (fields || []).forEach(function (field) {
+      if (!field.section && field.persistCandidate) persistable[field.name] = true;
+    });
+    Object.keys(controls).filter(function (name) { return persistable[name]; }).forEach(function (name) {
       name.toLowerCase().split(/[^a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ]+/).filter(Boolean).forEach(function (token) {
         tokenFrequencies[token] = (tokenFrequencies[token] || 0) + 1;
       });
     });
     rolls.forEach(function (roll) {
       var seen = dictionary();
+      function count(name, depth) {
+        if (!name || seen[name] || depth > 8) return;
+        seen[name] = true;
+        if (persistable[name]) {
+          frequencies[name] = (frequencies[name] || 0) + 1;
+          return;
+        }
+        var control = controls[name];
+        if (!control) return;
+        refTokens(String(control.default || '')).forEach(function (ref) {
+          if (!ref.max) count(ref.name, depth + 1);
+        });
+      }
       roll.refs.forEach(function (ref) {
-        if (!seen[ref.name]) frequencies[ref.name] = (frequencies[ref.name] || 0) + 1;
-        seen[ref.name] = true;
+        if (!ref.max) count(ref.name, 0);
       });
     });
     return Object.keys(controls).filter(function (name) {
-      return !controls[name].repeating;
+      return !controls[name].repeating && persistable[name];
     }).map(function (name) {
       var control = controls[name];
       var macro = /[?@%&]\{|\{\{|\[\[/.test(String(control.default || ''));
@@ -2205,6 +2293,7 @@
     var opts = options || {};
     var translations = translationMaps(opts.translations);
     var tree = parseHtml(html);
+    var storedByWorker = workerStoredAttributes(tree);
     var controlScopes = collectControls(tree, translations);
     var globalControls = controlScopes.global;
     var rollNodes = collectRollNodes(tree);
@@ -2226,7 +2315,8 @@
     applyNamedResourcePairGroups(controlScopes, translations);
     applyResourcePairLabels(controlScopes);
     var resultTemplates = collectResultTemplates(tree, rolls);
-    var signature = compactSignature(globalControls, rolls);
+    var signature = compactSignature(globalControls, rolls, controlScopes.fields);
+    controlScopes.fields.forEach(function (field) { delete field.persistCandidate; });
     var attributes = dictionary();
     var globalAttributes = dictionary();
     var sections = dictionary();
@@ -2245,6 +2335,10 @@
         attributes[ref.name] = true;
         if (!roll.repeating || rowFields.indexOf(ref.name) < 0) globalAttributes[ref.name] = true;
       });
+    });
+    storedByWorker.forEach(function (name) {
+      attributes[name] = true;
+      globalAttributes[name] = true;
     });
     rolls.forEach(function (roll) { delete roll.refs; });
     var usedControls = dictionary();

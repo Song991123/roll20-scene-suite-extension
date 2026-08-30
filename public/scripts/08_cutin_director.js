@@ -1,5 +1,5 @@
 /*
- * Scene Suite 08 - Cutin Director 1.6.1
+ * Scene Suite 08 - Cutin Director 1.6.2
  * 제작 및 통합: @EOOOOORK
  * 연출 아이디어 참고: 젠트의 주사위 판정 컷인, 똣의 범용 컷인 API
  * https://lise1415622.tistory.com/52
@@ -37,6 +37,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   var activeCaptionEnabled = false;
   var macroTimer = null;
   var managerTimer = null;
+  var managerRefreshRevision = 0;
   var frontRetryTimer = null;
   var SHEET_OUTCOMES = {
     roll: '판정 실행',
@@ -1603,6 +1604,24 @@ KIBScene.adapters = KIBScene.adapters || {};
     }).join('') + '}';
   }
 
+  function encodeSheetCommandKey(value) {
+    value = trim(value);
+    if (value === '*') return value;
+    var encoded = 'k';
+    for (var i = 0; i < value.length; i += 1)
+      encoded += ('0000' + value.charCodeAt(i).toString(16)).slice(-4);
+    return encoded;
+  }
+
+  function decodeSheetCommandKey(value) {
+    value = trim(value);
+    if (value === '*' || !/^k(?:[0-9a-f]{4})+$/i.test(value)) return value;
+    var decoded = '';
+    for (var i = 1; i < value.length; i += 4)
+      decoded += String.fromCharCode(parseInt(value.slice(i, i + 4), 16));
+    return decoded;
+  }
+
   function sheetRulesForSource(sourceKey) {
     initState();
     return Object.keys(state.KIBSceneCutin.sheetRules).sort().map(function (key) {
@@ -1615,7 +1634,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   function sheetUnbindButton(rule) {
     return button(
       '해제',
-      SETTING.command + ' 시트연결해제|' + safeQuery(rule.itemKey) + '|' + safeQuery(rule.outcome),
+      SETTING.command + ' 시트연결해제|' + encodeSheetCommandKey(rule.itemKey) + '|' + safeQuery(rule.outcome),
       '#8b3940',
     );
   }
@@ -1624,7 +1643,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (!KIBScene.adapters || !KIBScene.adapters.sheet || !source || !source.card) return '';
     var availableItems = sheetItems(items);
     var itemQuery = sheetChoiceQuery('판정 항목', availableItems.map(function (item) {
-      return { label: item.displayLabel || item.label, value: item.key };
+      return { label: item.displayLabel || item.label, value: encodeSheetCommandKey(item.key) };
     }));
     var outcomes = sheetOutcomes();
     var outcomeQuery = sheetChoiceQuery('판정 결과', Object.keys(outcomes).map(function (key) {
@@ -1658,7 +1677,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function bindSheetCutin(parts) {
     initState();
-    var itemKey = trim(parts[0]);
+    var itemKey = decodeSheetCommandKey(parts[0]);
     var outcome = trim(parts[1]).toLowerCase();
     var sourceKey = trim(parts[2]);
     var item = itemKey === '*'
@@ -1681,7 +1700,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function unbindSheetCutin(parts) {
     initState();
-    var itemKey = trim(parts[0]);
+    var itemKey = decodeSheetCommandKey(parts[0]);
     var outcome = trim(parts[1]);
     var key = sheetRuleKey(itemKey, outcome);
     if (!state.KIBSceneCutin.sheetRules[key]) return whisper('등록된 판정 컷인 연결이 없습니다.');
@@ -1692,8 +1711,6 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function refreshLinkedManagers() {
     refreshManager();
-    var sheet = KIBScene.adapters && KIBScene.adapters.sheet;
-    if (sheet && typeof sheet.refresh === 'function') sheet.refresh();
     refreshHelp();
   }
 
@@ -1876,6 +1893,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function refreshManager(snapshot) {
     initState();
+    var revision = ++managerRefreshRevision;
     var managers =
       findObjs({ _type: 'handout', name: SETTING.managerName }) || [];
     var manager = state.KIBSceneCutin.managerId
@@ -1906,7 +1924,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       '</div>';
     var handled = false;
     function apply(currentNotes) {
-      if (handled) return;
+      if (handled || revision !== managerRefreshRevision) return;
       handled = true;
       var updates = { inplayerjournals: '', controlledby: '' };
       if (String(currentNotes == null ? '' : currentNotes) !== notes)
@@ -2336,7 +2354,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function initState() {
     state.KIBSceneCutin = state.KIBSceneCutin || {};
-    state.KIBSceneCutin.version = '1.6.1';
+    state.KIBSceneCutin.version = '1.6.2';
     state.KIBSceneCutin.durations = state.KIBSceneCutin.durations || {};
     state.KIBSceneCutin.audioLinks = state.KIBSceneCutin.audioLinks || {};
     state.KIBSceneCutin.sourceRatios = state.KIBSceneCutin.sourceRatios || {};

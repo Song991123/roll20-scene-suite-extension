@@ -280,6 +280,10 @@ assert.strictEqual(fieldContract.fields.find((field) => field.name === 'durabili
   assert.strictEqual(fieldContract.fields.find((field) => field.name === name).numericCandidate, false,
     `${name} 필드는 변경 가능한 수치 입력 후보가 아니어야 합니다.`);
 });
+['internal_total', 'locked_value', 'disabled_value'].forEach((name) => {
+  assert(!fieldContract.signature.includes(name),
+    `${name} 필드는 실제로 저장할 수 없는 값이므로 시트 인식 기준이 아니어야 합니다.`);
+});
 
 const madness = contract.rolls.find((roll) => roll.name === 'madness');
 assert.strictEqual(madness.raw.startsWith('&{template:test}'), true);
@@ -348,6 +352,36 @@ assert.strictEqual(damage.repeating.section, 'repeating_weapon');
 assert(damage.repeating.fields.includes('damage'));
 assert.strictEqual(Object.prototype.hasOwnProperty.call(damage, 'refs'), false);
 assert(contract.signature.includes('bonus_count'));
+const persistedSignature = parseSheetContract(`
+  <input name="attr_mixed" readonly><input name="attr_mixed" disabled>
+  <input name="attr_writable"><select name="attr_choice"><option value="a">A</option></select>
+  <textarea name="attr_notes"></textarea>
+  <select name="attr_disabled_choice" disabled><option value="a">A</option></select>
+  <textarea name="attr_readonly_notes" readonly></textarea>
+`, { name: '저장 필드', id: 'persisted-signature' }).signature;
+['mixed', 'disabled_choice', 'readonly_notes'].forEach((name) => {
+  assert(!persistedSignature.includes(name),
+    `${name}처럼 편집 가능한 노드가 없는 필드를 시트 인식 기준으로 쓰면 안 됩니다.`);
+});
+['writable', 'choice', 'notes'].forEach((name) => {
+  assert(persistedSignature.includes(name), `${name} 저장 입력이 시트 인식 기준에서 빠졌습니다.`);
+});
+const workerContract = parseSheetContract(`
+  <input name="attr_visible">
+  <script type="text/worker">
+    on('change:visible', function () {
+      setAttrs({ worker_total: 1, 'worker-state': 2, attr_prefixed: 3,
+        nested: makeValue({ ignore_nested: 4 }), ['computed_key']: 5, shorthand });
+    });
+  </script>
+`, { name: '작업 스크립트 저장값', id: 'worker-attributes' });
+['worker_total', 'worker-state', 'prefixed', 'nested', 'computed_key', 'shorthand'].forEach((name) => {
+  assert(workerContract.globalAttributes.includes(name), `${name} 작업 스크립트 저장값을 찾지 못했습니다.`);
+});
+assert(!workerContract.globalAttributes.includes('ignore_nested'),
+  'setAttrs 값 내부 객체의 키를 캐릭터 속성으로 잘못 읽으면 안 됩니다.');
+assert(!workerContract.signature.includes('worker_total'),
+  '작업 스크립트 전용 저장값을 화면 입력 기반 인식 서명으로 올리면 안 됩니다.');
 const fixtureModeCount = contract.rolls.reduce((count, roll) => count + roll.modes.length, 0);
 assert(fixtureModeCount <= 24);
 

@@ -76,7 +76,7 @@ function findEmbeddedSheet(attributeCount, rollCount, modeCount) {
   return matches[0];
 }
 
-const embeddedLargeSheet = findEmbeddedSheet(1611, 879, 744);
+const embeddedLargeSheet = findEmbeddedSheet(1613, 879, 744);
 const embeddedMajorWound = embeddedLargeSheet.fields.find((field) =>
   ['중상', 'majorwound'].includes(String(field.label || '').toLowerCase().replace(/[\s_.:()"'-]+/g, '')) &&
   field.type === 'checkbox');
@@ -235,6 +235,7 @@ const sent = [];
 const events = {};
 const sheetFieldDefaults = {};
 const getAttrByNameCalls = [];
+const recognitionLogs = [];
 const attributeFindCalls = [];
 const characterFindCalls = [];
 let roomCharacterIds = null;
@@ -326,7 +327,9 @@ const runtime = {
     return 1;
   },
   clearTimeout() {},
-  log() {},
+  log(message) {
+    recognitionLogs.push(String(message));
+  },
   Date,
 };
 
@@ -661,6 +664,15 @@ assert(!runtime.KIBScene.adapters.cutin,
 const standaloneSheetManager = helper.refresh();
 assert(standaloneSheetManager && !String(standaloneSheetManager.get('notes') || '').includes('판정 컷인'),
   '컷인 코드가 없는데 시트 관리 화면에 컷인 연결 기능이 표시됩니다.');
+runtime.KIBScene.adapters.cutin = {
+  sheetControls() { throw new Error('시트 헬퍼 관리 화면에서 컷인 UI를 호출하면 안 됩니다.'); },
+};
+runtime.state.KIBSheetHelper.managerHash = '';
+const managerWithCutinInstalled = helper.refresh();
+assert(managerWithCutinInstalled &&
+  !String(managerWithCutinInstalled.get('notes') || '').includes('판정 컷인'),
+  '컷인 코드가 함께 있어도 시트 헬퍼 관리 화면에 컷인 연결 기능이 표시되면 안 됩니다.');
+delete runtime.KIBScene.adapters.cutin;
 
 const speakingStatus = runApi('!!상태', '범용 탐사자', 'player-1');
 const fallbackFindsBefore = characterFindCalls.length;
@@ -890,11 +902,11 @@ assert(managerNotes && managerNotes.includes('<table') &&
 assert(managerNotes.includes('체력') && managerNotes.includes('10 / 20 (50%)') &&
   managerNotes.includes('실시간') && managerNotes.includes('요약'),
   'GM 관리 표에는 현재 수치와 시트에 실제로 있는 광기 선택지가 보여야 합니다.');
-assert(managerNotes.includes('캐릭터별 현황 보기') && managerNotes.includes('API가 인식한 캐릭터들의 현재 현황') &&
-  managerNotes.includes('현황 확인 중</b> 표시와 아래 표만') &&
-  managerNotes.includes('현재 <code>As</code> 캐릭터에만 적용') && managerNotes.includes('현황 확인 중:') &&
+assert(managerNotes.includes('캐릭터별 현황 보기') && managerNotes.includes('API가 인식한 현재 캐릭터들 현황 모아보기') &&
+  !managerNotes.includes('현재 <code>As</code> 캐릭터에만 적용') && managerNotes.includes('✓ ') &&
+  !managerNotes.includes('현황 확인 중:') &&
   managerNotes.includes('!시트 현황보기|') && !managerNotes.includes('!시트 관리대상|'),
-  '캐릭터별 현황 보기에는 현황 확인 중인 캐릭터와 현재 As의 차이를 분명히 보여야 합니다.');
+  '캐릭터별 현황 보기는 짧은 안내와 현황 버튼만 보여야 합니다.');
 assert(!managerNotes.includes('원본 시트 계약') && !managerNotes.includes('서로 다른 이름') &&
   !/외 \d+개는/.test(managerNotes),
   'GM 관리 화면에 개발 용어나 일부 항목만 보여 주는 축약 안내가 남으면 안 됩니다.');
@@ -1305,6 +1317,12 @@ runtime.state.KIBSheetHelper.managerCharacterId = twinCharacter.id;
 const twinManager = helper.refresh().get('notes');
 assert(!twinManager.includes('!시트 인식선택|') && !twinManager.includes('시트 선택'),
   '관리 화면에 사용자가 고르는 시트 후보나 수동 선택 버튼을 노출하면 안 됩니다.');
+assert(twinManager.includes('현재 인식된 시트가 없습니다.') &&
+  !twinManager.includes('방에 저장된 항목만으로'),
+  '관리 화면의 시트 인식 실패 문구가 사용자용 한 문장으로 표시되지 않습니다.');
+assert(twinManager.includes('API가 인식한 현재 캐릭터들 현황 모아보기') &&
+  !twinManager.includes('API가 인식한 캐릭터들의 현재 현황입니다.'),
+  '관리 화면의 캐릭터 현황 안내가 짧은 문구로 표시되지 않습니다.');
 runtime.state.KIBSheetHelper.sheetSelections[twinCharacter.id] = twinA.id;
 helper.scan(twinCharacter.id, true);
 assert.strictEqual(runtime.state.KIBSheetHelper.sheetSelections[twinCharacter.id], twinA.id);
@@ -1317,10 +1335,10 @@ useContracts(fixture);
 
 // 배포본에 함께 넣은 실제 시트 5종의 추출 결과와 런타임 실행을 회귀 검증합니다.
 const expectedEmbeddedStats = [
-  [329, 90, 424],
-  [338, 81, 405],
+  [331, 90, 424],
+  [339, 81, 405],
   [422, 253, 2928],
-  [1611, 879, 744],
+  [1613, 879, 744],
   [187, 72, 374],
 ];
 assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => [
@@ -1330,8 +1348,8 @@ assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => [
 ]), expectedEmbeddedStats,
   '실제 시트 5종의 추출 결과가 바뀌었습니다. 원본 변경인지 파서 회귀인지 확인하세요.');
 
-const actualSheet = findEmbeddedSheet(329, 90, 424);
-const hojilSheet = findEmbeddedSheet(338, 81, 405);
+const actualSheet = findEmbeddedSheet(331, 90, 424);
+const hojilSheet = findEmbeddedSheet(339, 81, 405);
 const bloodySheet = findEmbeddedSheet(422, 253, 2928);
 const publicSheet = embeddedLargeSheet;
 const marenHyeyoomSheet = findEmbeddedSheet(187, 72, 374);
@@ -1368,9 +1386,49 @@ assert.deepStrictEqual({
 }, '실제 시트의 같은 항목 묶음에 있는 능력치 라벨을 보존해야 합니다.');
 embeddedSheets.forEach((sheet) => helper.registerContract(sheet));
 
+function sourceDefaults(sheet) {
+  return Object.fromEntries((sheet.fields || [])
+    .filter((field) => !field.section && Object.prototype.hasOwnProperty.call(field, 'default'))
+    .map((field) => [field.name, String(field.default == null ? '' : field.default)]));
+}
+
+// 기본 필드가 아직 Attribute 객체로 생성되지 않은 새 캐릭터도, 특정 시트명이나
+// 캐릭터명을 박지 않고 원본 HTML에서 읽은 공통 기본값 차이로 판별합니다.
+embeddedSheets.forEach((sheet, index) => {
+  useContracts(...embeddedSheets);
+  const character = addCharacter(
+    'empty-source-character-' + index,
+    '빈 캐릭터 ' + index,
+    'player-1',
+    {},
+  );
+  sheetFieldDefaults[character.id] = sourceDefaults(sheet);
+  if (index === 0) attributeObjects.push(roll20Object('orphan-attribute', {
+    _characterid: 'deleted-character', characterid: 'deleted-character',
+    name: 'pulp_hp', current: '1', max: '',
+  }));
+  const logsBefore = recognitionLogs.length;
+  useRoomCharacters(character);
+  const result = helper.inspectContracts(character.id);
+  const logs = recognitionLogs.slice(logsBefore).filter((line) => line.includes('[SheetHelper][시트 인식]'));
+  const recognition = logs.length ? JSON.parse(logs[0].slice(logs[0].indexOf('{'))) : null;
+  assert.strictEqual(result.status, 'matched', sheet.id + ': 저장값 없는 새 캐릭터의 시트를 인식하지 못했습니다.');
+  assert.strictEqual(result.contract.id, sheet.id, sheet.id + ': 다른 원본 시트로 잘못 인식했습니다.');
+  assert(recognition && recognition.defaultProbes.length >= 2 && recognition.defaultProbes.length <= 12,
+    sheet.id + ': 기본값 판별은 2~12개 필드 안에서 끝나야 합니다.');
+  assert(recognition.defaultProbes.every((probe) =>
+    Object.prototype.hasOwnProperty.call(sheetFieldDefaults[character.id], probe.field)),
+    sheet.id + ': 현재 원본 시트에 없는 필드를 조회하면 안 됩니다.');
+  assert.strictEqual(attributeObjects.filter((item) => item.get('_characterid') === character.id).length, 0,
+    sheet.id + ': 인식을 위해 새 Attribute 객체를 만들면 안 됩니다.');
+  assert(logs.some((line) => line.includes('"savedAttributes":0') &&
+      line.includes('"selected":"' + sheet.id + '"') && line.includes('"reason":"source-defaults"')),
+    sheet.id + ': 인식 근거를 개발 로그로 남기지 않았습니다.');
+});
+
 // Roll20은 시트 기본 필드를 Attribute 객체로 만들지 않을 수 있습니다.
-// 존재하지 않는 다른 시트 필드를 getAttrByName으로 조회하면 Roll20 콘솔에 오류가
-// 남으므로, 저장 증거가 부족하면 필드를 추측하거나 사용자가 시트를 고르게 하면 안 됩니다.
+// 전체 시트 목록에서 한 후보에만 속하는 서로 다른 저장 필드가 두 개 이상일 때만
+// 희소한 저장값으로 시트를 확정합니다. 필드 하나나 여러 시트에 겹치는 값은 부족합니다.
 const sparseDefaults = {};
 (actualSheet.globalAttributes || []).forEach((name) => {
   sparseDefaults[name] = '';
@@ -1383,22 +1441,124 @@ Object.assign(sparseDefaults, {
   hp: '10', hp_max: '20', mp: '10', mp_max: '10', san: '50', san_max: '99',
   con: '100', siz: '100', pow: '50', cthulhu_mythos: '0',
 });
-const sparseCharacter = addCharacter('sparse-sheet-character', '테스트 조사원', 'player-1', {
-  ori_other_skills: '0',
-  language_own: '50',
+const attributeOwners = new Map();
+embeddedSheets.forEach((sheet) => {
+  (sheet.globalAttributes || []).forEach((name) => {
+    if (!attributeOwners.has(name)) attributeOwners.set(name, new Set());
+    attributeOwners.get(name).add(sheet.id);
+  });
 });
-useContracts(actualSheet, publicSheet);
+const actualSignatureNames = new Set((actualSheet.signature || []).map((entry) =>
+  typeof entry === 'string' ? entry : entry.name));
+const actualUniqueAttributes = (actualSheet.globalAttributes || []).filter((name) =>
+  attributeOwners.get(name) && attributeOwners.get(name).size === 1 &&
+  !actualSignatureNames.has(name));
+assert(actualUniqueAttributes.length >= 2,
+  '실제 시트에서 희소 인식 반례에 쓸 고유 저장 필드 두 개를 찾지 못했습니다.');
+const hojilSignatureNames = new Set((hojilSheet.signature || []).map((entry) =>
+  typeof entry === 'string' ? entry : entry.name));
+const hojilUniqueAttributes = (hojilSheet.globalAttributes || []).filter((name) =>
+  attributeOwners.get(name) && attributeOwners.get(name).size === 1 &&
+  !hojilSignatureNames.has(name));
+assert(hojilUniqueAttributes.length >= 2,
+  '잔재 시트 반례에 쓸 고유 저장 필드 두 개를 찾지 못했습니다.');
+
+useContracts(...embeddedSheets);
+const singleEvidenceCharacter = addCharacter(
+  'single-evidence-character', '단일 증거 조사원', 'player-1',
+  { [actualUniqueAttributes[0]]: '1' },
+);
+useRoomCharacters(singleEvidenceCharacter);
+const singleEvidenceInspection = helper.inspectContracts(singleEvidenceCharacter.id);
+assert.strictEqual(singleEvidenceInspection.status, 'ambiguous',
+  '고유 저장 필드 하나만으로 현재 시트를 확정하면 안 됩니다.');
+const singleActualMatch = singleEvidenceInspection.matches.find((item) => item.id === actualSheet.id);
+assert(singleActualMatch && singleActualMatch.uniqueEvidence === 1 && !singleActualMatch.eligible,
+  '단일 고유 증거가 정상 인식 기준을 우회하는 반례를 재현하지 못했습니다.');
+
+const overlappingEvidenceCharacter = addCharacter(
+  'overlapping-evidence-character', '겹치는 증거 조사원', 'player-1',
+  { ori_other_skills: '0', language_own: '50' },
+);
+useRoomCharacters(overlappingEvidenceCharacter);
+assert.strictEqual(helper.inspectContracts(overlappingEvidenceCharacter.id).status, 'ambiguous',
+  '전체 배포 시트 목록에서 겹치는 저장 필드 둘로 한 시트를 확정하면 안 됩니다.');
+
+// 새 캐릭터는 화면에서 실제로 저장한 일부 항목만 Attribute로 생길 수 있습니다.
+// 이름이나 고정 우선순위 없이, 관측된 조합을 가장 잘 설명하는 원본을 인식합니다.
+const sparseCoverageCharacter = addCharacter(
+  'sparse-coverage-character', '희소 저장 조사원', 'player-1',
+  Object.fromEntries([
+    'app', 'appraise_mod', 'archaeology_mod', 'build', 'computer_mod', 'con',
+    'damage_bonus', 'dex', 'edit_mode', 'edu', 'fighting_brawl_mod', 'hp',
+    'hp_per', 'int', 'language_own_mod', 'mov', 'mp', 'mp_per', 'pow', 'san',
+    'san_per', 'san_per2', 'siz', 'spot_hidden_mod', 'str',
+  ].map((name) => [name, '1'])),
+);
+useRoomCharacters(sparseCoverageCharacter);
+const sparseCoverageInspection = helper.inspectContracts(sparseCoverageCharacter.id);
+assert.strictEqual(sparseCoverageInspection.status, 'ambiguous',
+  '서로 다른 원본이 새 캐릭터의 저장값을 똑같이 설명하면 임의로 하나를 선택하면 안 됩니다.');
+
+const oneFieldCurrentCharacters = [0, 1, 2].map((index) => addCharacter(
+  'one-field-current-' + index, '현재 단일 필드 조사원 ' + index, 'player-1',
+  { [actualUniqueAttributes[0]]: '1' },
+));
+const staleTwoFieldCharacter = addCharacter(
+  'stale-two-field-character', '과거 두 필드 조사원', 'player-1',
+  Object.fromEntries(hojilUniqueAttributes.slice(0, 2).map((name) => [name, '1'])),
+);
+useRoomCharacters(...oneFieldCurrentCharacters, staleTwoFieldCharacter);
+assert.strictEqual(helper.inspectContracts(oneFieldCurrentCharacters[0].id).status, 'ambiguous',
+  '필드 하나뿐인 현재 캐릭터들을 빼고 과거 캐릭터 한 명의 시트를 확정하면 안 됩니다.');
+
+const sharedAttributes = [...attributeOwners.entries()]
+  .filter(([, owners]) => owners.size === embeddedSheets.length)
+  .map(([name]) => name)
+  .slice(0, 8);
+assert(sharedAttributes.length >= 8,
+  '잔재 데이터 반례에 사용할 공통 저장 필드가 부족합니다.');
+const sharedValues = Object.fromEntries(sharedAttributes.map((name) => [name, '1']));
+const currentSharedCharacters = [0, 1, 2].map((index) => addCharacter(
+  'current-shared-' + index, '현재 공통 조사원 ' + index, 'player-1', sharedValues,
+));
+const staleUniqueCharacter = addCharacter(
+  'stale-unique-character', '과거 고유 조사원', 'player-1',
+  Object.fromEntries(actualUniqueAttributes.slice(0, 2).map((name) => [name, '1'])),
+);
+useRoomCharacters(...currentSharedCharacters, staleUniqueCharacter);
+assert.strictEqual(helper.inspectContracts(currentSharedCharacters[0].id).status, 'ambiguous',
+  '과거 캐릭터 한 명의 고유 저장 필드만으로 현재 시트를 확정하면 안 됩니다.');
+
+useRoomCharacters(...currentSharedCharacters, sparseCoverageCharacter);
+assert.strictEqual(helper.inspectContracts(currentSharedCharacters[0].id).status, 'ambiguous',
+  '과거 캐릭터 한 명의 공통 저장값 조합으로 현재 시트를 확정하면 안 됩니다.');
+
+const currentUniqueCharacters = [0, 1, 2].map((index) => addCharacter(
+  'current-unique-' + index, '현재 고유 조사원 ' + index, 'player-1',
+  Object.fromEntries(actualUniqueAttributes.slice(0, 2).map((name) => [name, '1'])),
+));
+useRoomCharacters(...currentUniqueCharacters, currentSharedCharacters[0]);
+const majorityInspection = helper.inspectContracts(currentUniqueCharacters[0].id);
+assert.strictEqual(majorityInspection.status, 'matched',
+  '같은 시트의 고유 저장 필드가 캐릭터 과반에서 확인되면 인식해야 합니다.');
+assert.strictEqual(majorityInspection.contract.id, actualSheet.id,
+  '캐릭터 과반의 고유 저장 필드가 가리키는 시트를 선택하지 못했습니다.');
+
+const sparseValues = {};
+actualUniqueAttributes.slice(0, 2).forEach((name) => { sparseValues[name] = '1'; });
+const sparseCharacter = addCharacter(
+  'sparse-sheet-character', '테스트 조사원', 'player-1', sparseValues);
 useRoomCharacters(sparseCharacter);
 sheetFieldDefaults[sparseCharacter.id] = sparseDefaults;
 const sparseCallsBefore = getAttrByNameCalls.length;
 const sparseInspection = helper.inspectContracts(sparseCharacter.id);
 const sparseCalls = getAttrByNameCalls.slice(sparseCallsBefore).filter((call) =>
   call.characterId === sparseCharacter.id);
-assert.strictEqual(sparseInspection.status, 'ambiguous',
-  '저장 Attribute가 적으면 다른 시트 필드를 조회해 자동 확정하면 안 됩니다.');
-assert(sparseInspection.matches.some((match) => match.id === actualSheet.id) &&
-  sparseInspection.matches.some((match) => match.id === publicSheet.id),
-  '증거가 부족할 때 비교한 후보 정보는 유지해야 합니다.');
+assert.strictEqual(sparseInspection.status, 'matched',
+  '서로 다른 고유 저장 필드가 두 개 있으면 희소한 시트도 인식해야 합니다.');
+assert.strictEqual(sparseInspection.contract.id, actualSheet.id,
+  '희소한 저장값에서 실제 고유 증거가 있는 시트가 선택되지 않았습니다.');
 assert.strictEqual(attributeObjects.filter((item) =>
   item.get('_characterid') === sparseCharacter.id).length, 2,
   '시트 인식을 위해 Attribute 객체를 새로 만들면 안 됩니다.');
@@ -1410,12 +1570,15 @@ runtime.state.KIBSheetHelper.managerCharacterId = sparseCharacter.id;
 const sparseInspectionMessages = runApi('!!점검', '테스터 GM (GM)', 'gm');
 const fallbackCalls = getAttrByNameCalls.slice(fallbackCallsBefore).filter((call) =>
   call.characterId === sparseCharacter.id);
+const actualAttributeNames = new Set(actualSheet.attributes || []);
+const publicOnlyAttributeNames = new Set((publicSheet.attributes || []).filter((name) =>
+  !actualAttributeNames.has(name)));
 assert(sparseInspectionMessages.some((item) =>
-  item.content && item.content.includes('안전하게 확인할 수 없습니다') &&
+  item.content && item.content.includes('테스트 조사원 / GM 인식 점검') &&
   !item.content.includes('!시트 인식선택|')),
-  '실제 희소 캐릭터의 !!점검에 수동 시트 선택 버튼을 보여주면 안 됩니다.');
-assert.strictEqual(fallbackCalls.length, 0,
-  '방 자동 인식을 검사할 때도 다른 시트 필드를 probe하면 안 됩니다.');
+  '실제 희소 캐릭터의 !!점검 결과를 표시하지 못했습니다.');
+assert(!fallbackCalls.some((call) => publicOnlyAttributeNames.has(call.name)),
+  '인식한 시트를 점검하면서 다른 시트에만 있는 필드를 probe하면 안 됩니다.');
 
 const publicResourceValues = {
   hp: '10', hp_max: '20', mp: '8', mp_max: '10',
@@ -1795,6 +1958,39 @@ assert(publicCombinedLabel,
   assert(messages.some((item) =>
     item.content && inlineRollFieldCount(item.content) >= 3),
   '공개 시트의 통합 ' + mode + ' 굴림을 실행하지 못했습니다.');
+});
+
+// 배포본에 들어간 실제 시트 5종도 시트 화면에서 직접 누른 rolltemplate 결과를
+// 명령 굴림과 같은 판정 컷인 키로 전달해야 합니다.
+embeddedSheets.forEach((sheet, index) => {
+  const directRuntime = addSourceCharacter(
+    sheet,
+    'direct-source-' + index,
+    '직접 굴림 시험 ' + index,
+  );
+  const instance = helper.contractRolls(directRuntime.character.id).find((item) =>
+    item.roll && item.roll.template &&
+    Array.isArray(item.roll.staticLabels) && item.roll.staticLabels.length);
+  assert(instance, sheet.id + ': 직접 결과를 식별할 원본 rolltemplate 굴림이 없습니다.');
+  const identity = instance.roll.staticLabels.map((entry) =>
+    '{{' + entry.field + '=' + entry.value + '}}').join(' ');
+  setPlayerSpeakingAs(directRuntime.character.get('name'), 'player-1');
+  const before = sent.length;
+  events['chat:message']({
+    type: 'general',
+    rolltemplate: instance.roll.template,
+    content: identity + ' {{direct_probe=$[[0]]}}',
+    inlinerolls: [{ results: { total: 42 } }],
+    who: directRuntime.character.get('name'),
+    playerid: 'player-1',
+  });
+  const result = sent.slice(before).find((item) => item.event === 'sheet:result');
+  assert(result, sheet.id + ': 시트에서 직접 누른 굴림을 판정 결과로 인식하지 못했습니다.');
+  assert.strictEqual(result.payload.outcome, 'roll',
+    sheet.id + ': 성공 수준이 없는 직접 굴림도 판정 실행으로 전달해야 합니다.');
+  assert(helper.cutinItems().some((item) =>
+    item.key === result.payload.cutinKey && item.label === instance.label),
+  sheet.id + ': 직접 굴림과 컷인 관리 항목의 연결 키가 다릅니다.');
 });
 
 // 많은 사용자 반복행에서도 현재/최대 짝은 그대로 유지하면서 전체 후보를

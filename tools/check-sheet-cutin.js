@@ -7,6 +7,9 @@ const source = fs.readFileSync(
   'utf8',
 );
 
+const deferredNoteReads = [];
+let deferNoteReads = false;
+
 function roll20Object(type, id, values) {
   const data = { ...values };
   let removed = false;
@@ -15,7 +18,10 @@ function roll20Object(type, id, values) {
     type,
     get(key, callback) {
       const value = data[key];
-      if (typeof callback === 'function') callback(value);
+      if (typeof callback === 'function' && type === 'handout' && key === 'notes' && deferNoteReads) {
+        deferredNoteReads.push(() => callback(value));
+        return undefined;
+      } else if (typeof callback === 'function') callback(value);
       return value;
     },
     set(key, value) {
@@ -141,6 +147,7 @@ const runtime = {
             { key: 'coc7:광기요약', label: '광기 발작 요약', system: 'coc7', kind: 'madness' },
             { key: 'coc7:명중부위', label: '명중부위', system: 'coc7', kind: 'hit-location' },
             { key: 'sheet:translated', label: '사용자 판정', aliases: ['Custom Check'], system: 'sheet', kind: 'contract' },
+            { key: 'sheet:roll%40row', label: '퍼센트 키 판정', system: 'sheet', kind: 'contract' },
             { key: 'sheet:shared-a', label: '공유 판정 A', aliases: ['Shared Old'], system: 'sheet', kind: 'contract' },
             { key: 'sheet:shared-b', label: '공유 판정 B', aliases: ['Shared Old'], system: 'sheet', kind: 'contract' },
           ];
@@ -246,13 +253,32 @@ function buttonCommand(html, label) {
 }
 
 function ruleUnbindCommand(html, itemKey, outcome) {
-  const wanted = `!컷인 시트연결해제|${itemKey}|${outcome}`;
   const links = String(html || '').matchAll(/<a href="([^"]+)"/g);
   for (const link of links) {
     const command = link[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"');
-    if (command === wanted) return command;
+    const match = command.match(/^!컷인 시트연결해제\|([^|]+)\|([^|]+)$/);
+    if (match && decodeSheetCommandKey(match[1]) === itemKey && match[2] === outcome) return command;
   }
   return '';
+}
+
+function decodeSheetCommandKey(value) {
+  if (value === '*' || !/^k(?:[0-9a-f]{4})+$/i.test(value)) return value;
+  let decoded = '';
+  for (let index = 1; index < value.length; index += 4)
+    decoded += String.fromCharCode(parseInt(value.slice(index, index + 4), 16));
+  return decoded;
+}
+
+function ruleUnbindCount(html, itemKey, outcome) {
+  let count = 0;
+  const links = String(html || '').matchAll(/<a href="([^"]+)"/g);
+  for (const link of links) {
+    const command = link[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+    const match = command.match(/^!컷인 시트연결해제\|([^|]+)\|([^|]+)$/);
+    if (match && decodeSheetCommandKey(match[1]) === itemKey && match[2] === outcome) count += 1;
+  }
+  return count;
 }
 
 const manager = runtime.findObjs({ _type: 'handout', name: '[GM] 컷인 관리' })[0];
@@ -292,14 +318,14 @@ check(
 check(
   '특정 판정 연결만 모든 실행 항목을 질문',
   buttonCommand(initialManagerNotes, '특정 판정 연결').includes('?{판정 항목') &&
-    ['관찰력', '리볼버', '문 열기', '철제 투구', '자유 주사위', '광기 발작 실시간', '광기 발작 요약', '명중부위']
+    ['관찰력', '리볼버', '문 열기', '철제 투구', '자유 주사위', '광기 발작 실시간', '광기 발작 요약', '명중부위', '퍼센트 키 판정']
       .every((label) => buttonCommand(initialManagerNotes, '특정 판정 연결').includes(label)),
   '특정 판정 연결 선택지에 시트 헬퍼의 전체 실행 항목이 없습니다.',
 );
 check(
   '카드 행에 현재 판정 연결과 해제 표시',
-  countText(initialManagerNotes, '!컷인 시트연결해제|coc7:관찰력|success') === 2 &&
-    countText(initialManagerNotes, '!컷인 시트연결해제|coc7:관찰력|roll') === 2,
+  ruleUnbindCount(initialManagerNotes, 'coc7:관찰력', 'success') === 2 &&
+    ruleUnbindCount(initialManagerNotes, 'coc7:관찰력', 'roll') === 2,
   '기존 연결이 전역 호환 목록과 해당 카드 행 양쪽에 표시되지 않았습니다.',
 );
 check(
@@ -460,8 +486,10 @@ const translatedUnbindCommand = ruleUnbindCommand(
 );
 check(
   '관리 화면의 실제 특정 판정 해제 버튼 명령',
-  translatedUnbindCommand === '!컷인 시트연결해제|sheet:translated|hard',
-  '표시된 해제 버튼이 저장된 exact 항목키와 결과키를 전달하지 않습니다.',
+  translatedUnbindCommand.startsWith('!컷인 시트연결해제|k') &&
+    !translatedUnbindCommand.includes('%') &&
+    translatedUnbindCommand.endsWith('|hard'),
+  '표시된 해제 버튼이 Roll20이 보존할 수 있는 명령키를 전달하지 않습니다.',
 );
 (events['chat:message'] || []).forEach((callback) => callback({
   type: 'api',
@@ -482,6 +510,65 @@ check(
   !ruleUnbindCommand(manager.get('notes'), 'sheet:translated', 'hard'),
   'state에서 삭제한 특정 판정 연결이 관리 핸드아웃 갱신 중 다시 나타났습니다.',
 );
+const percentBindToken = (buttonCommand(initialManagerNotes, '특정 판정 연결')
+  .match(/퍼센트 키 판정,(k[0-9a-f]+)/i) || [])[1];
+check(
+  '퍼센트가 든 판정키도 Roll20 안전 명령으로 연결',
+  /^k(?:[0-9a-f]{4})+$/i.test(percentBindToken || '') &&
+    !/[ %|,{}?]/.test(percentBindToken || ''),
+  '특정 판정 연결 선택지에 Roll20이 제거할 수 있는 문자가 남았습니다.',
+);
+(events['chat:message'] || []).forEach((callback) => callback({
+  type: 'api', playerid: gm.id,
+  content: `!컷인 시트연결|${percentBindToken}|hard|card:${exactCard.id}`,
+}));
+runtime.state.KIBSceneCutin.sheetRules['sheet:roll%40row2|hard'] = {
+  itemKey: 'sheet:roll%40row2', itemLabel: '이웃 판정', outcome: 'hard',
+  sourceKey: `card:${genericCard.id}`,
+};
+const percentUnbindCommand = ruleUnbindCommand(adapter.sheetControls(), 'sheet:roll%40row', 'hard');
+check(
+  '퍼센트가 든 판정키도 Roll20 안전 명령으로 해제',
+  /^!컷인 시트연결해제\|k(?:[0-9a-f]{4})+\|hard$/i.test(percentUnbindCommand || ''),
+  'encodeURIComponent 판정키의 %가 해제 href에 그대로 남았습니다.',
+);
+(events['chat:message'] || []).forEach((callback) => callback({
+  type: 'api', playerid: gm.id, content: percentUnbindCommand,
+}));
+check(
+  '안전 명령키를 원래 판정키로 복원해 정확히 삭제',
+  !runtime.state.KIBSceneCutin.sheetRules['sheet:roll%40row|hard'] &&
+    runtime.state.KIBSceneCutin.sheetRules['sheet:roll%40row2|hard'],
+  '안전 명령키가 기존 state 키로 복원되지 않았습니다.',
+);
+delete runtime.state.KIBSceneCutin.sheetRules['sheet:roll%40row2|hard'];
+
+deferNoteReads = true;
+(events['chat:message'] || []).forEach((callback) => callback({
+  type: 'api', playerid: gm.id, content: '!컷인 관리',
+}));
+(events['chat:message'] || []).forEach((callback) => callback({
+  type: 'api', playerid: gm.id,
+  content: `!컷인 시트연결|*|failure|card:${genericCard.id}`,
+}));
+deferNoteReads = false;
+check(
+  '비동기 관리 갱신 두 건을 수집',
+  deferredNoteReads.length === 2,
+  '관리 화면의 이전/최신 notes 읽기를 정확히 두 건 수집하지 못했습니다.',
+);
+const newestRead = deferredNoteReads.pop();
+const staleRead = deferredNoteReads.shift();
+if (newestRead) newestRead();
+if (staleRead) staleRead();
+check(
+  '늦게 끝난 이전 관리 갱신이 최신 연결 화면을 덮지 않음',
+  manager.get('notes').includes('모든 판정') &&
+    manager.get('notes').includes('실패') &&
+    runtime.state.KIBSceneCutin.sheetRules['*|failure'],
+  '비동기 notes 콜백 역전으로 이전 관리 화면이 다시 저장됐습니다.',
+);
+delete runtime.state.KIBSceneCutin.sheetRules['*|failure'];
 delete runtime.state.KIBSceneCutin.sheetRules['sheet:shared-a|hard'];
 runtime.state.KIBSceneCutin.sheetRules['contract-a:Shared%20Old|extreme'] = {
   itemKey: 'contract-a:Shared%20Old', itemLabel: 'Shared Old', outcome: 'extreme',
