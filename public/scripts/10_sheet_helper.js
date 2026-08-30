@@ -1974,7 +1974,8 @@ var sheet_helper_setting = {
     value.characterName = trim(character.get('name'));
     value.contractMatch = contractMatch;
     var readLive = cachedAttrReader(characterId);
-    value.contractRolls = contractRolls(characterId, value.contractMatch, objects, false, readLive);
+    value.contractAllRolls = contractRolls(characterId, value.contractMatch, objects, true, readLive);
+    value.contractRolls = value.contractAllRolls.filter(function (instance) { return !instance.hidden; });
     var fields = contractFieldItems(characterId, value.contractMatch, objects, value.contractRolls, readLive);
     value.resources = fields.resources;
     value.trackedFields = fields.tracked;
@@ -3142,6 +3143,33 @@ var sheet_helper_setting = {
     });
   }
 
+  function contractMatchRank(values, wanted) {
+    var best = 3;
+    values.forEach(function (value) {
+      wanted.forEach(function (key) {
+        if (value === key) best = 0;
+        else if (best > 1 && value.indexOf(key) === 0) best = 1;
+        else if (best > 2 && value.indexOf(key) > -1) best = 2;
+      });
+    });
+    return best;
+  }
+
+  function closestContractActions(instances, query, includeHidden) {
+    var wanted = contractLookupKeys(query, true);
+    var best = 3;
+    var found = [];
+    instances.forEach(function (instance) {
+      if (instance.hidden && !includeHidden) return;
+      var rank = contractMatchRank(contractInstanceAliases(instance, true), wanted);
+      if (rank < best) {
+        best = rank;
+        found = [instance];
+      } else if (rank === best) found.push(instance);
+    });
+    return best < 3 ? found : [];
+  }
+
   function uniqueContractCandidates(candidates) {
     var found = dictionary();
     return candidates.filter(function (candidate) {
@@ -3202,15 +3230,17 @@ var sheet_helper_setting = {
   function contractMultipleRollCandidates(instances, query) {
     var requested = contractMultipleRollRequest(query);
     if (!requested) return [];
-    var wanted = contractLookupKeys(requested.base, true);
-    var visible = instances.filter(function (instance) { return !instance.hidden; });
-    function matching(partial) {
-      return visible.filter(function (instance) {
-        return contractKeysMatch(contractInstanceAliases(instance, true), wanted, partial);
-      });
-    }
-    var matched = matching(false);
-    if (matched.length < 2) matched = matching(true);
+    var matched = closestContractActions(instances, requested.base, true);
+    if (!matched.length) return [];
+    var wantedMode = contractLookupKeys(requested.mode, true);
+    var modes = [];
+    matched.forEach(function (instance) {
+      modes = modes.concat(contractModeCandidates(instance, true).filter(function (candidate) {
+        return contractKeysMatch(candidate.exactValues, wantedMode, false);
+      }));
+    });
+    modes = preferLeastOverrideModes(uniqueContractCandidates(modes));
+    if (modes.length) return modes;
     if (matched.length < 2) return [];
     var counts = matched.map(contractInlineRollCount);
     var maximum = Math.max.apply(Math, counts);
@@ -3249,25 +3279,22 @@ var sheet_helper_setting = {
     if (exact.length > 1) return { handled: true, result: contractConflict(exact, secret) };
     var multipleRoll = contractMultipleRollCandidates(instances, query);
     if (multipleRoll.length === 1)
-      return { handled: true, result: executeContractInstance(character, multipleRoll[0].instance, '', secret, undefined, multipleRoll[0].requestedMode) };
+      return { handled: true, result: executeContractInstance(character, multipleRoll[0].instance,
+        multipleRoll[0].mode ? multipleRoll[0].mode.id : '', secret, undefined, multipleRoll[0].requestedMode) };
     if (multipleRoll.length > 1) return { handled: true, result: contractConflict(multipleRoll, secret) };
     if (options && options.exactOnly) return { handled: false, result: null, inspection: inspection };
     var wanted = contractLookupKeys(query, true);
-    var modes = [];
-    instances.forEach(function (instance) { modes = modes.concat(contractModeCandidates(instance, true)); });
-    var partialModes = preferLeastOverrideModes(uniqueContractCandidates(modes.filter(function (candidate) {
-      return contractKeysMatch(candidate.partialValues, wanted, true);
-    })));
-    var partialActions = preferDirectContractActions(instances.filter(function (instance) {
-      if (instance.hidden) return false;
-      return contractKeysMatch(contractInstanceAliases(instance, true), wanted, true);
-    }), true);
-    var partialActionKeys = dictionary();
-    partialActions.forEach(function (instance) { partialActionKeys[instance.key] = true; });
-    partialModes = partialModes.filter(function (candidate) {
-      return !partialActionKeys[candidate.instance.key];
-    });
-    var partial = uniqueContractCandidates(partialModes.concat(partialActions.map(function (instance) { return { instance: instance }; })));
+    var partialActions = preferDirectContractActions(closestContractActions(instances, query), true);
+    var partial;
+    if (partialActions.length) {
+      partial = uniqueContractCandidates(partialActions.map(function (instance) { return { instance: instance }; }));
+    } else {
+      var modes = [];
+      instances.forEach(function (instance) { modes = modes.concat(contractModeCandidates(instance, true)); });
+      partial = preferLeastOverrideModes(uniqueContractCandidates(modes.filter(function (candidate) {
+        return contractKeysMatch(candidate.partialValues, wanted, true);
+      })));
+    }
     if (partial.length === 1)
       return { handled: true, result: executeContractInstance(character, partial[0].instance, partial[0].mode ? partial[0].mode.id : '', secret) };
     if (partial.length > 1) return { handled: true, result: contractConflict(partial, secret) };
@@ -3472,6 +3499,19 @@ var sheet_helper_setting = {
     return result.sort(function (left, right) { return left.label.localeCompare(right.label); });
   }
 
+  function statusModeEntries(instance) {
+    var result = [];
+    (instance.modes || []).forEach(function (mode) {
+      contractUserModeLabels(mode).map(contractDisplayLabel).filter(Boolean).forEach(function (label) {
+        result.push({
+          id: trim(mode.id), label: label,
+          modifier: /(?:보너스|패널티|페널티|bonus|penalty)/i.test(normalize(label)),
+        });
+      });
+    });
+    return result;
+  }
+
   function statusRollItems(data, includeEveryInstance) {
     var result = [];
     var counts = dictionary();
@@ -3484,16 +3524,14 @@ var sheet_helper_setting = {
     data.contractRolls.forEach(function (instance) {
       var label = rollStatusLabel(instance);
       var key = normalize(label);
-      if (!key || (!includeEveryInstance && seen[key])) return;
-      seen[key] = true;
+      if (!key) return;
+      var modeEntries = statusModeEntries(instance);
+      if (!includeEveryInstance && seen[key]) {
+        seen[key].modeEntries = seen[key].modeEntries.concat(modeEntries);
+        return;
+      }
       var context = rollStatusContext(instance);
-      var modeEntries = [];
-      (instance.modes || []).forEach(function (mode) {
-        contractUserModeLabels(mode).map(contractDisplayLabel).filter(Boolean).forEach(function (label) {
-          modeEntries.push({ id: trim(mode.id), label: label });
-        });
-      });
-      result.push({
+      var item = {
         label: label,
         value: contractRollDisplayValue(data.characterId, instance),
         command: contractSelectionCommand(data.characterId, instance, counts[normalize(instance.label)] || 1, false),
@@ -3503,7 +3541,14 @@ var sheet_helper_setting = {
         structureLabels: context.structure,
         contract: instance.contract,
         roll: instance.roll,
-      });
+      };
+      if (!seen[key]) seen[key] = item;
+      result.push(item);
+    });
+    (data.contractAllRolls || []).forEach(function (instance) {
+      if (!instance.hidden) return;
+      var item = seen[normalize(rollStatusLabel(instance))];
+      if (item) item.modeEntries = item.modeEntries.concat(statusModeEntries(instance));
     });
     return result.sort(function (left, right) { return left.label.localeCompare(right.label); });
   }
@@ -3527,7 +3572,8 @@ var sheet_helper_setting = {
     (rolls || []).forEach(function (item) {
       var localModes = [];
       (item.modeEntries || []).forEach(function (entry) {
-        (shared[entry.id] ? diceTypes : localModes).push(entry.label);
+        if (entry.modifier) diceTypes.push(entry.label);
+        else if (!shared[entry.id]) localModes.push(entry.label);
       });
       localModes = sortedUnique(localModes);
       if (rollStatusCategory(item) === 'madness' && localModes.length) {
@@ -3862,7 +3908,7 @@ var sheet_helper_setting = {
     var rows = [
       ['!!굴릴항목이름', '해당 항목을 굴립니다. 예: <code>!!관찰력</code>'],
       ['!!비밀 굴릴항목이름', '결과를 GM에게만 보냅니다. 예: <code>!!비밀 관찰력</code>'],
-      ['!!굴릴항목이름 선택할이름', '시트에 있는 선택 방식으로 굴립니다. 예: <code>!!관찰력 보너스1</code>'],
+      ['!!굴릴항목이름 보너스/패널티개수', '보너스 또는 패널티 주사위 개수를 붙여 굴립니다. 예: <code>!!관찰력 보너스1</code>, <code>!!관찰력 패널티2</code>'],
       ['!!검색 이름', '이름이 비슷한 항목과 현재 수치를 찾아 바로 굴립니다.'],
       ['!!상태', '내 캐릭터에서 인식된 굴림과 수치를 가나다순으로 봅니다.'],
       [':수치이름+3', '내 캐릭터 수치를 바꿉니다. 예: <code>:체력-1d3</code>, <code>:마력=10</code>'],

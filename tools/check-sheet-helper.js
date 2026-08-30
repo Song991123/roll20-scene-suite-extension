@@ -214,7 +214,14 @@ const fixture = parseSheetContract([
   '    <option value="-10">패널티 개 1</option>',
   '  </select>',
   '  <button type="roll" name="roll_precision" value="&{template:fixture} {{subject=정밀 관찰}} {{success=[[@{skill_value}]]}} {{hard=[[floor(@{skill_value}/2)]]}} {{extreme=[[floor(@{skill_value}/5)]]}} {{roll=[[1d100+@{bonus_mode}]]}}"></button>',
+  '  <button type="roll" name="roll_dexterity" value="&{template:fixture} {{subject=민첩성}} {{success=[[@{skill_value}]]}} {{roll=[[1d100+@{bonus_mode}]]}}"></button>',
   '</div>',
+  '<button type="roll" name="roll_dodge" value="&{template:fixture} {{subject=회피 (민첩성/2)}} {{success=[[floor(@{skill_value}/2)]]}} {{roll=[[1d100]]}}"></button>',
+  '<button type="roll" name="roll_brawl" value="&{template:fixture} {{subject=근접전(격투)}} {{success=[[@{skill_value}]]}} {{roll=[[1d100]]}}"></button>',
+  '<button type="roll" name="roll_sword" value="&{template:fixture} {{subject=근접전(도검)}} {{success=[[@{skill_value}]]}} {{roll=[[1d100]]}}"></button>',
+  '<select name="attr_sheet_theme"><option value="1">라이즈벨</option><option value="2">루엔야크</option></select>',
+  '<button type="roll" name="roll_theme_a" value="&{template:fixture} {{subject=테마 판정 A}} {{theme=[[@{sheet_theme}]]}} {{roll=[[1d100]]}}"></button>',
+  '<button type="roll" name="roll_theme_b" value="&{template:fixture} {{subject=테마 판정 B}} {{theme=[[@{sheet_theme}]]}} {{roll=[[1d100]]}}"></button>',
   '<select name="attr_trace_mode"><option value="0">기본</option><option value="1">공개</option></select>',
   '<button type="roll" name="roll_trace" value="&{template:fixture} {{subject=추적}} {{trace_mode=[[@{trace_mode}]]}} {{roll=[[1d100]]}}"></button>',
   '<select name="attr_gm_trace_mode"><option value="0">기본</option><option value="1">켜기</option></select>',
@@ -831,6 +838,24 @@ assert.strictEqual(bonus.result.payload.modeLabel, '보너스 개 1');
 assert(sent.at(-1).content.includes('[[1d100+10]]'),
   '원본 선택지를 고정 공식으로 재조립하지 말고 원본 선택 값을 적용해야 합니다.');
 
+const abbreviatedDexterity = helper.resolveContractAction(fixtureCharacter, '민첩', false);
+assert(abbreviatedDexterity.handled && abbreviatedDexterity.result.ok &&
+  sent.at(-1).content.includes('{{subject=민첩성}}'),
+  '이름 앞부분이 유일하게 가까운 민첩성 굴림을 회피 후보보다 먼저 실행해야 합니다.');
+const abbreviatedDexterityBonus = helper.resolveContractAction(fixtureCharacter, '민첩 보너스1', false);
+assert(abbreviatedDexterityBonus.handled && abbreviatedDexterityBonus.result.ok &&
+  abbreviatedDexterityBonus.result.payload.modeLabel === '보너스 개 1' &&
+  sent.at(-1).content.includes('{{subject=민첩성}}'),
+  '줄인 항목 이름 뒤에도 원본 보너스·패널티 방식을 붙여 실행할 수 있어야 합니다.');
+const uniqueNestedName = helper.resolveContractAction(fixtureCharacter, '격투', false);
+assert(uniqueNestedName.handled && uniqueNestedName.result.ok &&
+  sent.at(-1).content.includes('{{subject=근접전(격투)}}'),
+  '항목 이름 안의 일부가 한 굴림에만 맞으면 바로 실행해야 합니다.');
+const ambiguousParentName = helper.resolveContractAction(fixtureCharacter, '근접전', false);
+assert(ambiguousParentName.handled && !ambiguousParentName.result.ok &&
+  ambiguousParentName.result.reason === 'conflict' && ambiguousParentName.result.choices.length === 2,
+  '같은 근접도로 맞는 근접전 항목이 여럿일 때만 선택지를 보여야 합니다.');
+
 const repeating = helper.resolveContractAction(fixtureCharacter, '사용자 항목', false);
 assert(repeating.handled && repeating.result.ok);
 assert(sent.at(-1).content.includes('{{subject=사용자 항목}}'));
@@ -938,6 +963,11 @@ assert(rollGroupContents['기타 주사위'].includes('자유 굴림'),
   '판정 결과 구조나 원본 구역 근거가 없는 굴림은 기타 주사위에 보여야 합니다.');
 assert(!status.content.includes('선택할 수 있는 방식'),
   '시트에 종속된 선택지를 의미가 불분명한 전역 목록으로 보여주면 안 됩니다.');
+assert(status.content.includes('다이스 종류') &&
+  status.content.includes('보너스 개 1') && status.content.includes('패널티 개 1'),
+  '다이스 종류에는 시트에서 읽은 보너스·패널티 선택지만 보여야 합니다.');
+assert(!status.content.includes('라이즈벨') && !status.content.includes('루엔야크'),
+  '여러 굴림에 공통인 시트 테마를 다이스 종류로 보여주면 안 됩니다.');
 ['1d4', '2d6', '1d8', '2d8', '1d10', '1d20'].forEach((rawMode) => {
   assert(!status.content.includes('선택 방식: ' + rawMode) &&
     !status.content.includes(', ' + rawMode) && !status.content.includes(rawMode + ','),
@@ -1012,6 +1042,9 @@ assert(!managerNotes.includes('!시트 굴림선택|') && !managerNotes.includes
 const playerHelp = created.find((item) => item.get('name') === '[PL] 시트 헬퍼 사용법');
 assert(playerHelp && playerHelp.get('notes').includes('!!굴릴항목이름'));
 assert(playerHelp.get('notes').includes('<table'));
+assert(playerHelp.get('notes').includes('!!굴릴항목이름 보너스/패널티개수') &&
+  !playerHelp.get('notes').includes('!!굴릴항목이름 선택할이름'),
+  'PL 사용법은 실제로 입력하는 보너스·패널티 형식을 바로 보여야 합니다.');
 
 // 새 설정 이름은 예약하고, 과거 별칭과 같은 시트 굴림이 있으면 굴림을 우선합니다.
 runtime.state.KIBSheetHelper.trackingMode = 'off';
@@ -2000,6 +2033,11 @@ inspection = helper.inspectContracts(bloodyRuntime.character.id);
 assert.strictEqual(inspection.status, 'matched',
   inspection.error || '다중 광기 방식 시트 자동 인식 실패');
 assert.strictEqual(inspection.contract.id, bloodySheet.id);
+const bloodyShortBonus = helper.resolveContractAction(bloodyRuntime.character, '민첩 보너스1', false);
+assert(bloodyShortBonus.handled && bloodyShortBonus.result.ok &&
+  bloodyShortBonus.result.payload.label === '민첩성' &&
+  /보너스.*1/.test(bloodyShortBonus.result.payload.modeLabel),
+  '기본 굴림과 보너스 굴림이 분리된 실제 시트에서도 줄인 이름으로 보너스 굴림을 실행해야 합니다.');
 const bloodyConflict = runApi('!!실시간', bloodyRuntime.character.get('name'))
   .find((item) => item.who === '시트 헬퍼');
 assert(bloodyConflict && bloodyConflict.content.includes('background:#111') &&
@@ -2014,6 +2052,15 @@ assert(runApi(
   '!!' + bloodyMadnessRoll.label + ' ' + (bloodyRealtime.labelPath || []).join(' '),
   bloodyRuntime.character.get('name'),
 ).some((item) => item.content && item.content.includes('{{madness_type=[[1]]}}')));
+const bloodyStatus = runApi('!!상태', bloodyRuntime.character.get('name'))
+  .find((item) => item.who === '시트 헬퍼');
+assert(bloodyStatus && ['보너스 주사위 1개', '보너스 주사위 2개', '패널티 주사위 1개', '패널티 주사위 2개']
+  .every((label) => bloodyStatus.content.includes(label)),
+  '분리된 기본·보너스·패널티 굴림도 같은 항목의 다이스 종류로 합쳐 보여야 합니다.');
+['라이즈벨', '루엔야크', '애셜', '이카르드', '헬레니아'].forEach((theme) => {
+  assert(!bloodyStatus.content.includes(theme),
+    '시트 테마를 다이스 종류로 보여주면 안 됩니다: ' + theme);
+});
 
 const publicRuntime = addSourceCharacter(
   publicSheet,
