@@ -1426,6 +1426,41 @@ embeddedSheets.forEach((sheet, index) => {
     sheet.id + ': 인식 근거를 개발 로그로 남기지 않았습니다.');
 });
 
+// 저장된 구조가 충분한 캐릭터는, 사용자가 바꾼 저장값이나 다른 시트의 기본값보다
+// 그 구조를 먼저 사용합니다. 저장된 이름은 기본값 probe에서도 다시 읽지 않습니다.
+const otherActualNames = new Set(embeddedSheets.filter((sheet) => sheet !== actualSheet)
+  .flatMap((sheet) => sheet.globalAttributes || []));
+const strongActualNames = (actualSheet.globalAttributes || [])
+  .filter((name) => !otherActualNames.has(name))
+  .slice(0, 2);
+assert.strictEqual(strongActualNames.length, 2,
+  '저장 구조 우선순위를 검증할 원본 전용 필드가 부족합니다.');
+const strongActualValues = Object.fromEntries(strongActualNames.map((name) => [name, '1']));
+Object.assign(strongActualValues, { accounting: '5', anthropology: '1' });
+const strongActualCharacter = addCharacter(
+  'strong-actual-character',
+  '강한 원본 구조 캐릭터',
+  'player-1',
+  strongActualValues,
+);
+sheetFieldDefaults[strongActualCharacter.id] = sourceDefaults(publicSheet);
+const strongLogsBefore = recognitionLogs.length;
+useContracts(...embeddedSheets);
+useRoomCharacters(strongActualCharacter);
+const strongActualInspection = helper.inspectContracts(strongActualCharacter.id);
+const strongRecognitionLine = recognitionLogs.slice(strongLogsBefore)
+  .find((line) => line.includes('[SheetHelper][시트 인식]'));
+const strongRecognition = strongRecognitionLine
+  ? JSON.parse(strongRecognitionLine.slice(strongRecognitionLine.indexOf('{'))) : null;
+assert.strictEqual(strongActualInspection.status, 'matched');
+assert.strictEqual(strongActualInspection.contract.id, actualSheet.id,
+  '충분한 원본 저장 구조를 다른 시트의 기본값 증거로 덮어쓰면 안 됩니다.');
+assert(strongRecognition && strongRecognition.reason !== 'source-defaults',
+  '충분한 저장 구조보다 원본 기본값 probe를 먼저 사용하면 안 됩니다.');
+const strongSavedNames = new Set(Object.keys(strongActualValues));
+assert(strongRecognition.defaultProbes.every((probe) => !strongSavedNames.has(probe.field)),
+  '저장된 Attribute 이름을 원본 기본값 probe로 다시 읽으면 안 됩니다.');
+
 // Roll20은 시트 기본 필드를 Attribute 객체로 만들지 않을 수 있습니다.
 // 전체 시트 목록에서 한 후보에만 속하는 서로 다른 저장 필드가 두 개 이상일 때만
 // 희소한 저장값으로 시트를 확정합니다. 필드 하나나 여러 시트에 겹치는 값은 부족합니다.

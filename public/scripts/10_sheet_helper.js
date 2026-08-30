@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.11
+ * Scene Suite 10 - Sheet Helper 0.6.12
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -68,7 +68,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.11';
+  var VERSION = '0.6.12';
   var cache = {};
   var refreshTimer = null;
   var pendingResults = {};
@@ -386,7 +386,7 @@ var sheet_helper_setting = {
     return trim(value).toLowerCase().replace(/\s+/g, '');
   }
 
-  function sourceDefaultEvidence(characterId, records) {
+  function sourceDefaultEvidence(characterId, records, savedNames) {
     var scores = records.map(function () { return 0; });
     var active = records.slice();
     var used = dictionary();
@@ -395,7 +395,7 @@ var sheet_helper_setting = {
     function nextField() {
       if (active.length < 2) return '';
       var names = Object.keys(active[0].defaults || {}).filter(function (name) {
-        if (used[name]) return false;
+        if (used[name] || savedNames && savedNames[name]) return false;
         var values = active.map(function (record) {
           return own(record.defaults, name) ? normalizedDefault(record.defaults[name]) : '';
         });
@@ -584,7 +584,7 @@ var sheet_helper_setting = {
     });
     var contracts = sheetContracts();
     var catalog = recognitionCatalog(contracts);
-    defaultEvidence = sourceDefaultEvidence(characterId, catalog.records);
+    defaultEvidence = sourceDefaultEvidence(characterId, catalog.records, names);
     var nameList = Object.keys(names);
     var persistentTotal = nameList.length;
     var repeatingTotal = nameList.filter(function (name) {
@@ -747,12 +747,13 @@ var sheet_helper_setting = {
         b.supportCount - a.supportCount || b.uniqueEvidence - a.uniqueEvidence || b.rankScore - a.rankScore ||
         b.repeatingHits - a.repeatingHits || b.score - a.score || b.ratio - a.ratio;
     });
-    if (defaultEvidence.matched) {
-      var defaultMatch = scored.filter(function (item) {
+    function defaultEvidenceResult() {
+      if (!defaultEvidence.matched) return null;
+      var match = scored.filter(function (item) {
         return item.id === defaultEvidence.record.contract.id;
       })[0];
       return remember({ status: 'matched', contract: defaultEvidence.record.contract,
-        match: defaultMatch, matches: scored, recognitionReason: 'source-defaults' });
+        match: match, matches: scored, recognitionReason: 'source-defaults' });
     }
     var compatibilityWinner = scored.filter(function (item) {
       return item.compatibilityOwnerCount * 2 > recognizedOwnerCount;
@@ -770,6 +771,8 @@ var sheet_helper_setting = {
           evidence.uniqueOwnerCount * 2 > recognizedOwnerCount)
         return remember({ status: 'matched', contract: evidence.contract, match: evidence, matches: scored,
           recognitionReason: 'stored-unique-attributes' });
+      var sparseDefaultMatch = defaultEvidenceResult();
+      if (sparseDefaultMatch) return sparseDefaultMatch;
       return remember({
         status: 'ambiguous', contract: null, matches: scored,
         error: SHEET_NOT_RECOGNIZED,
@@ -777,18 +780,23 @@ var sheet_helper_setting = {
       });
     }
     var best = eligible[0];
-    if (best.supportCount * 2 <= recognizedOwnerCount)
+    if (best.supportCount * 2 <= recognizedOwnerCount) {
+      var weakSupportDefaultMatch = defaultEvidenceResult();
+      if (weakSupportDefaultMatch) return weakSupportDefaultMatch;
       return remember({ status: 'ambiguous', contract: null, matches: scored, error: SHEET_NOT_RECOGNIZED,
         recognitionReason: 'insufficient-room-support' });
+    }
     var close = eligible.filter(function (item) {
       return item.supportCount === best.supportCount && best.rankScore - item.rankScore <= 2 &&
         best.ratio - item.ratio < 0.1 && Math.abs(best.repeatingHits - item.repeatingHits) <= 1;
     });
-    if (close.length !== 1)
-      return remember({ status: 'ambiguous', contract: null, matches: close, error: SHEET_NOT_RECOGNIZED,
-        recognitionReason: 'conflicting-candidates' });
-    return remember({ status: 'matched', contract: best.contract, match: best, matches: scored,
-      recognitionReason: 'stored-signature' });
+    if (close.length === 1)
+      return remember({ status: 'matched', contract: best.contract, match: best, matches: scored,
+        recognitionReason: 'stored-signature' });
+    var conflictingDefaultMatch = defaultEvidenceResult();
+    if (conflictingDefaultMatch) return conflictingDefaultMatch;
+    return remember({ status: 'ambiguous', contract: null, matches: close, error: SHEET_NOT_RECOGNIZED,
+      recognitionReason: 'conflicting-candidates' });
   }
 
   function contractControlList(source) {
