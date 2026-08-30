@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.13
+ * Scene Suite 10 - Sheet Helper 0.6.14
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -333,7 +333,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.13';
+  var VERSION = '0.6.14';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -654,6 +654,7 @@ var sheet_helper_setting = {
 
   function sourceDefaultEvidence(characterId, records, savedNames) {
     var scores = records.map(function () { return 0; });
+    var blankContradictions = records.map(function () { return 0; });
     var active = records.slice();
     var used = dictionary();
     var probes = [];
@@ -717,38 +718,42 @@ var sheet_helper_setting = {
       var rawActual = reads(name);
       var actual = normalizedDefault(rawActual);
       if (rawActual === undefined || rawActual === null || !actual) {
+        records.forEach(function (record) {
+          if (/^value:.+/.test(defaultValues[name][record.ordinal])) blankContradictions[record.ordinal] += 1;
+        });
         probes.push({ name: name, value: actual, matches: [] });
-        continue;
+      } else {
+        var actualDefault = 'value:' + actual;
+        var matched = records.filter(function (record) {
+          return defaultValues[name][record.ordinal] === actualDefault;
+        });
+        matched.forEach(function (record) {
+          scores[record.ordinal] += 1;
+        });
+        probes.push({ name: name, value: actual, matches: matched.map(function (record) { return record.contract.id; }) });
       }
-      var actualDefault = 'value:' + actual;
-      var matched = records.filter(function (record) {
-        return defaultValues[name][record.ordinal] === actualDefault;
-      });
-      if (!matched.length) {
-        probes.push({ name: name, value: actual, matches: [] });
-        continue;
-      }
-      matched.forEach(function (record) {
-        scores[record.ordinal] += 1;
-      });
-      probes.push({ name: name, value: actual, matches: matched.map(function (record) { return record.contract.id; }) });
-      var ranked = records.slice().sort(function (left, right) {
+      var strongest = Math.max.apply(Math, scores);
+      var candidates = strongest >= 2 ? records.filter(function (record) {
+        return scores[record.ordinal] >= 2 || blankContradictions[record.ordinal] < 2;
+      }) : records.slice();
+      if (!candidates.length) candidates = records.slice();
+      var ranked = candidates.sort(function (left, right) {
         return scores[right.ordinal] - scores[left.ordinal] || left.ordinal - right.ordinal;
       });
       var bestScore = scores[ranked[0].ordinal];
       var best = ranked.filter(function (record) { return scores[record.ordinal] === bestScore; });
       var runnerScore = ranked[best.length] ? scores[ranked[best.length].ordinal] : 0;
-      if (best.length === 1 && bestScore >= 2 && bestScore - runnerScore >= 2)
-        return { record: best[0], scores: scores, probes: probes, matched: true };
-      active = records.filter(function (record) {
+      if (best.length === 1 && bestScore >= 2 && (bestScore - runnerScore >= 2 || ranked.length === 1))
+        return { record: best[0], survivors: ranked, scores: scores, probes: probes, matched: true };
+      active = ranked.filter(function (record) {
         return scores[record.ordinal] >= Math.max(0, bestScore - 1);
       });
     }
-    return { record: null, scores: scores, probes: probes, matched: false };
+    return { record: null, survivors: active, scores: scores, probes: probes, matched: false };
   }
 
   function roomSourceDefaultEvidence(characters, records, ownersByName) {
-    var fallback = { record: null, scores: records.map(function () { return 0; }), probes: [], matched: false };
+    var fallback = { record: null, survivors: records.slice(), scores: records.map(function () { return 0; }), probes: [], matched: false };
     var candidates = (characters || []).slice().sort(function (left, right) {
       function savedCount(character) {
         var count = 0;
@@ -769,7 +774,9 @@ var sheet_helper_setting = {
       var evidence = sourceDefaultEvidence(character.id, records, savedNames);
       evidence.characterId = character.id;
       if (evidence.matched) return evidence;
-      if (evidence.probes.length > fallback.probes.length) fallback = evidence;
+      if (evidence.survivors.length < fallback.survivors.length ||
+          evidence.survivors.length === fallback.survivors.length && evidence.probes.length > fallback.probes.length)
+        fallback = evidence;
     }
     return fallback;
   }
@@ -1065,56 +1072,66 @@ var sheet_helper_setting = {
         b.supportCount - a.supportCount || b.uniqueEvidence - a.uniqueEvidence || b.rankScore - a.rankScore ||
         b.repeatingHits - a.repeatingHits || b.score - a.score || b.ratio - a.ratio;
     });
-    function defaultEvidenceResult() {
-      if (!defaultEvidence.matched) return null;
+    if (defaultEvidence.matched) {
       var match = scored.filter(function (item) {
         return item.id === defaultEvidence.record.contract.id;
       })[0];
       return remember({ status: 'matched', contract: defaultEvidence.record.contract,
         match: match, matches: scored, recognitionReason: 'source-defaults' });
     }
-    var compatibilityWinner = scored.filter(function (item) {
+    var sourceSurvivors = dictionary();
+    (defaultEvidence.survivors || []).forEach(function (record) { sourceSurvivors[record.contract.id] = true; });
+    var sourceSurvivorCount = Object.keys(sourceSurvivors).length;
+    var sourceNarrowed = sourceSurvivorCount > 0 && sourceSurvivorCount < catalog.records.length;
+    var selection = sourceNarrowed
+      ? scored.filter(function (item) { return sourceSurvivors[item.id]; })
+      : scored;
+    if (sourceNarrowed)
+      return remember({
+        status: 'ambiguous', contract: null, matches: selection,
+        error: SHEET_NOT_RECOGNIZED,
+        recognitionReason: 'source-defaults-ambiguous',
+      });
+    var compatibilityWinner = selection.filter(function (item) {
       return item.compatibilityOwnerCount * 2 > recognizedOwnerCount;
     });
     if (compatibilityWinner.length === 1)
       return remember({ status: 'matched', contract: compatibilityWinner[0].contract,
-        match: compatibilityWinner[0], matches: scored, recognitionReason: 'stored-attributes' });
-    var eligible = scored.filter(function (item) { return item.eligible; });
+        match: compatibilityWinner[0], matches: selection, recognitionReason: 'stored-attributes' });
+    var eligible = selection.filter(function (item) { return item.eligible; });
     if (!eligible.length) {
-      if (!scored.length) return remember({ status: 'none', contract: null, matches: [], recognitionReason: 'no-contracts' });
-      var evidence = scored[0];
-      var runnerUp = scored[1];
+      if (!selection.length) return remember({ status: 'none', contract: null, matches: [], recognitionReason: 'no-contracts' });
+      var evidence = selection[0];
+      var runnerUp = selection[1];
       if (evidence.uniqueEvidence >= 2 && (!runnerUp ||
           evidence.supportCount > runnerUp.supportCount || runnerUp.uniqueEvidence === 0) &&
           evidence.uniqueOwnerCount * 2 > recognizedOwnerCount)
-        return remember({ status: 'matched', contract: evidence.contract, match: evidence, matches: scored,
+        return remember({ status: 'matched', contract: evidence.contract, match: evidence, matches: selection,
           recognitionReason: 'stored-unique-attributes' });
-      var sparseDefaultMatch = defaultEvidenceResult();
-      if (sparseDefaultMatch) return sparseDefaultMatch;
       return remember({
-        status: 'ambiguous', contract: null, matches: scored,
+        status: 'ambiguous', contract: null, matches: selection,
         error: SHEET_NOT_RECOGNIZED,
-        recognitionReason: persistentTotal ? 'insufficient-or-conflicting-evidence' : 'no-saved-attributes-or-default-match',
+        recognitionReason: sourceNarrowed
+          ? 'source-defaults-ambiguous'
+          : persistentTotal ? 'insufficient-or-conflicting-evidence' : 'no-saved-attributes-or-default-match',
       });
     }
     var best = eligible[0];
     if (best.supportCount * 2 <= recognizedOwnerCount) {
-      var weakSupportDefaultMatch = defaultEvidenceResult();
-      if (weakSupportDefaultMatch) return weakSupportDefaultMatch;
-      return remember({ status: 'ambiguous', contract: null, matches: scored, error: SHEET_NOT_RECOGNIZED,
-        recognitionReason: 'insufficient-room-support' });
+      return remember({ status: 'ambiguous', contract: null, matches: selection, error: SHEET_NOT_RECOGNIZED,
+        recognitionReason: sourceNarrowed
+          ? 'source-defaults-ambiguous' : 'insufficient-room-support' });
     }
     var close = eligible.filter(function (item) {
       return item.supportCount === best.supportCount && best.rankScore - item.rankScore <= 2 &&
         best.ratio - item.ratio < 0.1 && Math.abs(best.repeatingHits - item.repeatingHits) <= 1;
     });
     if (close.length === 1)
-      return remember({ status: 'matched', contract: best.contract, match: best, matches: scored,
+      return remember({ status: 'matched', contract: best.contract, match: best, matches: selection,
         recognitionReason: 'stored-signature' });
-    var conflictingDefaultMatch = defaultEvidenceResult();
-    if (conflictingDefaultMatch) return conflictingDefaultMatch;
     return remember({ status: 'ambiguous', contract: null, matches: close, error: SHEET_NOT_RECOGNIZED,
-      recognitionReason: 'conflicting-candidates' });
+      recognitionReason: sourceNarrowed
+        ? 'source-defaults-ambiguous' : 'conflicting-candidates' });
   }
 
   function contractControlList(source) {
@@ -1611,6 +1628,23 @@ var sheet_helper_setting = {
       });
     });
     return result;
+  }
+
+  function actionableContractRolls(characterId, inspection, includeHidden) {
+    if (inspection && inspection.status === 'matched') return scannedContractRolls(characterId, includeHidden);
+    var candidates = inspection && inspection.status === 'ambiguous' && inspection.recognitionReason === 'source-defaults-ambiguous'
+      ? (inspection.matches || []).map(function (match) {
+        return { status: 'matched', contract: match.contract, match: match, matches: inspection.matches };
+      })
+      : [];
+    if (!candidates.length) return [];
+    var objects = attrObjects(characterId);
+    var readLive = cachedAttrReader(characterId);
+    var rolls = [];
+    candidates.forEach(function (candidate) {
+      rolls = rolls.concat(contractRolls(characterId, candidate, objects, includeHidden, readLive));
+    });
+    return rolls;
   }
 
   function contractFieldMatch(index, name) {
@@ -2497,9 +2531,12 @@ var sheet_helper_setting = {
     var matches = [];
     directResultCharacters(message, fields).forEach(function (character) {
       var data = scan(character.id);
-      if (!data.ok || !data.contractMatch || data.contractMatch.status !== 'matched') return;
+      if (!data.ok || !data.contractMatch) return;
+      var instances = data.contractMatch.status === 'matched'
+        ? data.contractRolls
+        : actionableContractRolls(character.id, data.contractMatch, false);
       var template = normalize(message.rolltemplate);
-      data.contractRolls.forEach(function (instance) {
+      instances.forEach(function (instance) {
         if (normalize(instance.roll && instance.roll.template) !== template) return;
         var score = directInstanceScore(character.id, instance, fields);
         if (score > 0) matches.push({ character: character, instance: instance, score: score });
@@ -2569,7 +2606,8 @@ var sheet_helper_setting = {
   function sourceContractAction(character, query, secret) {
     var inspection = inspectContracts(character.id);
     if (inspection.status === 'none') return null;
-    if (inspection.status === 'ambiguous') return { ok: false, error: inspection.error };
+    if (inspection.status === 'ambiguous' && inspection.recognitionReason !== 'source-defaults-ambiguous')
+      return { ok: false, error: inspection.error };
     var resolved = resolveContractAction(character, query, secret);
     return resolved.handled
       ? resolved.result
@@ -3057,12 +3095,17 @@ var sheet_helper_setting = {
 
   function exactContractInstance(characterId, contractId, rollKey, rowId, includeHidden) {
     var inspection = inspectContracts(characterId);
-    if (inspection.status === 'ambiguous') return { ok: false, error: inspection.error };
-    if (inspection.status !== 'matched') return { ok: false, error: SHEET_NOT_RECOGNIZED };
-    if (String(inspection.contract.id) !== String(contractId))
+    if (inspection.status !== 'matched' &&
+        !(inspection.status === 'ambiguous' && inspection.recognitionReason === 'source-defaults-ambiguous'))
+      return { ok: false, error: inspection.error || SHEET_NOT_RECOGNIZED };
+    var allowed = inspection.status === 'matched'
+      ? [inspection.contract.id]
+      : (inspection.matches || []).map(function (match) { return match.id; });
+    if (allowed.indexOf(String(contractId)) < 0)
       return { ok: false, error: '선택한 굴림 정보가 현재 캐릭터와 더 이상 맞지 않습니다.' };
-    var matches = scannedContractRolls(characterId, !!includeHidden).filter(function (instance) {
-      return String(instance.roll.key) === String(rollKey) && String(instance.row ? instance.row.id : '') === String(rowId || '');
+    var matches = actionableContractRolls(characterId, inspection, !!includeHidden).filter(function (instance) {
+      return String(instance.contract.id) === String(contractId) &&
+        String(instance.roll.key) === String(rollKey) && String(instance.row ? instance.row.id : '') === String(rowId || '');
     });
     return matches.length === 1
       ? { ok: true, instance: matches[0] }
@@ -3183,7 +3226,8 @@ var sheet_helper_setting = {
   function uniqueContractCandidates(candidates) {
     var found = dictionary();
     return candidates.filter(function (candidate) {
-      var key = candidate.instance.key + '|' + String(candidate.mode && candidate.mode.id || '');
+      var key = candidate.instance.contract.id + '|' + candidate.instance.key + '|' +
+        String(candidate.mode && candidate.mode.id || '');
       if (found[key]) return false;
       found[key] = true;
       return true;
@@ -3191,6 +3235,20 @@ var sheet_helper_setting = {
   }
 
   function preferDirectContractActions(instances, compatible) {
+    var grouped = dictionary();
+    instances.forEach(function (instance) {
+      var id = instance.contract.id;
+      if (!grouped[id]) grouped[id] = [];
+      grouped[id].push(instance);
+    });
+    var contractIds = Object.keys(grouped);
+    if (contractIds.length > 1) {
+      var result = [];
+      contractIds.forEach(function (id) {
+        result = result.concat(preferDirectContractActions(grouped[id], compatible));
+      });
+      return result;
+    }
     var direct = instances.filter(function (instance) {
       return String(instance && instance.roll && instance.roll.raw || '').indexOf('?{') < 0;
     });
@@ -3209,13 +3267,58 @@ var sheet_helper_setting = {
     if (candidates.length < 2) return candidates;
     var minimum = dictionary();
     candidates.forEach(function (candidate) {
-      var key = candidate.instance.key;
+      var key = candidate.instance.contract.id + '|' + candidate.instance.key;
       var count = Object.keys(contractOverrides(candidate.mode)).length;
       if (!own(minimum, key) || count < minimum[key]) minimum[key] = count;
     });
     return candidates.filter(function (candidate) {
-      return Object.keys(contractOverrides(candidate.mode)).length === minimum[candidate.instance.key];
+      var key = candidate.instance.contract.id + '|' + candidate.instance.key;
+      return Object.keys(contractOverrides(candidate.mode)).length === minimum[key];
     });
+  }
+
+  function contractModeContext(mode) {
+    var found = dictionary();
+    var labels = Array.isArray(mode && mode.labelPath)
+      ? mode.labelPath
+      : [mode && (mode.labelPath || mode.label)];
+    labels.forEach(function (label) {
+      String(label).split(/\s*(?:\|\||::|[|｜/>])\s*/).forEach(function (part) {
+        var key = normalize(part);
+        if (key) found[key] = true;
+      });
+    });
+    return found;
+  }
+
+  function preferCurrentModeContext(characterId, candidates) {
+    if (candidates.length < 2 || candidates.some(function (candidate) { return !candidate.mode; })) return candidates;
+    function contextKey(candidate) {
+      var rowId = candidate.instance.row ? candidate.instance.row.id : '';
+      return candidate.instance.contract.id + '|' + candidate.instance.roll.key + '|' + rowId + '|' +
+        Object.keys(contractOverrides(candidate.mode)).sort().join(',');
+    }
+    var sharedKey = contextKey(candidates[0]);
+    if (candidates.some(function (candidate) { return contextKey(candidate) !== sharedKey; })) return candidates;
+    var best = 0;
+    var overrideKey = Object.keys(contractOverrides(candidates[0].mode)).sort().join(',');
+    var currentModes = currentContractModes(characterId, candidates[0].instance).filter(function (mode) {
+      return Object.keys(contractOverrides(mode)).sort().join(',') === overrideKey;
+    });
+    if (!currentModes.length) return candidates;
+    var current = currentModes.map(contractModeContext);
+    var ranked = candidates.map(function (candidate) {
+      var wanted = contractModeContext(candidate.mode);
+      var score = 0;
+      current.forEach(function (currentLabels) {
+        var overlap = Object.keys(wanted).filter(function (key) { return currentLabels[key]; }).length;
+        if (overlap > score) score = overlap;
+      });
+      if (score > best) best = score;
+      return { candidate: candidate, score: score };
+    });
+    return best ? ranked.filter(function (entry) { return entry.score === best; })
+      .map(function (entry) { return entry.candidate; }) : candidates;
   }
 
   function contractMultipleRollRequest(query) {
@@ -3240,6 +3343,20 @@ var sheet_helper_setting = {
   function contractMultipleRollCandidates(instances, query) {
     var requested = contractMultipleRollRequest(query);
     if (!requested) return [];
+    var grouped = dictionary();
+    instances.forEach(function (instance) {
+      var id = instance.contract.id;
+      if (!grouped[id]) grouped[id] = [];
+      grouped[id].push(instance);
+    });
+    var contractIds = Object.keys(grouped);
+    if (contractIds.length > 1) {
+      var result = [];
+      contractIds.forEach(function (id) {
+        result = result.concat(contractMultipleRollCandidates(grouped[id], query));
+      });
+      return uniqueContractCandidates(result);
+    }
     var matched = closestContractActions(instances, requested.base, true);
     if (!matched.length) return [];
     var wantedMode = contractLookupKeys(requested.mode, true);
@@ -3263,9 +3380,11 @@ var sheet_helper_setting = {
 
   function resolveContractAction(character, query, secret, options) {
     var inspection = inspectContracts(character.id);
-    if (inspection.status === 'ambiguous') return { handled: true, result: { ok: false, error: inspection.error } };
-    if (inspection.status !== 'matched') return { handled: false, result: null };
-    var instances = scannedContractRolls(character.id, true).map(function (instance) {
+    if (inspection.status === 'ambiguous' && inspection.recognitionReason !== 'source-defaults-ambiguous')
+      return { handled: true, result: { ok: false, error: inspection.error } };
+    if (inspection.status !== 'matched' && inspection.recognitionReason !== 'source-defaults-ambiguous')
+      return { handled: false, result: null };
+    var instances = actionableContractRolls(character.id, inspection, true).map(function (instance) {
       instance.characterId = character.id;
       return instance;
     });
@@ -3279,7 +3398,8 @@ var sheet_helper_setting = {
       var exactActions = preferDirectContractActions(instances.filter(function (instance) {
         return !instance.hidden && contractKeysMatch(contractInstanceAliases(instance, compatible), wanted, false);
       }), compatible);
-      return uniqueContractCandidates(exactModes.concat(exactActions.map(function (instance) { return { instance: instance }; })));
+      return preferCurrentModeContext(character.id,
+        uniqueContractCandidates(exactModes.concat(exactActions.map(function (instance) { return { instance: instance }; }))));
     }
     var exact = exactCandidates(false);
     if (!exact.length) exact = exactCandidates(true);
@@ -3305,6 +3425,7 @@ var sheet_helper_setting = {
         return contractKeysMatch(candidate.partialValues, wanted, true);
       })));
     }
+    partial = preferCurrentModeContext(character.id, partial);
     if (partial.length === 1)
       return { handled: true, result: executeContractInstance(character, partial[0].instance, partial[0].mode ? partial[0].mode.id : '', secret) };
     if (partial.length > 1) return { handled: true, result: contractConflict(partial, secret) };
@@ -3313,11 +3434,12 @@ var sheet_helper_setting = {
 
   function executeContractExpression(character, expressionText, secret) {
     var inspection = inspectContracts(character.id);
-    if (inspection.status === 'ambiguous') return { ok: false, error: inspection.error };
-    if (inspection.status !== 'matched') return null;
+    if (inspection.status === 'ambiguous' && inspection.recognitionReason !== 'source-defaults-ambiguous')
+      return { ok: false, error: inspection.error };
+    if (inspection.status !== 'matched' && inspection.recognitionReason !== 'source-defaults-ambiguous') return null;
     var safe = safeUserRollExpression(character.id, expressionText);
     if (!safe) return { ok: false, error: '자유 주사위 식은 2d6+3처럼 완전한 식으로 적어 주세요.' };
-    var instances = scannedContractRolls(character.id).filter(function (instance) {
+    var instances = actionableContractRolls(character.id, inspection, false).filter(function (instance) {
       return !!contractExpressionRef(character.id, instance);
     }).map(function (instance) {
       instance.characterId = character.id;
