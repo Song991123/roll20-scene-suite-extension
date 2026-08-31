@@ -1676,8 +1676,8 @@ assert(!sent.slice(blue29EditStart).some((item) => /EDIT|edit_mode/.test(String(
   '편집용 토글을 켜고 꺼도 수치 변화 알림을 보내면 안 됩니다.');
 blue29EditAttribute.set('current', blue29EditBefore);
 events['change:attribute'](blue29EditAttribute, { current: blue29EditBefore === '1' ? '' : '1' });
-assert.strictEqual(blue29CommonScan.resources.find((item) => item.name === 'hp').max, null,
-  '일부 후보에만 있는 체력 최대값을 중상 판정에 임의 사용하면 안 됩니다.');
+assert.strictEqual(blue29CommonScan.resources.find((item) => item.name === 'hp').max, 10,
+  '공통 최대 체력 항목은 호환 후보 병합 뒤에도 현재 체력과 다시 연결해야 합니다.');
 const blue29HpAttribute = attributeObjects.find((item) =>
   item.get('_characterid') === blue29AfterBloody.id && item.get('name') === 'hp');
 const blue29SanAttribute = attributeObjects.find((item) =>
@@ -1689,11 +1689,16 @@ assert.strictEqual(blue29HpAttribute.get('current'), '10', '공통 체력 별칭
 const blue29Major = Object.values(blue29CommonScan.trackedFields).find((item) =>
   (item.sourceLabels || []).some((label) => String(label).replace(/[\s_.:()"'-]+/g, '') === '중상'));
 assert(blue29Major, '공통 중상 체크 항목도 추적해야 합니다.');
-runGeneral(':hp-5', blue29AfterBloody.get('name'));
+const blue29MajorMessages = runGeneral(':hp-5', blue29AfterBloody.get('name'));
 const blue29MajorAttribute = attributeObjects.find((item) =>
   item.get('_characterid') === blue29AfterBloody.id && item.get('name') === blue29Major.name);
-assert(!blue29MajorAttribute || String(blue29MajorAttribute.get('current')) === '0',
-  '최대 체력을 모든 후보에서 확인하지 못하면 중상을 임의 활성화하면 안 됩니다.');
+assert(blue29MajorAttribute && String(blue29MajorAttribute.get('current')) === String(blue29Major.onValue || '1'),
+  '공통 최대 체력의 절반 이상 피해는 원본 중상 항목을 활성화해야 합니다.');
+assert(blue29MajorMessages.some((item) => {
+  const content = String(item.content || '');
+  return content.includes('10 / 10 (100%)') && content.includes('5 / 10 (50%)') &&
+    content.includes('중상 활성화') && !content.includes('자동 처리 생략');
+}), '공통 체력 알림은 전후 퍼센트와 중상 자동 처리를 함께 보여야 합니다.');
 runGeneral(':hp+5', blue29AfterBloody.get('name'));
 runGeneral(':이성-3', blue29AfterBloody.get('name'));
 assert.strictEqual(blue29SanAttribute.get('current'), '47', '공통 이성 수치 감소가 실제 Attribute에 적용되어야 합니다.');
@@ -1709,6 +1714,10 @@ blue29HpAttribute.set('current', '8');
 events['change:attribute'](blue29HpAttribute, { current: '10' });
 assert(sent.slice(blue29DirectStart).some((item) => String(item.content || '').includes('2 감소')),
   '공통 체력 Attribute를 시트에서 직접 바꿔도 기존 변화 알림을 유지해야 합니다.');
+assert(sent.slice(blue29DirectStart).some((item) => {
+  const content = String(item.content || '');
+  return content.includes('10 / 10 (100%)') && content.includes('8 / 10 (80%)');
+}), '시트에서 체력을 직접 바꿔도 전후 퍼센트를 보여야 합니다.');
 blue29HpAttribute.set('current', '10');
 events['change:attribute'](blue29HpAttribute, { current: '8' });
 const blue29StatusMessages = runApi('!!상태', blue29AfterBloody.get('name'));

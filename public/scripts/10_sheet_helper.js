@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.16
+ * Scene Suite 10 - Sheet Helper 0.6.17
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -333,7 +333,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.16';
+  var VERSION = '0.6.17';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -1822,6 +1822,63 @@ var sheet_helper_setting = {
     return result;
   }
 
+  function fieldPairNameKey(name) {
+    return normalize(name)
+      .replace(/^(?:현재|최대|current|maximum|max|now)/i, '')
+      .replace(/(?:현재|최대|current|maximum|max|now)$/i, '');
+  }
+
+  function pairResourceMaximums(resources, references) {
+    var maximumByKey = dictionary();
+    var maximumByName = dictionary();
+    (references || []).forEach(function (candidate, index) {
+      if (!maximumFieldLabel(candidate.sourceLabels)) return;
+      var nameKey = fieldPairNameKey(candidate.name);
+      if (nameKey) {
+        if (!maximumByName[nameKey]) maximumByName[nameKey] = [];
+        maximumByName[nameKey].push({ candidate: candidate, index: index });
+      }
+      fieldPairKeys(candidate.sourceLabels).forEach(function (key) {
+        if (!maximumByKey[key]) maximumByKey[key] = [];
+        maximumByKey[key].push({ candidate: candidate, index: index });
+      });
+    });
+    (resources || []).forEach(function (item) {
+      if (item.max !== null || maximumFieldLabel(item.sourceLabels)) return;
+      var scores = dictionary();
+      var candidates = [];
+      function score(entry, amount) {
+        if (entry.candidate.name === item.name) return;
+        if (!scores[entry.index]) candidates.push(entry);
+        scores[entry.index] = (scores[entry.index] || 0) + amount;
+      }
+      fieldPairKeys(item.sourceLabels).forEach(function (key) {
+        (maximumByKey[key] || []).forEach(function (entry) {
+          score(entry, 1);
+        });
+      });
+      (maximumByName[fieldPairNameKey(item.name)] || []).forEach(function (entry) {
+        score(entry, 1000);
+      });
+      var best = 0;
+      var match = null;
+      var matchCount = 0;
+      candidates.forEach(function (entry) {
+        var score = scores[entry.index];
+        if (score < best) return;
+        if (score > best) {
+          best = score;
+          match = entry.candidate;
+          matchCount = 1;
+        } else matchCount += 1;
+      });
+      if (matchCount === 1) {
+        item.max = match.value;
+        item._maxDefinition = match._definition || '';
+      }
+    });
+  }
+
   function liveResourceFields(fields) {
     var maximums = dictionary();
     (fields || []).filter(function (field) {
@@ -2006,42 +2063,7 @@ var sheet_helper_setting = {
       var match = contractFieldMatch(index, name);
       if (match && match.section) add(match, attribute);
     });
-    var maximumByKey = dictionary();
-    result.references.forEach(function (candidate, index) {
-      if (!maximumFieldLabel(candidate.sourceLabels)) return;
-      fieldPairKeys(candidate.sourceLabels).forEach(function (key) {
-        if (!maximumByKey[key]) maximumByKey[key] = [];
-        maximumByKey[key].push({ candidate: candidate, index: index });
-      });
-    });
-    result.resources.forEach(function (item) {
-      if (item.max !== null) return;
-      var scores = dictionary();
-      var candidates = [];
-      fieldPairKeys(item.sourceLabels).forEach(function (key) {
-        (maximumByKey[key] || []).forEach(function (entry) {
-          if (entry.candidate === item) return;
-          if (!scores[entry.index]) candidates.push(entry);
-          scores[entry.index] = (scores[entry.index] || 0) + 1;
-        });
-      });
-      var best = 0;
-      var match = null;
-      var matchCount = 0;
-      candidates.forEach(function (entry) {
-        var score = scores[entry.index];
-        if (score < best) return;
-        if (score > best) {
-          best = score;
-          match = entry.candidate;
-          matchCount = 1;
-        } else matchCount += 1;
-      });
-      if (matchCount === 1) {
-        item.max = match.value;
-        item._maxDefinition = match._definition || '';
-      }
-    });
+    pairResourceMaximums(result.resources, result.references);
     result.resources.sort(function (left, right) {
       return left.label.localeCompare(right.label) || left.name.localeCompare(right.name);
     });
@@ -2116,6 +2138,7 @@ var sheet_helper_setting = {
       byAttribute: dictionary(),
       references: shared('references'),
     };
+    pairResourceMaximums(value.resources, value.references);
     shared('tracked', true).forEach(function (item) { value.tracked[item.name] = item; });
     value.resources.forEach(function (item) {
       value.byAttribute[item.name] = item;
@@ -2224,7 +2247,8 @@ var sheet_helper_setting = {
         .filter(function (item) { return item.kind === 'toggle'; })
       : (data.resources || []).filter(function (item) {
           return role === 'startingSanity' ||
-            !/^(?:시작|start|초기|initial|최대|maximum|max)/i.test(normalize(item.fieldLabel));
+            !maximumFieldLabel(item.sourceLabels) &&
+            !/^(?:시작|start|초기|initial)/i.test(normalize(item.fieldLabel));
         });
     return uniqueDetectedItems(items, role);
   }
@@ -4537,15 +4561,12 @@ var sheet_helper_setting = {
     if (beforeNumber === null || currentNumber === null || currentNumber >= beforeNumber) return details;
 
     var health = detectedFieldRole(data, 'health', 'number');
-    var changedHealth = health.item && health.item.name === changedItem.name;
-    if (!changedHealth && health.ambiguous)
-      changedHealth = health.matches.some(function (item) { return item.name === changedItem.name; });
+    var healthItem = health.item || health.matches.filter(function (item) {
+      return item.name === changedItem.name;
+    })[0];
+    var changedHealth = healthItem && healthItem.name === changedItem.name;
     if (changedHealth) {
-      if (!health.item) {
-        details.push(detectedRoleProblem(character, '체력', health));
-        return details;
-      }
-      var maximum = health.item.max;
+      var maximum = healthItem.max;
       var canCheckMajorDamage = maximum !== null && maximum > 0;
       if (!canCheckMajorDamage)
         details.push(detectedRoleProblem(character, '최대 체력', { ambiguous: false, matches: [] }));
@@ -4571,14 +4592,11 @@ var sheet_helper_setting = {
     }
 
     var sanity = detectedFieldRole(data, 'sanity', 'number');
-    var changedSanity = sanity.item && sanity.item.name === changedItem.name;
-    if (!changedSanity && sanity.ambiguous)
-      changedSanity = sanity.matches.some(function (item) { return item.name === changedItem.name; });
+    var sanityItem = sanity.item || sanity.matches.filter(function (item) {
+      return item.name === changedItem.name;
+    })[0];
+    var changedSanity = sanityItem && sanityItem.name === changedItem.name;
     if (!changedSanity) return details;
-    if (!sanity.item) {
-      if (beforeNumber - currentNumber >= 5) details.push(detectedRoleProblem(character, '이성', sanity));
-      return details;
-    }
     var longInsanity = detectedFieldRole(data, 'longInsanity', 'toggle');
     if (longInsanity.ambiguous) {
       details.push(detectedRoleProblem(character, '장기적 광기', longInsanity));
@@ -4973,6 +4991,7 @@ var sheet_helper_setting = {
     var data = scan(characterId);
     var item = data.trackedFields && data.trackedFields[name];
     if (!item) return;
+    item = data.resourcesByAttribute && data.resourcesByAttribute[name] || item;
     var character = getObj('character', characterId);
     if (!character) return;
     var details = applyDetectedRules(character, item, before, current);
