@@ -333,7 +333,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.14';
+  var VERSION = '0.6.15';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -1134,6 +1134,19 @@ var sheet_helper_setting = {
         ? 'source-defaults-ambiguous' : 'conflicting-candidates' });
   }
 
+  function usableContractInspection(inspection) {
+    return !!inspection && (inspection.status === 'matched' ||
+      (inspection.status === 'ambiguous' && inspection.recognitionReason === 'source-defaults-ambiguous'));
+  }
+
+  function sourceCandidateInspections(inspection) {
+    if (!usableContractInspection(inspection)) return [];
+    if (inspection.status === 'matched') return [inspection];
+    return (inspection.matches || []).map(function (match) {
+      return { status: 'matched', contract: match.contract, match: match, matches: inspection.matches };
+    });
+  }
+
   function contractControlList(source) {
     if (Array.isArray(source)) return source;
     if (!source || typeof source !== 'object') return [];
@@ -1630,16 +1643,12 @@ var sheet_helper_setting = {
     return result;
   }
 
-  function actionableContractRolls(characterId, inspection, includeHidden) {
+  function actionableContractRolls(characterId, inspection, includeHidden, objects, readLive) {
     if (inspection && inspection.status === 'matched') return scannedContractRolls(characterId, includeHidden);
-    var candidates = inspection && inspection.status === 'ambiguous' && inspection.recognitionReason === 'source-defaults-ambiguous'
-      ? (inspection.matches || []).map(function (match) {
-        return { status: 'matched', contract: match.contract, match: match, matches: inspection.matches };
-      })
-      : [];
+    var candidates = sourceCandidateInspections(inspection);
     if (!candidates.length) return [];
-    var objects = attrObjects(characterId);
-    var readLive = cachedAttrReader(characterId);
+    objects = objects || attrObjects(characterId);
+    readLive = readLive || cachedAttrReader(characterId);
     var rolls = [];
     candidates.forEach(function (candidate) {
       rolls = rolls.concat(contractRolls(characterId, candidate, objects, includeHidden, readLive));
@@ -1799,7 +1808,7 @@ var sheet_helper_setting = {
     return result;
   }
 
-  function contractFieldItems(characterId, inspection, objects, rolls, readLive) {
+  function contractFieldItems(characterId, inspection, objects, rolls, readLive, includeDefinition) {
     var result = { resources: [], tracked: dictionary(), aliases: dictionary(), byAttribute: dictionary(), references: [] };
     if (!inspection || inspection.status !== 'matched') return result;
     var fields = Array.isArray(inspection.contract.fields) ? inspection.contract.fields : [];
@@ -1880,6 +1889,7 @@ var sheet_helper_setting = {
       var type = trim(field.type).toLowerCase();
       var sourceLabels = sourceFieldLabels(field, label, rowLabel);
       var rowContext = fieldRowContext(match);
+      var definition = includeDefinition ? JSON.stringify(field) : '';
       var number = /^(?:text|number|range)$/.test(type)
         ? numericFieldValue(characterId, raw, fieldDefaults, rowContext) : null;
       var tracked = !!field.trackCandidate && (number !== null || type === 'checkbox');
@@ -1894,6 +1904,7 @@ var sheet_helper_setting = {
         onValue: trim(field.onValue),
         value: raw,
         automationVisible: visible === true,
+        _definition: definition,
       };
       if (number === null) return;
       var maxRaw = attribute && attribute.get('max');
@@ -1913,6 +1924,8 @@ var sheet_helper_setting = {
         max: numericFieldValue(characterId, maxRaw, fieldDefaults, rowContext),
         writable: !!field.numericCandidate,
         automationVisible: visible === true,
+        _definition: definition,
+        _maxDefinition: trim(field.max) ? JSON.stringify(field.max) : '',
       };
       result.references.push(item);
       if (!field.numericCandidate) return;
@@ -1976,12 +1989,87 @@ var sheet_helper_setting = {
           matchCount = 1;
         } else matchCount += 1;
       });
-      if (matchCount === 1) item.max = match.value;
+      if (matchCount === 1) {
+        item.max = match.value;
+        item._maxDefinition = match._definition || '';
+      }
     });
     result.resources.sort(function (left, right) {
       return left.label.localeCompare(right.label) || left.name.localeCompare(right.name);
     });
     return result;
+  }
+
+  function contractFieldItemFingerprint(item) {
+    function normalized(values) {
+      return (values || []).map(normalize).filter(Boolean).sort();
+    }
+    return JSON.stringify([
+      item.name, item._definition || '', normalize(item.label), normalized(item.aliases),
+      normalized(item.sourceLabels), normalize(item.fieldLabel), item.kind || '', trim(item.onValue),
+      item.writable !== false, item.automationVisible === true, String(item.value),
+    ]);
+  }
+
+  function commonContractFieldItems(characterId, inspection, objects, rolls, readLive) {
+    if (inspection && inspection.status === 'matched')
+      return contractFieldItems(characterId, inspection, objects, rolls, readLive);
+    var candidates = sourceCandidateInspections(inspection);
+    if (!candidates.length)
+      return { resources: [], tracked: dictionary(), aliases: dictionary(), byAttribute: dictionary(), references: [] };
+    var results = candidates.map(function (candidate) {
+      return contractFieldItems(
+        characterId,
+        candidate,
+        objects,
+        contractRolls(characterId, candidate, objects, false, readLive),
+        readLive,
+        true,
+      );
+    });
+    function shared(property, dictionaryProperty) {
+      var lists = results.map(function (result) {
+        return dictionaryProperty
+          ? Object.keys(result[property] || {}).map(function (name) { return result[property][name]; })
+          : result[property] || [];
+      });
+      var indexes = lists.slice(1).map(function (items) {
+        var found = dictionary();
+        items.forEach(function (item) { found[contractFieldItemFingerprint(item)] = item; });
+        return found;
+      });
+      return (lists[0] || []).filter(function (item) {
+        var key = contractFieldItemFingerprint(item);
+        return indexes.every(function (index) { return !!index[key]; });
+      }).map(function (item) {
+        var key = contractFieldItemFingerprint(item);
+        var peers = [item].concat(indexes.map(function (index) { return index[key]; }));
+        var merged = merge({}, item);
+        if (!own(item, 'max')) return merged;
+        var maximum = JSON.stringify([item.max, item._maxDefinition || '']);
+        merged.max = peers.every(function (peer) {
+          return JSON.stringify([peer.max, peer._maxDefinition || '']) === maximum;
+        }) ? item.max : null;
+        return merged;
+      });
+    }
+    var value = {
+      resources: shared('resources'),
+      tracked: dictionary(),
+      aliases: dictionary(),
+      byAttribute: dictionary(),
+      references: shared('references'),
+    };
+    shared('tracked', true).forEach(function (item) { value.tracked[item.name] = item; });
+    value.resources.forEach(function (item) {
+      value.byAttribute[item.name] = item;
+      item.aliases.forEach(function (alias) {
+        var key = normalize(alias);
+        if (!value.aliases[key]) value.aliases[key] = [];
+        value.aliases[key].push(item);
+      });
+    });
+    return value;
   }
 
   function invalidate(characterId) {
@@ -2013,9 +2101,9 @@ var sheet_helper_setting = {
     value.characterName = trim(character.get('name'));
     value.contractMatch = contractMatch;
     var readLive = cachedAttrReader(characterId);
-    value.contractAllRolls = contractRolls(characterId, value.contractMatch, objects, true, readLive);
+    value.contractAllRolls = commonContractRolls(characterId, value.contractMatch, true, objects, readLive);
     value.contractRolls = value.contractAllRolls.filter(function (instance) { return !instance.hidden; });
-    var fields = contractFieldItems(characterId, value.contractMatch, objects, value.contractRolls, readLive);
+    var fields = commonContractFieldItems(characterId, value.contractMatch, objects, value.contractRolls, readLive);
     value.resources = fields.resources;
     value.trackedFields = fields.tracked;
     value.resourceAliases = fields.aliases;
@@ -2144,10 +2232,9 @@ var sheet_helper_setting = {
       .some(function (playerId) { return playerId === 'all' || !playerIsGM(playerId); });
   }
 
- function profileCharacters() {
+  function profileCharacters() {
     return characterObjects().filter(function (character) {
-      var status = inspectContracts(character.id).status;
-      return status === 'matched' || status === 'ambiguous';
+      return usableContractInspection(inspectContracts(character.id));
     });
   }
 
@@ -2217,12 +2304,10 @@ var sheet_helper_setting = {
 
   function ensureSheet(character) {
     var contractMatch = inspectContracts(character.id);
-    if (contractMatch.status === 'ambiguous')
-      return { ok: false, error: contractMatch.error };
-    if (contractMatch.status !== 'matched')
+    if (!usableContractInspection(contractMatch))
       return {
         ok: false,
-        error: SHEET_NOT_RECOGNIZED,
+        error: contractMatch.error || SHEET_NOT_RECOGNIZED,
       };
     return { ok: true, data: scan(character.id) };
   }
@@ -3234,6 +3319,44 @@ var sheet_helper_setting = {
     });
   }
 
+  function contractCandidateEquivalenceKey(characterId, candidate, expression) {
+    var instance = candidate.instance;
+    var mode = candidate.mode || null;
+    function normalized(values) {
+      return (values || []).map(normalize).filter(Boolean).sort();
+    }
+    var qualified = qualifyContractMacro(characterId, instance, mode, expression);
+    var resultTemplate = sourceResultTemplate({
+      contractId: instance.contract.id,
+      key: instance.roll.key,
+    });
+    return JSON.stringify([
+        instance.key,
+        contractCutinKey(instance),
+        normalize(instance.label),
+        normalized(instance.aliases),
+        instance.roll.raw,
+        instance.roll.name || '',
+        instance.roll.label || '',
+        instance.roll.aliases || [],
+        instance.roll.staticLabels || [],
+        instance.roll.labelRefs || [],
+        instance.roll.template || '',
+        instance.roll.kind || '',
+        instance.roll.repeating || null,
+        instance.roll.visibility || null,
+        instance.roll.expressionRefs || [],
+        instance.modes || [],
+        candidate.requestedMode || '',
+        mode ? contractUserModeLabels(mode) : [],
+        mode ? contractOverrides(mode) : {},
+        mode ? contractQueries(mode) : [],
+        qualified.ok ? ['ok', qualified.content] : ['error', qualified.reason || '', qualified.error || ''],
+        resultTemplate || null,
+        !!instance.hidden,
+      ]);
+  }
+
   function collapseEquivalentContractCandidates(characterId, candidates, expression) {
     if (candidates.length < 2) return candidates;
     var firstContractId = candidates[0].instance.contract.id;
@@ -3242,33 +3365,30 @@ var sheet_helper_setting = {
     })) return candidates;
     var found = dictionary();
     return candidates.filter(function (candidate) {
-      var instance = candidate.instance;
-      var mode = candidate.mode || null;
-      var qualified = qualifyContractMacro(characterId, instance, mode, expression);
-      var resultTemplate = sourceResultTemplate({
-        contractId: instance.contract.id,
-        key: instance.roll.key,
-      });
-      var key = JSON.stringify([
-        instance.key,
-        contractCutinKey(instance),
-        instance.roll.raw,
-        instance.roll.template || '',
-        instance.roll.kind || '',
-        instance.roll.repeating || null,
-        instance.roll.visibility || null,
-        instance.roll.expressionRefs || [],
-        candidate.requestedMode || '',
-        mode ? contractUserModeLabels(mode) : [],
-        mode ? contractOverrides(mode) : {},
-        mode ? contractQueries(mode) : [],
-        qualified.ok ? ['ok', qualified.content] : ['error', qualified.reason || '', qualified.error || ''],
-        resultTemplate || null,
-      ]);
+      var key = contractCandidateEquivalenceKey(characterId, candidate, expression);
       if (found[key]) return false;
       found[key] = true;
       return true;
     });
+  }
+
+  function commonContractRolls(characterId, inspection, includeHidden, objects, readLive) {
+    if (inspection && inspection.status === 'matched')
+      return contractRolls(characterId, inspection, objects, includeHidden, readLive);
+    var candidates = sourceCandidateInspections(inspection);
+    if (!candidates.length) return [];
+    var required = dictionary();
+    candidates.forEach(function (candidate) { required[candidate.contract.id] = true; });
+    var groups = dictionary();
+    actionableContractRolls(characterId, inspection, includeHidden, objects, readLive).forEach(function (instance) {
+      var key = contractCandidateEquivalenceKey(characterId, { instance: instance });
+      if (!groups[key]) groups[key] = { instance: instance, contracts: dictionary() };
+      groups[key].contracts[instance.contract.id] = true;
+    });
+    var requiredCount = Object.keys(required).length;
+    return Object.keys(groups).filter(function (key) {
+      return Object.keys(groups[key].contracts).length === requiredCount;
+    }).map(function (key) { return groups[key].instance; });
   }
 
   function preferDirectContractActions(instances, compatible) {
@@ -3650,7 +3770,7 @@ var sheet_helper_setting = {
 
   function recognizedRollItems(data) {
     var result = [];
-    if (data.contractMatch && data.contractMatch.status === 'matched') {
+    if (usableContractInspection(data.contractMatch)) {
       var counts = dictionary();
       data.contractRolls.forEach(function (instance) {
         var key = normalize(instance.label);
@@ -3693,7 +3813,7 @@ var sheet_helper_setting = {
     var result = [];
     var counts = dictionary();
     var seen = dictionary();
-    if (!data.contractMatch || data.contractMatch.status !== 'matched') return result;
+    if (!usableContractInspection(data.contractMatch)) return result;
     data.contractRolls.forEach(function (instance) {
       var key = normalize(instance.label);
       if (key) counts[key] = (counts[key] || 0) + 1;
@@ -3873,7 +3993,7 @@ var sheet_helper_setting = {
       };
     }
     characterObjects().forEach(function (character) {
-      if (inspectContracts(character.id).status !== 'matched') return;
+      if (!usableContractInspection(inspectContracts(character.id))) return;
       var data = scan(character.id);
       data.contractRolls.forEach(function (instance) {
         add(
@@ -3931,11 +4051,11 @@ var sheet_helper_setting = {
       section('캐릭터별 현황 보기', '<span style="color:#555;font-size:11px">API가 인식한 현재 캐릭터들 현황 모아보기</span><br>' + characterButtons);
     var viewed = data.managerCharacterId && scan(data.managerCharacterId);
     if (viewed && viewed.ok) {
-      var hasContract = viewed.contractMatch.status === 'matched';
+      var hasContract = usableContractInspection(viewed.contractMatch);
       var issues = (viewed.warnings || []).slice();
       if (hasContract) {
-        var modesIncomplete = (viewed.contractMatch.contract.rolls || []).some(function (roll) {
-          return roll && roll.modesIncomplete === true;
+        var modesIncomplete = viewed.contractRolls.some(function (instance) {
+          return instance.roll && instance.roll.modesIncomplete === true;
         });
         if (modesIncomplete)
           issues.push('일부 선택 방식은 안전하게 실행할 수 없어 생략했습니다. 해당 굴림은 시트에서 직접 실행해 주세요.');
@@ -4120,14 +4240,14 @@ var sheet_helper_setting = {
 
   function inspectionHtml(data) {
     var recognition = data.contractMatch || {};
-    var incomplete = data.contractMatch && data.contractMatch.status === 'matched'
-      ? (data.contractMatch.contract.rolls || []).filter(function (roll) { return roll.modesIncomplete === true; }).length
+    var incomplete = usableContractInspection(data.contractMatch)
+      ? (data.contractRolls || []).filter(function (instance) { return instance.roll && instance.roll.modesIncomplete === true; }).length
       : 0;
     var issues = (data.warnings || []).slice();
     if (incomplete) issues.push('선택 방식을 전부 안전하게 읽지 못한 굴림 ' + incomplete + '개');
-    if (recognition.contractCount && recognition.status !== 'matched')
+    if (recognition.contractCount && !usableContractInspection(recognition))
       issues.push('설치된 시트 인식 정보가 방의 저장 항목과 일치하지 않습니다.');
-    var matched = recognition.status === 'matched';
+    var matched = usableContractInspection(recognition);
     return '<div style="font-family:Arial,sans-serif;background:#fff;color:#111"><div style="padding:8px 10px;background:#111;color:#fff"><b>' +
       escapeHtml(data.characterName) + ' / GM 인식 점검</b></div>' +
       section('인식 결과', matched
@@ -4211,10 +4331,11 @@ var sheet_helper_setting = {
     if (!sanity.item || sanity.item.name !== item.name) return '';
     var starting = detectedFieldRole(data, 'startingSanity', 'number');
     var hasStarting = starting.item && starting.item.name !== item.name && starting.item.value > 0;
-    var hasStartingField = starting.matches.length ||
-      (data.contractMatch.contract && data.contractMatch.contract.fields || []).some(function (field) {
+    var hasStartingField = starting.matches.length || sourceCandidateInspections(data.contractMatch).some(function (candidate) {
+      return (candidate.contract.fields || []).some(function (field) {
         return matchesDetectedRole([field.label].concat(field.aliases || []), 'startingSanity');
       });
+    });
     var text = String(current);
     if (hasStarting)
       text += ' / 시작 ' + starting.item.value +
@@ -4331,8 +4452,9 @@ var sheet_helper_setting = {
     var character = getObj('character', payload.characterId);
     if (!character) return;
     var data = scan(character.id);
-    if (automation.sourceHash && data.contractMatch && data.contractMatch.contract &&
-      automation.sourceHash !== data.contractMatch.contract.sourceHash) return;
+    if (automation.sourceHash && !sourceCandidateInspections(data.contractMatch).some(function (candidate) {
+      return automation.sourceHash === candidate.contract.sourceHash;
+    })) return;
     var longItem = automation.longName && data.trackedFields[automation.longName];
     if (longItem && trackedToggleEnabled(character.id, longItem)) return;
     var temporary = data.trackedFields[automation.temporaryName];
@@ -4432,7 +4554,7 @@ var sheet_helper_setting = {
     }
     if (rolled.payload && rolled.payload.resultTracking !== false) {
       rolled.payload._automaticInsanity = {
-        sourceHash: data.contractMatch.contract.sourceHash || '',
+        sourceHash: rolled.payload.sourceHash || '',
         longName: longInsanity.item ? longInsanity.item.name : '',
         temporaryName: temporary.item ? temporary.item.name : '',
       };
@@ -4507,7 +4629,7 @@ var sheet_helper_setting = {
 
   function handleLegacyAliasRoll(msg, body) {
     var resolved = resolveCharacter(msg, '');
-    if (!resolved.ok || inspectContracts(resolved.character.id).status !== 'matched') return false;
+    if (!resolved.ok || !usableContractInspection(inspectContracts(resolved.character.id))) return false;
     var contracted = resolveContractAction(resolved.character, body, false, { exactOnly: true });
     if (!contracted.handled) return false;
     reportResult(msg, contracted.result);
@@ -4592,11 +4714,11 @@ var sheet_helper_setting = {
         if (categorized) contracted = resolveContractAction(character, trim(categorized[1]), secret);
       }
       if (contracted.handled) return contracted.result;
-      if (contracted.inspection && contracted.inspection.status === 'ambiguous')
+      if (contracted.inspection && !usableContractInspection(contracted.inspection) && contracted.inspection.status === 'ambiguous')
         return { ok: false, error: contracted.inspection.error };
       return {
         ok: false,
-        error: contracted.inspection && contracted.inspection.status === 'matched'
+        error: contracted.inspection && usableContractInspection(contracted.inspection)
           ? '현재 시트에서 ' + trim(body) + ' 굴림을 찾지 못했습니다.'
           : SHEET_NOT_RECOGNIZED,
       };
@@ -4625,10 +4747,8 @@ var sheet_helper_setting = {
         // 진단 명령은 캐시만 비웁니다.
         invalidate();
         var recognition = inspectContracts(character.id);
-        if (recognition.status === 'ambiguous')
-          return { ok: false, error: recognition.error };
-        if (recognition.status !== 'matched')
-          return { ok: false, error: SHEET_NOT_RECOGNIZED };
+        if (!usableContractInspection(recognition))
+          return { ok: false, error: recognition.error || SHEET_NOT_RECOGNIZED };
         whisper(msg, inspectionHtml(scan(character.id, true)));
         return { ok: true };
       })(inspected.character));
@@ -4640,9 +4760,9 @@ var sheet_helper_setting = {
         return reportResult(msg, !listCharacter.ok ? listCharacter : listLabel);
       return withCharacter(msg, listCharacter.value, function (character) {
         var inspection = inspectContracts(character.id);
-        if (inspection.status !== 'matched')
+        if (!usableContractInspection(inspection))
           return { ok: false, error: inspection.error || SHEET_NOT_RECOGNIZED };
-        var matches = scannedContractRolls(character.id).filter(function (instance) {
+        var matches = (scan(character.id).contractRolls || []).filter(function (instance) {
           return normalize(instance.label) === normalize(listLabel.value);
         }).map(function (instance) {
           instance.characterId = character.id;
@@ -4821,8 +4941,7 @@ var sheet_helper_setting = {
     return inspectContracts(characterId);
   };
   api.contractRolls = function (characterId) {
-    var objects = attrObjects(characterId);
-    return contractRolls(characterId, inspectContracts(characterId), objects);
+    return commonContractRolls(characterId, inspectContracts(characterId), false);
   };
   api.exactContractInstance = exactContractInstance;
   api.qualifyContractMacro = qualifyContractMacro;

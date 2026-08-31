@@ -1619,7 +1619,10 @@ const staleBloodyValues = Object.fromEntries((bloodySheet.signature || []).map((
   [typeof entry === 'string' ? entry : entry.name, '1']));
 staleBloodyValues.rand_maddess = '2';
 staleBloodyValues.san = '50';
+staleBloodyValues.san_start = '50';
 staleBloodyValues.str = '50';
+staleBloodyValues.hp = '10';
+staleBloodyValues.hp_max = '10';
 const blue29AfterBloody = addCharacter(
   'blue29-after-bloody',
   'BLUE29 시트 교체 반례',
@@ -1635,6 +1638,48 @@ assert.strictEqual(blue29AfterBloodyInspection.recognitionReason, 'source-defaul
 assert((blue29AfterBloodyInspection.matches || []).some((item) => item.id === blue29Sheet.id) &&
   !(blue29AfterBloodyInspection.matches || []).some((item) => item.id === bloodySheet.id),
   '현재 기본값과 맞지 않는 이전 시트를 실행 후보로 남기면 안 됩니다.');
+const blue29CommonScan = helper.scan(blue29AfterBloody.id, true);
+assert(blue29CommonScan.resources.some((item) => item.name === 'hp') &&
+  blue29CommonScan.resources.some((item) => item.name === 'san'),
+  '현재 시트 후보가 남아도 모두 같은 체력·이성 수치는 사용할 수 있어야 합니다.');
+assert.strictEqual(blue29CommonScan.resources.find((item) => item.name === 'hp').max, null,
+  '일부 후보에만 있는 체력 최대값을 중상 판정에 임의 사용하면 안 됩니다.');
+const blue29HpAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === blue29AfterBloody.id && item.get('name') === 'hp');
+const blue29SanAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === blue29AfterBloody.id && item.get('name') === 'san');
+runGeneral(':hp-3', blue29AfterBloody.get('name'));
+assert.strictEqual(blue29HpAttribute.get('current'), '7', '공통 hp 수치 감소가 실제 Attribute에 적용되어야 합니다.');
+runGeneral(':체력+3', blue29AfterBloody.get('name'));
+assert.strictEqual(blue29HpAttribute.get('current'), '10', '공통 체력 별칭도 같은 Attribute를 변경해야 합니다.');
+const blue29Major = Object.values(blue29CommonScan.trackedFields).find((item) =>
+  (item.sourceLabels || []).some((label) => String(label).replace(/[\s_.:()"'-]+/g, '') === '중상'));
+assert(blue29Major, '공통 중상 체크 항목도 추적해야 합니다.');
+runGeneral(':hp-5', blue29AfterBloody.get('name'));
+const blue29MajorAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === blue29AfterBloody.id && item.get('name') === blue29Major.name);
+assert(!blue29MajorAttribute || String(blue29MajorAttribute.get('current')) === '0',
+  '최대 체력을 모든 후보에서 확인하지 못하면 중상을 임의 활성화하면 안 됩니다.');
+runGeneral(':hp+5', blue29AfterBloody.get('name'));
+runGeneral(':이성-3', blue29AfterBloody.get('name'));
+assert.strictEqual(blue29SanAttribute.get('current'), '47', '공통 이성 수치 감소가 실제 Attribute에 적용되어야 합니다.');
+runGeneral(':이성+3', blue29AfterBloody.get('name'));
+assert.strictEqual(blue29SanAttribute.get('current'), '50');
+const blue29SanLossMessages = runGeneral(':이성-5', blue29AfterBloody.get('name'));
+assert.strictEqual(blue29SanLossMessages.filter((item) =>
+  String(item.content || '').includes('kib_sheet_result=') && String(item.content || '').includes('지능')).length, 1,
+  '공통 이성이 한 번에 5 감소하면 공통 지능 판정을 정확히 한 번 실행해야 합니다.');
+runGeneral(':이성+5', blue29AfterBloody.get('name'));
+const blue29DirectStart = sent.length;
+blue29HpAttribute.set('current', '8');
+events['change:attribute'](blue29HpAttribute, { current: '10' });
+assert(sent.slice(blue29DirectStart).some((item) => String(item.content || '').includes('2 감소')),
+  '공통 체력 Attribute를 시트에서 직접 바꿔도 기존 변화 알림을 유지해야 합니다.');
+blue29HpAttribute.set('current', '10');
+events['change:attribute'](blue29HpAttribute, { current: '8' });
+const blue29StatusMessages = runApi('!!상태', blue29AfterBloody.get('name'));
+assert(!blue29StatusMessages.some((item) => String(item.content || '').includes('현재 인식된 시트가 없습니다')),
+  '안전하게 공통 항목을 읽은 시트를 미인식으로 표시하면 안 됩니다.');
 const blue29DuplicateStart = sent.length;
 const blue29Strength = helper.resolveContractAction(blue29AfterBloody, '근력', false);
 assert(blue29Strength.handled && blue29Strength.result.ok &&
@@ -1684,15 +1729,17 @@ const survivorRollA = parseSheetContract([
   '<input name="attr_source_probe_two" value="current">',
   '<input name="attr_shared_target" value="50">',
   '<button type="roll" name="roll_shared_check" value="&{template:fixture} {{subject=겹친 판정}} {{success=[[@{shared_target}]]}} {{roll=[[1d100]]}}">겹친 판정</button>',
+  '<button type="roll" name="roll_label_conflict" value="&{template:fixture} {{subject=동일식}} {{roll=[[1d100]]}}">첫 이름</button>',
   '<button type="roll" name="roll_shared_check_bonus" value="&{template:fixture} {{subject=겹친 판정}} {{success=[[@{shared_target}]]}} {{roll1=[[1d100]]}} {{roll2=[[1d100]]}}">겹친 판정</button>',
 ].join('\n'), { id: 'source-survivor-roll-a', sourceHash: 'source-survivor-roll-a-v1' });
 const survivorRollB = parseSheetContract([
   '<input name="attr_source_probe_one" value="current">',
   '<input name="attr_source_probe_two" value="current">',
   '<input name="attr_shared_target" value="50">',
-  '<input name="attr_stale_only_one">',
-  '<input name="attr_stale_only_two">',
+  '<input type="number" name="attr_stale_only_one">',
+  '<input type="number" name="attr_stale_only_two">',
   '<button type="roll" name="roll_shared_check" value="&{template:fixture} {{subject=겹친 판정}} {{success=[[@{shared_target}]]}} {{roll=[[1d100]]}}">겹친 판정</button>',
+  '<button type="roll" name="roll_label_conflict" value="&{template:fixture} {{subject=동일식}} {{roll=[[1d100]]}}">둘째 이름</button>',
   '<button type="roll" name="roll_shared_check_bonus" value="&{template:fixture} {{subject=겹친 판정}} {{success=[[@{shared_target}]]}} {{roll1=[[1d100]]}} {{roll2=[[1d100]]}} {{roll3=[[1d100]]}}">겹친 판정</button>',
 ].join('\n'), { id: 'source-survivor-roll-b', sourceHash: 'source-survivor-roll-b-v1' });
 const removedSourceCandidate = parseSheetContract([
@@ -1718,6 +1765,16 @@ assert.deepStrictEqual(
   [survivorRollA.id, survivorRollB.id].sort(),
   '현재 기본값으로 좁힌 후보를 과거 저장값만으로 다시 하나로 확정하면 안 됩니다.',
 );
+assert(!helper.scan(narrowedWithStaleAttributes.id, true).contractRolls.some((instance) =>
+  instance.label === '첫 이름' || instance.label === '둘째 이름'),
+  '실행 식이 같아도 표시명이 다른 굴림을 자동화용 공통 굴림으로 고르면 안 됩니다.');
+const staleOnlyAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === narrowedWithStaleAttributes.id && item.get('name') === 'stale_only_one');
+const staleOnlyMessages = runGeneral(':stale_only_one+1', narrowedWithStaleAttributes.get('name'));
+assert.strictEqual(staleOnlyAttribute.get('current'), '1',
+  '한 후보에만 있는 과거 수치를 현재 시트의 수치로 바꾸면 안 됩니다.');
+assert(staleOnlyMessages.some((item) => String(item.content || '').includes('수치를 찾지 못했습니다')),
+  '후보 전원이 공유하지 않는 수치는 찾지 못했다고 안내해야 합니다.');
 
 const ambiguousMultipleRollCharacter = addCharacter(
   'ambiguous-multiple-roll-character',
