@@ -1284,18 +1284,18 @@ assert.strictEqual(changeFixture('mind_current', 45).length, 0,
 
 const missingLong = addMinimalInsanityFixture('missing_long', { longCount: 0, temporary: true });
 let missingFieldMessages = missingLong.change('current', 40);
-assert.strictEqual(intelligenceRolls(missingFieldMessages).length, 1,
-  '장기적 광기 체크 필드가 없어도 단일 5 이상 이성 손실은 지능 판정을 실행해야 합니다.');
+assert.strictEqual(intelligenceRolls(missingFieldMessages).length, 0,
+  '장기 기준에 도달하면 체크 필드가 없어도 일시적 광기용 지능 판정을 실행하면 안 됩니다.');
 assert(missingFieldMessages.some((item) => item.content && item.content.includes('장기적 광기 자동 처리 생략')),
   '시작 이성의 5분의 1 기준을 넘었지만 체크 필드가 없으면 생략 이유를 알려야 합니다.');
-finishIntelligence(missingFieldMessages, 40);
-assert.strictEqual(missingLong.attribute('temporary').get('current'), 'active',
-  '장기적 광기 체크 필드가 없어도 지능 판정 성공 시 일시적 광기는 활성화해야 합니다.');
+assert.strictEqual(missingLong.attribute('temporary').get('current'), '0',
+  '장기 기준에 도달했는데 일시적 광기를 대신 활성화하면 안 됩니다.');
 missingLong.reset({ current: 45, temporary: 0 });
 missingFieldMessages = missingLong.change('current', 40);
-finishIntelligence(missingFieldMessages, 80);
+assert.strictEqual(intelligenceRolls(missingFieldMessages).length, 0,
+  '누적 손실이 장기 기준에 도달한 사건도 지능 판정을 실행하면 안 됩니다.');
 assert.strictEqual(missingLong.attribute('temporary').get('current'), '0',
-  '장기적 광기 체크 필드가 없더라도 지능 판정 실패에서 일시적 광기를 켜면 안 됩니다.');
+  '장기적 광기 체크 필드가 없더라도 일시적 광기를 켜면 안 됩니다.');
 
 const ambiguousLong = addMinimalInsanityFixture('ambiguous_long', { longCount: 2, temporary: true });
 const ambiguousLongMessages = ambiguousLong.change('current', 40);
@@ -1605,9 +1605,92 @@ useContracts(...embeddedSheets);
 useRoomCharacters(liveOfficialCharacter);
 const liveOfficialInspection = helper.inspectContracts(liveOfficialCharacter.id);
 assert.strictEqual(liveOfficialInspection.status, 'matched',
-  '이전 시트의 기본값과 없는 필드 빈값 때문에 공식 CoC 시트가 인식 불가가 되면 안 됩니다.');
+  '이전 시트의 기본값과 없는 필드 빈값 때문에 공식 CoC 시트가 인식 불가가 되면 안 됩니다. ' +
+    JSON.stringify((liveOfficialInspection.matches || []).slice(0, 8).map((item) => ({
+      id: item.id, defaults: item.defaultMatchCount, support: item.supportCount,
+      unique: item.uniqueEvidence, reason: liveOfficialInspection.recognitionReason,
+    }))));
 assert.strictEqual(liveOfficialInspection.contract.id, publicSheet.id,
   '이전 시트의 기본값과 없는 필드 빈값을 다른 시트의 양성 증거로 사용하면 안 됩니다.');
+
+// 34개 배포 시트가 함께 등록된 실제 방에서는 Roll20이 화면에 저장한 일부 값만
+// Attribute 객체로 만들 수 있습니다. 이때 현재 원본과 구조가 거의 같은 후보가
+// 남아도 원본 기능을 잃거나 같은 명령을 후보 수만큼 보여주면 안 됩니다.
+const publicAttributeNames = new Set(publicSheet.globalAttributes || []);
+const publicRollLabels = new Set((publicSheet.rolls || []).map((roll) => roll.label).filter(Boolean));
+const publicSourceFamily = embeddedSheets.filter((sheet) => sheet.id !== publicSheet.id).map((sheet) => {
+  const sharedAttributes = (sheet.globalAttributes || []).filter((name) => publicAttributeNames.has(name)).length;
+  const sharedLabels = new Set((sheet.rolls || []).map((roll) => roll.label).filter(Boolean));
+  let sharedRollLabels = 0;
+  sharedLabels.forEach((label) => { if (publicRollLabels.has(label)) sharedRollLabels += 1; });
+  return {
+    sheet,
+    score: sharedAttributes / publicAttributeNames.size + sharedRollLabels / publicRollLabels.size,
+  };
+}).sort((left, right) => right.score - left.score).slice(0, 2).map((entry) => entry.sheet);
+assert.strictEqual(publicSourceFamily.length, 2,
+  '희소한 공식 시트 반례에 쓸 구조상 가까운 원본 후보를 찾지 못했습니다.');
+const publicSourceCandidates = [publicSheet].concat(publicSourceFamily);
+const publicSourceDefaultMaps = publicSourceCandidates.map((sheet) => sourceDefaults(sheet));
+const sharedPublicDefaults = Object.fromEntries(Object.entries(publicSourceDefaultMaps[0]).filter(([name, value]) =>
+  value !== '' && publicSourceDefaultMaps.slice(1).every((defaults) => defaults[name] === value)));
+assert(Object.keys(sharedPublicDefaults).length >= 20,
+  '실제 공식 시트 계열에서 희소 런타임 반례에 쓸 공통 기본값이 부족합니다.');
+const sparsePublicValues = {};
+(publicSheet.rolls || []).some((roll) => {
+  String(roll.raw || '').replace(/@\{([^}|]+)(?:\|max)?\}/g, (match, name) => {
+    if (Object.prototype.hasOwnProperty.call(sharedPublicDefaults, name) &&
+      !Object.prototype.hasOwnProperty.call(sparsePublicValues, name))
+      sparsePublicValues[name] = sharedPublicDefaults[name];
+    return match;
+  });
+  return Object.keys(sparsePublicValues).length >= 8;
+});
+assert(Object.keys(sparsePublicValues).length >= 8,
+  '원본 굴림에서 희소 런타임 값을 파생하지 못했습니다.');
+const sparsePublicSourceCharacter = addCharacter(
+  'sparse-public-source-character', '희소 공식 원본 기준', 'player-1', sparsePublicValues);
+sheetFieldDefaults[sparsePublicSourceCharacter.id] = sourceDefaults(publicSheet);
+useContracts(publicSheet);
+useRoomCharacters(sparsePublicSourceCharacter);
+const sparsePublicSourceRolls = helper.scan(sparsePublicSourceCharacter.id, true).contractRolls;
+const sparsePublicTarget = sparsePublicSourceRolls.find((instance) => {
+  const label = String(instance.label || '').trim();
+  const raw = String(instance.roll && instance.roll.raw || '');
+  const threshold = raw.match(/\{\{\s*success\s*=\s*\[\[@\{([^}|]+)/i);
+  const field = threshold && (publicSheet.fields || []).find((candidate) =>
+    !candidate.section && candidate.name === threshold[1]);
+  return label && field && field.visibility && /1d100/i.test(raw) &&
+    publicSourceFamily.every((sheet) => (sheet.rolls || []).some((roll) => roll.label === label));
+});
+assert(sparsePublicTarget,
+  '실제 공식 원본에서 희소 런타임 회귀검사에 쓸 기능 판정을 찾지 못했습니다.');
+const sparsePublicCharacter = addCharacter(
+  'sparse-public-runtime-character', '희소 공식 시트 반례', 'player-1', sparsePublicValues);
+sheetFieldDefaults[sparsePublicCharacter.id] = sharedPublicDefaults;
+useContracts(...embeddedSheets);
+useRoomCharacters(sparsePublicCharacter);
+const sparsePublicInspection = helper.inspectContracts(sparsePublicCharacter.id);
+assert.strictEqual(sparsePublicInspection.status, 'ambiguous',
+  '구조가 같은 공식 시트 후보가 남는 희소 런타임 반례를 재현하지 못했습니다: ' +
+    JSON.stringify((sparsePublicInspection.matches || []).slice(0, 8).map((item) => item.id)));
+assert((sparsePublicInspection.matches || []).some((item) => item.id === publicSheet.id),
+  '희소 런타임 후보에서 실제 공식 원본이 사라졌습니다.');
+const sparsePublicRolls = helper.scan(sparsePublicCharacter.id, true).contractRolls;
+const sparsePublicTargetRolls = sparsePublicRolls.filter((instance) =>
+  instance.label === sparsePublicTarget.label);
+assert(sparsePublicTargetRolls.length > 0,
+  '희소한 공식 시트에서 원본 기능 판정을 누락하면 안 됩니다: ' +
+    sparsePublicTarget.label + ' / ' + sparsePublicTargetRolls.length + ' / ' +
+    JSON.stringify((sparsePublicInspection.matches || []).map((item) => item.id)));
+const sparsePublicSentBefore = sent.length;
+const sparsePublicAction = helper.resolveContractAction(
+  sparsePublicCharacter, sparsePublicTarget.label, false);
+assert(sparsePublicAction.handled && sparsePublicAction.result.ok,
+  '희소한 공식 시트의 단일 원본 판정을 바로 실행하지 못했습니다: ' + sparsePublicTarget.label + ' / ' +
+  JSON.stringify(sparsePublicAction.result));
+assert.strictEqual(sent.length, sparsePublicSentBefore + 1,
+  '희소한 공식 시트의 단일 판정 명령은 채팅 굴림을 정확히 한 번만 보내야 합니다.');
 
 // 시트를 교체한 방에서는 과거 시트의 저장값이 남아 있어도 현재 시트의 기본값을
 // 우선합니다. 저장된 이름 자체는 기본값 probe에서 다시 읽지 않습니다.
@@ -1768,6 +1851,7 @@ assert.strictEqual(sent.length, blue29DuplicateStart + 2,
 const blue29Long = helper.resolveContractAction(blue29AfterBloody, '장기', false);
 assert(blue29Long.handled && blue29Long.result.ok &&
   blue29Long.result.payload.contractId === blue29Sheet.id &&
+  /madness_type=\[\[2\]\]/i.test(sent.at(-1).content) &&
   /rand_roll3=\[\[1d6\]\]/i.test(sent.at(-1).content),
   'BLUE29의 장기 광기는 현재 시트 원본 굴림을 실행해야 합니다.');
 const blue29Short = helper.resolveContractAction(blue29AfterBloody, '일시', false);
@@ -1776,6 +1860,20 @@ assert(blue29Short.handled && blue29Short.result.ok &&
   /madness_type=\[\[1\]\]/i.test(sent.at(-1).content) &&
   /rand_roll=\[\[1d10\]\]/i.test(sent.at(-1).content),
   'BLUE29의 일시 광기도 현재 시트 원본 굴림을 실행해야 합니다.');
+assert(runApi('!!장기', blue29AfterBloody.get('name')).some((item) =>
+  /madness_type=\[\[2\]\]/i.test(String(item.content || '')) &&
+  /rand_roll3=\[\[1d6\]\]/i.test(String(item.content || ''))),
+'!!장기는 현재 시트에 있는 장기 광기 원본 굴림을 실행해야 합니다.');
+assert(runApi('!!일시', blue29AfterBloody.get('name')).some((item) =>
+  /madness_type=\[\[1\]\]/i.test(String(item.content || '')) &&
+  /rand_roll=\[\[1d10\]\]/i.test(String(item.content || ''))),
+'!!일시는 현재 시트에 있는 일시 광기 원본 굴림을 실행해야 합니다.');
+['실시간', '요약'].forEach((name) => {
+  const messages = runApi('!!' + name, blue29AfterBloody.get('name'));
+  assert(!messages.some((item) => String(item.content || '').includes('kib_sheet_result=')) &&
+    messages.some((item) => /찾지 못했습니다/.test(String(item.content || ''))),
+  '일시/장기만 있는 시트에 ' + name + ' 굴림을 임의로 만들어내면 안 됩니다.');
+});
 
 const blue29FieldNames = new Set((blue29Sheet.fields || []).map((field) => field.name));
 const blue29AttributeNames = new Set(blue29Sheet.attributes || []);
@@ -1802,6 +1900,43 @@ const blue29WithStaleSiblingInspection = helper.inspectContracts(blue29WithStale
 assert.strictEqual(blue29WithStaleSiblingInspection.status, 'ambiguous',
   '과거 시트의 저장 필드만으로 현재 시트를 다른 형제 시트로 확정하면 안 됩니다.');
 assert.strictEqual(blue29WithStaleSiblingInspection.recognitionReason, 'source-defaults-ambiguous');
+
+// Roll20이 새 캐릭터의 기본 입력들을 Attribute로 먼저 저장하면 기본값 probe는
+// 그 이름들을 건너뜁니다. 이 경우에도 실제로 저장된 전체 구조로 현재 원본을
+// 하나로 좁혀야 하며, 비슷한 원본들의 공통 굴림을 중복 표시하면 안 됩니다.
+const blue29SavedDefaults = {};
+(blue29Sheet.globalAttributes || []).forEach((name) => {
+  const field = (blue29Sheet.fields || []).find((candidate) => candidate.name === name);
+  blue29SavedDefaults[name] = field && Object.prototype.hasOwnProperty.call(field, 'default')
+    ? String(field.default == null ? '' : field.default)
+    : '';
+});
+const blue29SavedCharacter = addCharacter(
+  'blue29-saved-defaults',
+  '저장된 기본값 구조 반례',
+  'player-1',
+  blue29SavedDefaults,
+);
+sheetFieldDefaults[blue29SavedCharacter.id] = sourceDefaults(blue29Sheet);
+useContracts(...embeddedSheets);
+useRoomCharacters(blue29SavedCharacter);
+const blue29SavedInspection = helper.inspectContracts(blue29SavedCharacter.id);
+assert.strictEqual(blue29SavedInspection.status, 'matched',
+  '저장된 현재 시트 구조를 비교하기 전에 여러 기본값 후보를 그대로 사용하면 안 됩니다. ' +
+    JSON.stringify({ reason: blue29SavedInspection.recognitionReason,
+      matches: (blue29SavedInspection.matches || []).slice(0, 8).map((item) => ({
+        id: item.id, score: item.score, ratio: item.ratio, support: item.supportCount,
+        unique: item.uniqueEvidence, compatible: item.compatibilityOwnerCount,
+        rank: item.rankScore, eligible: item.eligible,
+      })) }));
+assert.strictEqual(blue29SavedInspection.contract.id, blue29Sheet.id,
+  '저장된 현재 시트 구조가 가리키는 원본을 선택하지 못했습니다.');
+const blue29SavedRolls = helper.scan(blue29SavedCharacter.id, true).contractRolls;
+['근력', '이성.', '감정 (05%)', '관찰력 (25%)', '회피 (민첩성/2)'].forEach((label) => {
+  assert.strictEqual(blue29SavedRolls.filter((item) => item.label === label).length, 1,
+    '현재 원본의 한국어 굴림은 한 번만 인식해야 합니다: ' + label + ' / ' +
+      JSON.stringify(blue29SavedRolls.map((item) => item.label)));
+});
 
 const blue29BlankDefaults = sourceDefaults(blue29Sheet);
 Object.keys(blue29BlankDefaults).filter((name) =>
@@ -1892,9 +2027,10 @@ assert.deepStrictEqual(
   [survivorRollA.id, survivorRollB.id].sort(),
   '현재 기본값으로 좁힌 후보를 과거 저장값만으로 다시 하나로 확정하면 안 됩니다.',
 );
-assert(!helper.scan(narrowedWithStaleAttributes.id, true).contractRolls.some((instance) =>
-  instance.label === '첫 이름' || instance.label === '둘째 이름'),
-  '실행 식이 같아도 표시명이 다른 굴림을 자동화용 공통 굴림으로 고르면 안 됩니다.');
+const distinctNamedRolls = helper.scan(narrowedWithStaleAttributes.id, true).contractRolls.filter((instance) =>
+  instance.label === '첫 이름' || instance.label === '둘째 이름');
+assert.deepStrictEqual(Array.from(distinctNamedRolls, (instance) => instance.label).sort(), ['둘째 이름', '첫 이름'],
+  '실행 식이 같아도 원본 표시명이 다른 굴림은 서로 다른 항목으로 보존해야 합니다.');
 const staleOnlyAttribute = attributeObjects.find((item) =>
   item.get('_characterid') === narrowedWithStaleAttributes.id && item.get('name') === 'stale_only_one');
 const staleOnlyMessages = runGeneral(':stale_only_one+1', narrowedWithStaleAttributes.get('name'));
@@ -1903,6 +2039,39 @@ assert.strictEqual(staleOnlyAttribute.get('current'), '1',
 assert(staleOnlyMessages.some((item) => String(item.content || '').includes('수치를 찾지 못했습니다')),
   '후보 전원이 공유하지 않는 수치는 찾지 못했다고 안내해야 합니다.');
 
+// 알파벳상 먼저 조사되는 과거 기본값 두 개만 맞아도 즉시 확정하던 회귀입니다.
+// 현재 시트의 뒤쪽 구분값까지 끝까지 읽어 실제 후보를 골라야 합니다.
+const currentDefaultSheet = parseSheetContract([
+  '<input name="attr_z_current_one" value="current">',
+  '<input name="attr_z_current_two" value="current">',
+  '<input name="attr_z_current_three" value="current">',
+  '<input name="attr_z_current_four" value="current">',
+  '<button type="roll" name="roll_current_appraise" value="&{template:fixture} {{subject=감정}} {{roll=[[1d100]]}}">감정</button>',
+].join('\n'), { id: 'current-default-sheet', sourceHash: 'current-default-sheet-v1' });
+const staleDefaultSheet = parseSheetContract([
+  '<input name="attr_a_stale_one" value="stale">',
+  '<input name="attr_a_stale_two" value="stale">',
+  '<button type="roll" name="roll_stale_luck" value="&{template:fixture} {{subject=행운}} {{roll=[[1d100]]}}">행운</button>',
+].join('\n'), { id: 'stale-default-sheet', sourceHash: 'stale-default-sheet-v1' });
+const lateDefaultCharacter = addCharacter(
+  'late-default-character',
+  '기본값 끝까지 비교 반례',
+  'player-1',
+  {},
+);
+sheetFieldDefaults[lateDefaultCharacter.id] = sourceDefaults(currentDefaultSheet);
+getAttrByNameOverrides[lateDefaultCharacter.id + '|a_stale_one|current'] = 'stale';
+getAttrByNameOverrides[lateDefaultCharacter.id + '|a_stale_two|current'] = 'stale';
+useContracts(currentDefaultSheet, staleDefaultSheet);
+useRoomCharacters(lateDefaultCharacter);
+const lateDefaultInspection = helper.inspectContracts(lateDefaultCharacter.id);
+assert.strictEqual(lateDefaultInspection.status, 'matched');
+assert.strictEqual(lateDefaultInspection.contract.id, currentDefaultSheet.id,
+  '과거 기본값 두 개에서 조기 종료하지 말고 현재 시트의 모든 구분값을 비교해야 합니다.');
+assert(helper.scan(lateDefaultCharacter.id, true).contractRolls.some((item) => item.label === '감정'),
+  '현재 시트를 확정한 뒤 해당 시트의 전체 기능 굴림을 복구해야 합니다.');
+
+useContracts(survivorRollA, survivorRollB, removedSourceCandidate);
 const ambiguousMultipleRollCharacter = addCharacter(
   'ambiguous-multiple-roll-character',
   '여러 후보 보너스 굴림 반례',
@@ -2076,7 +2245,8 @@ assert(sparseInspectionMessages.some((item) =>
   !item.content.includes('!시트 인식선택|')),
   '실제 희소 캐릭터의 !!점검 결과를 표시하지 못했습니다.');
 assert(!fallbackCalls.some((call) => publicOnlyAttributeNames.has(call.name)),
-  '인식한 시트를 점검하면서 다른 시트에만 있는 필드를 probe하면 안 됩니다.');
+  '인식한 시트를 점검하면서 다른 시트에만 있는 필드를 probe하면 안 됩니다. ' +
+    JSON.stringify(fallbackCalls.slice(0, 30)));
 
 const publicResourceValues = {
   hp: '10', hp_max: '20', mp: '8', mp_max: '10',
@@ -2212,6 +2382,10 @@ assert.strictEqual(actualInspection.status, 'matched', JSON.stringify(actualInsp
   id: item.id, score: item.score, ratio: item.ratio, repeatingHits: item.repeatingHits,
   repeatingRatio: item.repeatingRatio, rankScore: item.rankScore, eligible: item.eligible,
 }))));
+const modeBoundaryMessages = runApi('!!장기', actualCharacter.get('name'));
+assert(!modeBoundaryMessages.some((item) => String(item.content || '').includes('kib_sheet_result=')) &&
+  modeBoundaryMessages.some((item) => /찾지 못했습니다/.test(String(item.content || ''))),
+'변장 굴림과 기본 선택 방식의 글자 경계를 가로질러 장기 굴림으로 오인하면 안 됩니다.');
 const blankSanMessages = runApi('!!이성', actualCharacter.get('name'));
 assert(blankSanMessages.some((item) => item.who === '시트 헬퍼' && /비어 있습니다/.test(item.content)),
   '이성 수치가 비었을 때 Roll20 파서로 보내지 말고 채팅 오류로 끝내야 합니다.');
@@ -2356,22 +2530,44 @@ assert(bloodyShortBonus.handled && bloodyShortBonus.result.ok &&
   bloodyShortBonus.result.payload.label === '민첩성' &&
   /보너스.*1/.test(bloodyShortBonus.result.payload.modeLabel),
   '기본 굴림과 보너스 굴림이 분리된 실제 시트에서도 줄인 이름으로 보너스 굴림을 실행해야 합니다.');
-assert(runApi('!!실시간', bloodyRuntime.character.get('name')).some((item) =>
-  item.content && item.content.includes('{{madness_type=[[1]]}}')),
-  '일반 규칙에서 실시간은 현재 일반 분기의 굴림을 바로 실행해야 합니다.');
-assert(runApi('!!요약', bloodyRuntime.character.get('name')).some((item) =>
-  item.content && item.content.includes('{{madness_type=[[2]]}}')),
-  '일반 규칙에서 요약은 펄프가 아닌 일반 요약을 실행해야 합니다.');
+const bloodyGeneralRealtime = runApi('!!실시간', bloodyRuntime.character.get('name'))
+  .filter((item) => String(item.content || '').includes('kib_sheet_result='));
+assert.strictEqual(bloodyGeneralRealtime.length, 1,
+  '일반 규칙의 실시간 광기 굴림은 정확히 한 번만 실행해야 합니다.');
+assert(bloodyGeneralRealtime[0].content.includes('{{madness_type=[[1]]}}') &&
+  !/madness_type=\[\[[234]\]\]/.test(bloodyGeneralRealtime[0].content),
+  '일반 규칙에서 실시간은 현재 일반 분기의 굴림만 실행해야 합니다.');
+const bloodyGeneralSummary = runApi('!!요약', bloodyRuntime.character.get('name'))
+  .filter((item) => String(item.content || '').includes('kib_sheet_result='));
+assert.strictEqual(bloodyGeneralSummary.length, 1,
+  '일반 규칙의 요약 광기 굴림은 정확히 한 번만 실행해야 합니다.');
+assert(bloodyGeneralSummary[0].content.includes('{{madness_type=[[2]]}}') &&
+  !/madness_type=\[\[[134]\]\]/.test(bloodyGeneralSummary[0].content),
+  '일반 규칙에서 요약은 펄프가 아닌 일반 요약만 실행해야 합니다.');
+['일시', '장기'].forEach((name) => {
+  const messages = runApi('!!' + name, bloodyRuntime.character.get('name'));
+  assert(!messages.some((item) => String(item.content || '').includes('kib_sheet_result=')) &&
+    messages.some((item) => /찾지 못했습니다/.test(String(item.content || ''))),
+  '실시간/요약만 있는 시트에 ' + name + ' 굴림을 임의로 만들어내면 안 됩니다.');
+});
 const bloodyMadnessAttribute = attributeObjects.find((item) =>
   item.get('_characterid') === bloodyRuntime.character.id && item.get('name') === 'rand_maddess');
 assert(bloodyMadnessAttribute);
 bloodyMadnessAttribute.set('current', '3');
-assert(runApi('!!실시간', bloodyRuntime.character.get('name')).some((item) =>
-  item.content && item.content.includes('{{madness_type=[[3]]}}')),
-  '펄프 규칙에서 실시간은 일반이 아닌 펄프 실시간을 실행해야 합니다.');
-assert(runApi('!!요약', bloodyRuntime.character.get('name')).some((item) =>
-  item.content && item.content.includes('{{madness_type=[[4]]}}')),
-  '펄프 규칙에서 요약은 일반이 아닌 펄프 요약을 실행해야 합니다.');
+const bloodyPulpRealtime = runApi('!!실시간', bloodyRuntime.character.get('name'))
+  .filter((item) => String(item.content || '').includes('kib_sheet_result='));
+assert.strictEqual(bloodyPulpRealtime.length, 1,
+  '펄프 규칙의 실시간 광기 굴림은 정확히 한 번만 실행해야 합니다.');
+assert(bloodyPulpRealtime[0].content.includes('{{madness_type=[[3]]}}') &&
+  !/madness_type=\[\[[124]\]\]/.test(bloodyPulpRealtime[0].content),
+  '펄프 규칙에서 실시간은 일반이 아닌 펄프 실시간만 실행해야 합니다.');
+const bloodyPulpSummary = runApi('!!요약', bloodyRuntime.character.get('name'))
+  .filter((item) => String(item.content || '').includes('kib_sheet_result='));
+assert.strictEqual(bloodyPulpSummary.length, 1,
+  '펄프 규칙의 요약 광기 굴림은 정확히 한 번만 실행해야 합니다.');
+assert(bloodyPulpSummary[0].content.includes('{{madness_type=[[4]]}}') &&
+  !/madness_type=\[\[[123]\]\]/.test(bloodyPulpSummary[0].content),
+  '펄프 규칙에서 요약은 일반이 아닌 펄프 요약만 실행해야 합니다.');
 const crossRollMode = helper.resolveContractAction(bloodyRuntime.character, '1개 -2', false);
 assert(crossRollMode.handled && !crossRollMode.result.ok && crossRollMode.result.reason === 'conflict',
   '서로 다른 보너스·패널티 굴림을 첫 후보의 현재 방식으로 임의 선택하면 안 됩니다.');
@@ -2419,6 +2615,18 @@ const bloodyStatus = runApi('!!상태', bloodyRuntime.character.get('name'))
 assert(bloodyStatus && ['보너스 주사위 1개', '보너스 주사위 2개', '패널티 주사위 1개', '패널티 주사위 2개']
   .every((label) => bloodyStatus.content.includes(label)),
   '분리된 기본·보너스·패널티 굴림도 같은 항목의 다이스 종류로 합쳐 보여야 합니다.');
+assert(bloodyStatus.content.includes('일반 | 실시간') && bloodyStatus.content.includes('일반 | 요약') &&
+  !bloodyStatus.content.includes('펄프 |'),
+  '일반 규칙이 활성화됐을 때 상태 화면에 비활성 펄프 광기 선택지를 섞으면 안 됩니다.');
+bloodyMadnessAttribute.set('current', '3');
+helper.scan(bloodyRuntime.character.id, true);
+const bloodyPulpStatus = runApi('!!상태', bloodyRuntime.character.get('name'))
+  .find((item) => item.who === '시트 헬퍼');
+assert(bloodyPulpStatus && bloodyPulpStatus.content.includes('펄프 | 실시간') &&
+  bloodyPulpStatus.content.includes('펄프 | 요약') && !bloodyPulpStatus.content.includes('일반 |'),
+  '펄프 규칙이 활성화됐을 때 상태 화면에 비활성 일반 광기 선택지를 섞으면 안 됩니다.');
+bloodyMadnessAttribute.set('current', '1');
+helper.scan(bloodyRuntime.character.id, true);
 ['라이즈벨', '루엔야크', '애셜', '이카르드', '헬레니아'].forEach((theme) => {
   assert(!bloodyStatus.content.includes(theme),
     '시트 테마를 다이스 종류로 보여주면 안 됩니다: ' + theme);
@@ -2517,6 +2725,56 @@ function inlineRollFieldCount(raw) {
   });
   return fields.size;
 }
+
+[
+  ['근력', /^근력$/],
+  ['감정', /^감정/],
+  ['추적', /^추적/],
+  ['회피', /^회피/],
+].forEach(([query, labelPattern]) => {
+  const source = helper.contractRolls(publicRuntime.character.id).find((instance) =>
+    labelPattern.test(instance.label) && inlineRollFieldCount(instance.roll.raw) === 1);
+  assert(source, '공식 시트의 현재 한국어 굴림을 찾지 못했습니다: ' + query);
+  (source.roll.labelRefs || []).forEach((ref) => {
+    const name = sourceRefName(ref);
+    if (!name) return;
+    let attribute = attributeObjects.find((item) =>
+      item.get('_characterid') === publicRuntime.character.id && item.get('name') === name);
+    if (!attribute) attribute = addAttribute(publicRuntime.character.id, name, source.label);
+    else attribute.set('current', source.label);
+    events['change:attribute'](attribute, { current: '' });
+  });
+  const labelNames = new Set((source.roll.labelRefs || []).map(sourceRefName).filter(Boolean));
+  const numericNames = new Set();
+  String(source.roll.raw || '').replace(/@\{([^}|]+)(?:\|max)?\}/g, (match, name) => {
+    if (!labelNames.has(name)) numericNames.add(name);
+    return match;
+  });
+  numericNames.forEach((name) => {
+    let attribute = attributeObjects.find((item) =>
+      item.get('_characterid') === publicRuntime.character.id && item.get('name') === name);
+    if (!attribute) attribute = addAttribute(publicRuntime.character.id, name, '50');
+    else if (String(attribute.get('current') || '').trim() === '') attribute.set('current', '50');
+    events['change:attribute'](attribute, { current: '' });
+  });
+  const messages = runApi('!!' + query, publicRuntime.character.get('name'));
+  const rolls = messages.filter((item) =>
+    item.content && item.content.includes('kib_sheet_result='));
+  assert.strictEqual(rolls.length, 1,
+    '공식 시트의 ' + query + ' 굴림은 현재 보이는 원본 버튼을 한 번만 실행해야 합니다. ' +
+      JSON.stringify(messages.map((item) => item.content)));
+  assert.strictEqual(inlineRollFieldCount(rolls[0].content), 1,
+    '옵션 없는 ' + query + ' 굴림은 원본의 기본 단일 주사위 버튼을 실행해야 합니다.');
+  assert(rolls[0].content.includes('&{template:coc-1}') &&
+    rolls[0].content.includes('{{name=' + source.label + '}}'),
+  '공식 시트의 한국어 표시명과 기본 결과 템플릿을 그대로 사용해야 합니다: ' + query);
+});
+const publicStrengthBonus = runApi('!!근력 보너스1', publicRuntime.character.get('name'))
+  .filter((item) => item.content && item.content.includes('kib_sheet_result='));
+assert.strictEqual(publicStrengthBonus.length, 1,
+  '공식 시트의 근력 보너스 굴림은 한 번만 실행해야 합니다.');
+assert(inlineRollFieldCount(publicStrengthBonus[0].content) >= 3,
+  '공식 시트의 보너스 명령은 원본의 통합 보너스·패널티 버튼을 실행해야 합니다.');
 
 const publicGroups = {};
 helper.contractRolls(publicRuntime.character.id).forEach((instance) => {
