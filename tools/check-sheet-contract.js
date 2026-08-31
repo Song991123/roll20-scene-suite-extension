@@ -290,6 +290,36 @@ assert(fieldContract.fields.find((field) => field.name === 'sanity_max').aliases
 });
 assert.strictEqual(fieldContract.fields.find((field) => field.name === 'unrelated_current').groupLabel, undefined,
   '같은 큰 구역의 다른 행까지 자원 제목이 번지면 안 됩니다.');
+
+const parallelResourceContract = parseSheetContract(`
+  <div class="sheet-resource-board">
+    <div class="sheet-resource-headings">
+      <div class="sheet-vital-title"><h4 data-i18n="vital-title">Vital</h4></div>
+      <div class="sheet-arcane-title"><h4 data-i18n="arcane-title">Arcane</h4></div>
+    </div>
+    <div class="sheet-vital-values"><input type="number" name="attr_vital"><input type="number" name="attr_vital_max"></div>
+    <div class="sheet-arcane-values"><input type="number" name="attr_arcane"><input type="number" name="attr_arcane_max"></div>
+    <div class="sheet-unknown-values"><input type="number" name="attr_unknown"><input type="number" name="attr_unknown_max"></div>
+  </div>
+`, { translations: [{ 'vital-title': '생명', 'arcane-title': '마력' }] });
+assert.strictEqual(parallelResourceContract.fields.find((field) => field.name === 'vital').groupLabel, '생명',
+  '병렬 자원 입력은 앞선 제목 행의 첫 제목을 공통으로 사용하면 안 됩니다.');
+assert.strictEqual(parallelResourceContract.fields.find((field) => field.name === 'arcane').groupLabel, '마력',
+  '병렬 자원 입력은 실제 소스 토큰이 유일하게 맞는 제목을 사용해야 합니다.');
+assert.strictEqual(parallelResourceContract.fields.find((field) => field.name === 'unknown').groupLabel, undefined,
+  '병렬 제목 중 유일하게 맞는 원본 후보가 없으면 자원 이름을 추측하면 안 됩니다.');
+
+const trailingHeadingContract = parseSheetContract(`
+  <div class="sheet-focus-panel">
+    <h4 class="sheet-focus-title" data-i18n="focus-title">Focus</h4>
+    <div class="sheet-values-section">
+      <div class="sheet-resource-row"><input type="number" name="attr_focus"><input type="number" name="attr_focus_max"></div>
+      <div class="sheet-condition-panel"><h4 data-i18n="condition-title">Condition</h4><input type="checkbox" name="attr_condition"></div>
+    </div>
+  </div>
+`, { translations: [{ 'focus-title': '집중', 'condition-title': '상태' }] });
+assert.strictEqual(trailingHeadingContract.fields.find((field) => field.name === 'focus').groupLabel, '집중',
+  '현재·최대 입력 뒤의 무관한 제목이 자원 이름을 덮어쓰면 안 됩니다.');
 const groupedFieldRuntime = { KIBSheetContracts: [] };
 vm.runInNewContext(render([fieldContract]), groupedFieldRuntime);
 ['blood_current', 'blood_limit', 'blood_start', 'official_threshold', 'official_current', 'official_limit', 'official_start']

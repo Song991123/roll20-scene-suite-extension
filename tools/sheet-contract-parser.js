@@ -1405,23 +1405,129 @@
   }
 
   function applyNamedResourcePairGroups(controlScopes, translations) {
-    function pairGroupDetails(container) {
-      for (var depth = 0; container && container.tag !== '#root' && depth < 6;
-        depth += 1, container = container.parent) {
-        var direct = resourceHeadingDetails(container, translations);
-        if (direct.label) return direct;
-        var siblings = elementChildren(container.parent);
-        var index = siblings.indexOf(container);
-        for (var offset = 1; index >= offset && offset <= 4; offset += 1) {
-          var previous = resourceHeadingDetails(siblings[index - offset], translations);
-          if (previous.label) return previous;
-        }
-      }
-      return { label: '', aliases: [] };
+    var headingTags = {
+      h1: true, h2: true, h3: true, h4: true, h5: true, h6: true,
+      legend: true, caption: true, strong: true, b: true
+    };
+    var ignoredSourceTokens = dictionary({
+      attr: true, class: true, current: true, data: true, field: true,
+      head: true, header: true, i18n: true, input: true, max: true,
+      maximum: true, name: true, number: true, resource: true, row: true,
+      section: true, sheet: true, text: true, tit: true, title: true,
+      type: true, value: true
+    });
+
+    function sourceTokens(values) {
+      var found = dictionary();
+      (values || []).forEach(function (value) {
+        normalizeText(value).replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase()
+          .split(/[^a-z0-9가-힣]+/).forEach(function (part) {
+            if (part.length < 2 || ignoredSourceTokens[part]) return;
+            found[part] = true;
+          });
+      });
+      return Object.keys(found);
     }
 
-    function sharedGroupDetails(leftNodes, rightNodes) {
-      var best = null;
+    function nodeSourceTokens(node, parentDepth) {
+      var values = [];
+      for (var depth = 0; node && node.tag !== '#root' && depth <= parentDepth;
+        depth += 1, node = node.parent) {
+        Object.keys(node.attrs || {}).forEach(function (name) {
+          if (/^(?:class|id|name|data-[a-z0-9_-]+)$/i.test(name)) values.push(name, node.attrs[name]);
+        });
+      }
+      return sourceTokens(values);
+    }
+
+    function headingNode(candidate) {
+      if (!candidate || candidate.tag === '#text') return false;
+      var classes = normalizeText(candidate.attrs && candidate.attrs['class']).toLowerCase();
+      return !!headingTags[candidate.tag] ||
+        /(?:^|\s)(?:sheet-)?[^\s]*(?:head|header|title|tit)(?:\s|$)/.test(classes);
+    }
+
+    function collectHeadingCandidates(node, distance, nestedDepth, found) {
+      if (!node || nestedDepth > 4) return;
+      if (headingNode(node)) {
+        var details = resourceHeadingDetails(node, translations);
+        if (details.label) found.push({
+          details: details,
+          distance: distance + nestedDepth,
+          tokens: nodeSourceTokens(node, 1)
+        });
+        return;
+      }
+      elementChildren(node).forEach(function (child) {
+        collectHeadingCandidates(child, distance, nestedDepth + 1, found);
+      });
+    }
+
+    function directBranch(container, node) {
+      while (node && node.parent !== container) node = node.parent;
+      return node && node.parent === container ? node : null;
+    }
+
+    function tokenAffinity(pairTokens, headingTokens) {
+      var best = 0;
+      pairTokens.forEach(function (pairToken) {
+        headingTokens.forEach(function (headingToken) {
+          if (pairToken === headingToken) best = Math.max(best, 100 + pairToken.length);
+          else if ((pairToken.length === 2 && headingToken.indexOf(pairToken) === 0) ||
+            (pairToken.length >= 3 && headingToken.indexOf(pairToken) >= 0))
+            best = Math.max(best, 50 + pairToken.length);
+          else if ((headingToken.length === 2 && pairToken.indexOf(headingToken) === 0) ||
+            (headingToken.length >= 3 && pairToken.indexOf(headingToken) >= 0))
+            best = Math.max(best, 25 + headingToken.length);
+        });
+      });
+      return best;
+    }
+
+    function selectHeadingCandidate(candidates, pairTokens) {
+      var byLabel = dictionary();
+      (candidates || []).forEach(function (candidate) {
+        var key = normalizeText(candidate.details.label).toLowerCase();
+        if (!key) return;
+        var affinity = tokenAffinity(pairTokens, candidate.tokens);
+        if (!byLabel[key] || affinity > byLabel[key].affinity ||
+          (affinity === byLabel[key].affinity && candidate.distance < byLabel[key].distance)) {
+          byLabel[key] = { details: candidate.details, affinity: affinity, distance: candidate.distance };
+        }
+      });
+      var unique = Object.keys(byLabel).map(function (key) { return byLabel[key]; });
+      if (unique.length === 1) return unique[0].details;
+      if (!unique.length) return { label: '', aliases: [] };
+      unique.sort(function (left, right) {
+        return right.affinity - left.affinity || left.distance - right.distance;
+      });
+      if (!unique[0].affinity ||
+        (unique[1] && unique[0].affinity === unique[1].affinity &&
+          unique[0].distance === unique[1].distance)) return { label: '', aliases: [] };
+      return unique[0].details;
+    }
+
+    function pairGroupDetails(container, left, right, fieldName) {
+      var candidates = [];
+      var pairTokens = sourceTokens([fieldName]).concat(nodeSourceTokens(left, 7), nodeSourceTokens(right, 7));
+      for (var depth = 0; container && container.tag !== '#root' && depth < 6;
+        depth += 1, container = container.parent) {
+        var children = elementChildren(container);
+        var leftBranch = directBranch(container, left);
+        var rightBranch = directBranch(container, right);
+        var leftIndex = children.indexOf(leftBranch);
+        var rightIndex = children.indexOf(rightBranch);
+        if (leftIndex < 0 || rightIndex < 0) continue;
+        var cutoff = Math.min(leftIndex, rightIndex);
+        for (var index = 0; index < cutoff; index += 1) {
+          collectHeadingCandidates(children[index], depth * 10 + cutoff - index, 0, candidates);
+        }
+      }
+      return selectHeadingCandidate(candidates, uniqueTexts(pairTokens));
+    }
+
+    function sharedGroupDetails(leftNodes, rightNodes, fieldName) {
+      var best = [];
       (leftNodes || []).forEach(function (left) {
         var ancestors = new Map();
         var node = left && left.parent;
@@ -1433,20 +1539,23 @@
             rightDistance += 1, candidate = candidate.parent) {
             if (!ancestors.has(candidate)) continue;
             var score = ancestors.get(candidate) + rightDistance;
-            if (best && best.score <= score) break;
             var scalarCount = 0;
             walk(candidate, function (child) {
               if ((child.tag === 'input' || child.tag === 'textarea' || child.tag === 'select') &&
                 /^(?:text|number|range)$/.test(fieldNodeType(child)) && !hiddenFieldNode(child)) scalarCount += 1;
             });
             if (scalarCount > 4) break;
-            var details = pairGroupDetails(candidate);
-            if (details.label) best = { score: score, details: details };
+            var details = pairGroupDetails(candidate, left, right, fieldName);
+            if (details.label) best.push({ score: score, details: details });
             break;
           }
         });
       });
-      return best && best.details;
+      best.sort(function (left, right) { return left.score - right.score; });
+      if (!best.length) return null;
+      var nearest = best.filter(function (entry) { return entry.score === best[0].score; });
+      var labels = uniqueTexts(nearest.map(function (entry) { return entry.details.label; }));
+      return labels.length === 1 ? nearest[0].details : null;
     }
 
     function apply(fields, nodes) {
@@ -1458,7 +1567,7 @@
         var current = byName[match[1]];
         if (!current || current.hidden || !current.numericCandidate ||
           !/^(?:text|number|range)$/.test(current.type)) return;
-        var details = sharedGroupDetails(nodes[current.name], nodes[maximum.name]);
+        var details = sharedGroupDetails(nodes[current.name], nodes[maximum.name], current.name);
         if (!details || !details.label) return;
         [current, maximum].forEach(function (field) {
           if (!field.groupLabel) field.groupLabel = details.label;

@@ -43,7 +43,7 @@ assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expected
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
 assert.strictEqual(
   crypto.createHash('sha256').update(JSON.stringify(embeddedSheets)).digest('hex'),
-  'b2d7981b576a3adae43e013e8ce28a603ba063900cb1b16f5cd2bb190b10c89c',
+  'e0f97a0009e928a64cf257cf5bfe7bdbfcbd6639041987022a0731a9ed4842a5',
   'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
 );
 assert(!/\brequire\s*\(/.test(recognitionBlock) &&
@@ -2343,6 +2343,57 @@ assert.strictEqual(publicAttribute('major_wound_toggle').get('current'), '1',
 changePublicResource('hp', 0);
 assert.strictEqual(publicAttribute('dying').get('current'), '1',
   '공개 CoC 시트에서도 중상 상태에서 체력 0은 빈사를 활성화해야 합니다.');
+
+// 미저장 체크박스가 들어간 원본 최대값, 한국어 자원 굴림, 무기 상태 표시를 함께 검증합니다.
+const newsSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-5cab2ac801cda404');
+assert(newsSheet, '크툴루 뉴스 테마 시트 인식 정보가 필요합니다.');
+const newsValues = {};
+newsSheet.signature.forEach((entry) => {
+  const name = typeof entry === 'string' ? entry : entry.name;
+  if (name !== 'damage_bonus' && name !== 'pulp_hp') newsValues[name] = '1';
+});
+Object.assign(newsValues, {
+  hp: '5', mp: '6', con: '50', siz: '50', pow: '50',
+  san: '50', san_start: '50', cthulhu_mythos: '0', fighting_brawl: '25', damage_bonus: '1d6',
+});
+const newsAttributeStart = attributeObjects.length;
+const newsCharacter = addCharacter('news-theme-character', '뉴스 테마 탐사자', 'player-1', newsValues);
+useContracts(newsSheet);
+useRoomCharacters(newsCharacter);
+const newsData = helper.scan(newsCharacter.id, true);
+const newsHealth = newsData.resourcesByAttribute.hp;
+const newsMagic = newsData.resourcesByAttribute.mp;
+assert(newsHealth && newsHealth.value === 5 && newsHealth.max === 10,
+  '미저장 펄프 체크박스는 0으로 계산해 체력 현재·최대값을 읽어야 합니다.');
+assert(newsMagic && newsMagic.value === 6 && newsMagic.max === 10,
+  '원본 마력 공식에서 현재·최대값을 읽어야 합니다.');
+const newsStatus = runApi('!!상태', newsCharacter.get('name'));
+assert(newsStatus.some((item) => item.content && item.content.includes('체력 <b>5 / 10 (50%)') &&
+  item.content.includes('마력 <b>6 / 10 (60%)') && item.content.includes('이성 <b>50') &&
+  !item.content.includes('광기 <b>50') && !item.content.includes('체력 <b>6')),
+  '뉴스 테마 상태에 이성·체력·마력의 원본 이름과 현재·최대값을 함께 보여야 합니다.');
+assert(newsStatus.some((item) => item.content && item.content.includes('비무장') &&
+  item.content.includes('피해 1d3+1d6') && item.content.includes('+1d6') && !item.content.includes('+1d4') &&
+  !item.content.includes('+10d6') && !item.content.includes('+9d6')),
+  '무기 상태에는 원본 피해식과 현재 피해보너스만 보여야 하며 선택지 전체를 나열하면 안 됩니다.');
+const newsSanityRoll = runApi('!!이성', newsCharacter.get('name'));
+assert.strictEqual(newsSanityRoll.filter((item) => item.content &&
+  item.content.includes('{{name=SAN Roll}}') && item.content.includes('kib_sheet_result=')).length, 1,
+  '원본 SAN Roll을 한국어 !!이성 명령으로 한 번 실행해야 합니다.');
+runtime.state.KIBSheetHelper.trackingMode = 'public';
+const newsHealthAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === newsCharacter.id && item.get('name') === 'hp');
+newsHealthAttribute.set('current', '10');
+events['change:attribute'](newsHealthAttribute, { current: '5' });
+const newsDamageStart = sent.length;
+newsHealthAttribute.set('current', '5');
+events['change:attribute'](newsHealthAttribute, { current: '10' });
+assert(sent.slice(newsDamageStart).some((item) => item.content &&
+  item.content.includes('10 / 10 (100%)') && item.content.includes('5 / 10 (50%)') &&
+  item.content.includes('중상 자동 처리 생략')),
+  '최대 체력의 절반 피해는 최대값과 중상 항목 부재를 채팅에 기록해야 합니다.');
+characters.splice(characters.indexOf(newsCharacter), 1);
+attributeObjects.splice(newsAttributeStart);
 
 function sourceRefName(ref) {
   return typeof ref === 'string'
