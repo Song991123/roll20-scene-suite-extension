@@ -52,12 +52,8 @@ on('ready', function () {
   }
   on('add:card', isRefreshForCard);
 });
-on('destroy:deck', function (obj) {
-  if (!isDeckName(obj && obj.get('name'))) return;
-  setTimeout(function () {
-    isUpdateMacroSafe();
-  }, 100);
-});
+on('change:deck:name', isRefreshForDeck);
+on('destroy:deck', isRefreshForDeck);
 on('change:card', isRefreshForCard);
 on('destroy:card', isRefreshForCard);
 
@@ -336,6 +332,13 @@ function isRefreshForCard(obj, prev) {
     })
   )
     isUpdateMacroSafe(obj);
+}
+
+function isRefreshForDeck(obj, prev) {
+  if (!isDeckName(obj && obj.get('name')) && !isDeckName(prev && prev.name)) return;
+  setTimeout(function () {
+    isUpdateMacroSafe();
+  }, 100);
 }
 
 function isProblem(problem, fix, err) {

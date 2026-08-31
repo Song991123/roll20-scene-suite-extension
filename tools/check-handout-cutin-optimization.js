@@ -7,9 +7,13 @@ const root = path.resolve(__dirname, '..');
 const handoutFile = path.join(root, 'public', 'scripts', '07_handout_director.js');
 const cutinFile = path.join(root, 'public', 'scripts', '08_cutin_director.js');
 const avatarFile = path.join(root, 'public', 'scripts', '09_avatar_director.js');
+const visualFile = path.join(root, 'public', 'scripts', '03_visual_dialogue_compatible.js');
+const imageFile = path.join(root, 'public', 'scripts', '04_image_switcher_compatible.js');
 const handoutText = fs.readFileSync(handoutFile, 'utf8');
 const cutinText = fs.readFileSync(cutinFile, 'utf8');
 const avatarText = fs.readFileSync(avatarFile, 'utf8');
+const visualText = fs.readFileSync(visualFile, 'utf8');
+const imageText = fs.readFileSync(imageFile, 'utf8');
 
 function model(id, values) {
   return {
@@ -319,5 +323,63 @@ expectSchedule(
   3,
   'avatars 덱 삭제는 아바타 갱신을 예약해야 합니다.',
 );
+
+function eventRuntime(registered) {
+  return {
+    KIBScene: { handlers: {}, adapters: {}, register() {} },
+    state: {},
+    on(event, callback) { registered[event] = callback; },
+    playerIsGM() { return true; },
+    sendChat() {},
+    log() {},
+    findObjs() { return []; },
+    getObj() { return null; },
+    createObj(type, values) { return model('new-' + type, values); },
+    Campaign() { return { get() { return ''; } }; },
+    setTimeout(callback) { if (callback) callback(); return 1; },
+    clearTimeout() {},
+    setInterval() { return 1; },
+    clearInterval() {},
+    toFront() {},
+    toBack() {},
+    randomInteger(maximum) { return maximum; },
+  };
+}
+
+const visualHandlers = {};
+const visualRuntime = eventRuntime(visualHandlers);
+vm.createContext(visualRuntime);
+vm.runInContext(visualText, visualRuntime);
+let visualMacroRefreshes = 0;
+let visualExpressionRefreshes = 0;
+let visualHandoutRefreshes = 0;
+visualRuntime.vdUpdateMacroSafe = () => { visualMacroRefreshes++; };
+visualRuntime.vdScheduleExpressionHandouts = () => { visualExpressionRefreshes++; };
+visualRuntime.vdRefreshHandout = () => { visualHandoutRefreshes++; };
+const renamedVisualDeck = model('visual-renamed', { name: 'other' });
+visualHandlers['change:deck:name'](renamedVisualDeck, { name: 'background' });
+assert.strictEqual(visualMacroRefreshes, 1, 'background 덱이 다른 이름으로 바뀌어도 매크로를 갱신해야 합니다.');
+assert.strictEqual(visualHandoutRefreshes, 1, 'background 덱 이름 이탈도 관리 화면에 반영해야 합니다.');
+visualHandlers['change:deck:name'](renamedVisualDeck, { name: 'standings' });
+assert.strictEqual(visualExpressionRefreshes, 1, 'standings 덱이 다른 이름으로 바뀌어도 표정 목록을 갱신해야 합니다.');
+assert.strictEqual(visualHandoutRefreshes, 2, 'standings 덱 이름 이탈도 관리 화면에 반영해야 합니다.');
+visualHandlers['change:deck:name'](renamedVisualDeck, { name: 'other-before' });
+assert.strictEqual(visualHandoutRefreshes, 2, '무관 덱 이름 변경은 Visual Dialogue를 갱신하지 않아야 합니다.');
+
+const imageHandlers = {};
+const imageRuntime = eventRuntime(imageHandlers);
+vm.createContext(imageRuntime);
+vm.runInContext(imageText, imageRuntime);
+let imageMacroRefreshes = 0;
+imageRuntime.isUpdateMacroSafe = () => { imageMacroRefreshes++; };
+const renamedImageDeck = model('image-renamed', { name: 'other' });
+imageHandlers['change:deck:name'](renamedImageDeck, { name: 'image장면' });
+assert.strictEqual(imageMacroRefreshes, 1, 'image 덱이 다른 이름으로 바뀌어도 매크로를 갱신해야 합니다.');
+renamedImageDeck.values.name = 'image새장면';
+imageHandlers['change:deck:name'](renamedImageDeck, { name: 'other' });
+assert.strictEqual(imageMacroRefreshes, 2, '덱 이름이 image 대상으로 들어와도 매크로를 갱신해야 합니다.');
+renamedImageDeck.values.name = 'other';
+imageHandlers['change:deck:name'](renamedImageDeck, { name: 'other-before' });
+assert.strictEqual(imageMacroRefreshes, 2, '무관 덱 이름 변경은 이미지 매크로를 갱신하지 않아야 합니다.');
 
 console.log('Handout/Cutin optimization check: PASS');

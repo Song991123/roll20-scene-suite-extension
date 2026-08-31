@@ -351,6 +351,15 @@ function vdHandleCardChange(obj, prev) {
   if (standingChanged || backgroundChanged) vdRefreshHandout();
 }
 
+function vdHandleDeckChange(obj, prev) {
+  var names = [obj && obj.get('name'), prev && prev.name];
+  var backgroundChanged = names.indexOf('background') > -1;
+  var standingChanged = names.indexOf(vd_setting.deck_name) > -1;
+  if (backgroundChanged) setTimeout(vdUpdateMacroSafe, 100);
+  if (standingChanged) vdScheduleExpressionHandouts();
+  if (standingChanged || backgroundChanged) vdRefreshHandout();
+}
+
 function vdPluginStatus() {
   vdInitState();
   var pageId = vdGetCurrentPage();
@@ -1431,12 +1440,8 @@ on('ready', function () {
   setTimeout(vdUpdateMacroSafe, 100);
 });
 
-on('destroy:deck', function (obj) {
-  var name = obj && obj.get('name');
-  if (name == 'background') setTimeout(vdUpdateMacroSafe, 100);
-  if (name == vd_setting.deck_name) vdScheduleExpressionHandouts();
-  if (name == 'background' || name == vd_setting.deck_name) vdRefreshHandout();
-});
+on('change:deck:name', vdHandleDeckChange);
+on('destroy:deck', vdHandleDeckChange);
 
 on('change:card', vdHandleCardChange);
 on('destroy:card', vdHandleCardChange);
