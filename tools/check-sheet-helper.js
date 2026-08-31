@@ -1510,6 +1510,58 @@ const blue29Sheet = findEmbeddedSheet(360, 244, 638);
 const bloodySheet = findEmbeddedSheet(422, 253, 2928);
 const publicSheet = embeddedLargeSheet;
 const marenHyeyoomSheet = findEmbeddedSheet(187, 72, 374);
+
+function visibilityMentions(condition, name) {
+  if (!condition || typeof condition !== 'object') return false;
+  if (Array.isArray(condition)) return condition.some((entry) => visibilityMentions(entry, name));
+  if (condition.name === name) return true;
+  return ['all', 'any', 'not'].some((key) => visibilityMentions(condition[key], name));
+}
+
+// 저장된 선택값이 현재 원본 시트의 선택지에 없으면 원본 기본 화면을 사용하고,
+// 유효한 다른 선택값은 그대로 존중해야 합니다. 시트·변수명 없이 두 컨트롤 구조를 검증합니다.
+['select', 'radio'].forEach((type) => {
+  const selectors = embeddedSheets.flatMap((sheet) => Object.entries(sheet.controls || {})
+    .map(([name, control]) => ({
+      sheet,
+      name,
+      control,
+      uses: (sheet.rolls || []).filter((roll) => visibilityMentions(roll.visibility, name)).length,
+    }))).filter(({ control, uses }) => {
+      const values = (control.options || control.values || []).map((option) =>
+        String(option && typeof option === 'object' ? option.value : option));
+      return String(control.type || '').toLowerCase() === type && uses > 1 && values.length > 1 &&
+        values.includes(String(control.default));
+    }).sort((left, right) => right.uses - left.uses);
+  let verified = false;
+  selectors.some((selector, index) => {
+    const selectorRuntime = addSourceCharacter(
+      selector.sheet, `source-${type}-fallback-${index}`, `원본 ${type} 회귀 시험 ${index}`);
+    const selectorAttribute = attributeObjects.find((item) =>
+      item.get('_characterid') === selectorRuntime.character.id && item.get('name') === selector.name);
+    if (!selectorAttribute) return false;
+    const visibleRolls = (value) => {
+      selectorAttribute.set('current', value);
+      return helper.scan(selectorRuntime.character.id, true).contractRolls
+        .filter((instance) => visibilityMentions(instance.roll.visibility, selector.name))
+        .map((instance) => instance.roll.key).sort();
+    };
+    const options = (selector.control.options || selector.control.values)
+      .map((option) => String(option && typeof option === 'object' ? option.value : option));
+    const defaults = visibleRolls(String(selector.control.default));
+    const alternate = options.map((value) => ({ value, rolls: visibleRolls(value) }))
+      .find((entry) => entry.value !== String(selector.control.default) &&
+        JSON.stringify(entry.rolls) !== JSON.stringify(defaults));
+    if (!alternate) return false;
+    assert.deepStrictEqual(visibleRolls('__not_a_source_option__'), defaults,
+      `${type}: 원본 선택지에 없는 저장값은 원본 기본 화면으로 복구해야 합니다.`);
+    assert.deepStrictEqual(visibleRolls(alternate.value), alternate.rolls,
+      `${type}: 원본에 존재하는 현재 선택값을 기본값으로 덮어쓰면 안 됩니다.`);
+    verified = true;
+    return true;
+  });
+  assert(verified, `${type}: 원본 선택값 fallback을 검증할 공통 반례를 찾지 못했습니다.`);
+});
 const achtungSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-cf240692b20596fc');
 const nativeLimitSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-4ffca055eb552326');
 assert(achtungSheet, 'Achtung! Cthulhu 공개 시트 인식 정보가 필요합니다.');

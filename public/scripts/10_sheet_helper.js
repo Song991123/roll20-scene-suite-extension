@@ -1733,11 +1733,19 @@ var sheet_helper_setting = {
           var scope = trim(atom && atom.scope).toLowerCase();
           if (scope === 'row' && !row) return { known: false };
           var fullName = scope === 'global' ? name : contractRowAttr(contract, roll, row, name);
-          if (own(attributeValues, fullName)) return { known: true, value: attributeValues[fullName].current };
-          var liveValue = read(fullName, 'current');
-          if (liveValue !== undefined && liveValue !== null && String(liveValue) !== '')
-            return { known: true, value: liveValue };
           var control = scope === 'global' ? index.controls[name] : scopedControls[name] || index.controls[name];
+          var hasValue = own(attributeValues, fullName);
+          var liveValue = hasValue ? attributeValues[fullName].current : read(fullName, 'current');
+          hasValue = hasValue || liveValue !== undefined && liveValue !== null && String(liveValue) !== '';
+          if (hasValue) {
+            var options = /^(?:select|radio)$/i.test(trim(control && control.type))
+              ? contractOptionValues(control) : [];
+            if (!options.length || options.indexOf(String(liveValue)) > -1)
+              return { known: true, value: liveValue };
+            return control && own(control, 'default')
+              ? { known: true, value: control.default }
+              : { known: false };
+          }
           return control && own(control, 'default')
             ? { known: true, value: control.default }
             : { known: false };
