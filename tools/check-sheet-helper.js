@@ -1618,6 +1618,8 @@ assert.strictEqual(strongActualInspection.contract.id, publicSheet.id,
 const staleBloodyValues = Object.fromEntries((bloodySheet.signature || []).map((entry) =>
   [typeof entry === 'string' ? entry : entry.name, '1']));
 staleBloodyValues.rand_maddess = '2';
+staleBloodyValues.san = '50';
+staleBloodyValues.str = '50';
 const blue29AfterBloody = addCharacter(
   'blue29-after-bloody',
   'BLUE29 시트 교체 반례',
@@ -1633,6 +1635,17 @@ assert.strictEqual(blue29AfterBloodyInspection.recognitionReason, 'source-defaul
 assert((blue29AfterBloodyInspection.matches || []).some((item) => item.id === blue29Sheet.id) &&
   !(blue29AfterBloodyInspection.matches || []).some((item) => item.id === bloodySheet.id),
   '현재 기본값과 맞지 않는 이전 시트를 실행 후보로 남기면 안 됩니다.');
+const blue29DuplicateStart = sent.length;
+const blue29Strength = helper.resolveContractAction(blue29AfterBloody, '근력', false);
+assert(blue29Strength.handled && blue29Strength.result.ok &&
+  blue29Strength.result.payload.key === 'roll-e583f27c1e91',
+  '원본 식과 결과 규칙이 같은 후보를 선택지로 중복 표시하면 안 됩니다.');
+const blue29Sanity = helper.resolveContractAction(blue29AfterBloody, '이성', false);
+assert(blue29Sanity.handled && blue29Sanity.result.ok &&
+  blue29Sanity.result.payload.key === 'roll-5d027c038e4c',
+  '동일한 이성 굴림 후보는 하나로 합쳐 바로 실행해야 합니다.');
+assert.strictEqual(sent.length, blue29DuplicateStart + 2,
+  '근력과 이성 굴림은 각각 한 번만 전송해야 합니다.');
 const blue29Long = helper.resolveContractAction(blue29AfterBloody, '장기', false);
 assert(blue29Long.handled && blue29Long.result.ok &&
   blue29Long.result.payload.contractId === blue29Sheet.id &&

@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.14
+ * Scene Suite 10 - Sheet Helper 0.6.15
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -3234,6 +3234,43 @@ var sheet_helper_setting = {
     });
   }
 
+  function collapseEquivalentContractCandidates(characterId, candidates, expression) {
+    if (candidates.length < 2) return candidates;
+    var firstContractId = candidates[0].instance.contract.id;
+    if (candidates.every(function (candidate) {
+      return candidate.instance.contract.id === firstContractId;
+    })) return candidates;
+    var found = dictionary();
+    return candidates.filter(function (candidate) {
+      var instance = candidate.instance;
+      var mode = candidate.mode || null;
+      var qualified = qualifyContractMacro(characterId, instance, mode, expression);
+      var resultTemplate = sourceResultTemplate({
+        contractId: instance.contract.id,
+        key: instance.roll.key,
+      });
+      var key = JSON.stringify([
+        instance.key,
+        contractCutinKey(instance),
+        instance.roll.raw,
+        instance.roll.template || '',
+        instance.roll.kind || '',
+        instance.roll.repeating || null,
+        instance.roll.visibility || null,
+        instance.roll.expressionRefs || [],
+        candidate.requestedMode || '',
+        mode ? contractUserModeLabels(mode) : [],
+        mode ? contractOverrides(mode) : {},
+        mode ? contractQueries(mode) : [],
+        qualified.ok ? ['ok', qualified.content] : ['error', qualified.reason || '', qualified.error || ''],
+        resultTemplate || null,
+      ]);
+      if (found[key]) return false;
+      found[key] = true;
+      return true;
+    });
+  }
+
   function preferDirectContractActions(instances, compatible) {
     var grouped = dictionary();
     instances.forEach(function (instance) {
@@ -3403,11 +3440,15 @@ var sheet_helper_setting = {
     }
     var exact = exactCandidates(false);
     if (!exact.length) exact = exactCandidates(true);
+    exact = collapseEquivalentContractCandidates(character.id, exact);
     if (!contractLookupKeys(query, true).length) return { handled: false, result: null };
     if (exact.length === 1)
       return { handled: true, result: executeContractInstance(character, exact[0].instance, exact[0].mode ? exact[0].mode.id : '', secret) };
     if (exact.length > 1) return { handled: true, result: contractConflict(exact, secret) };
-    var multipleRoll = contractMultipleRollCandidates(instances, query);
+    var multipleRoll = collapseEquivalentContractCandidates(
+      character.id,
+      contractMultipleRollCandidates(instances, query),
+    );
     if (multipleRoll.length === 1)
       return { handled: true, result: executeContractInstance(character, multipleRoll[0].instance,
         multipleRoll[0].mode ? multipleRoll[0].mode.id : '', secret, undefined, multipleRoll[0].requestedMode) };
@@ -3426,6 +3467,7 @@ var sheet_helper_setting = {
       })));
     }
     partial = preferCurrentModeContext(character.id, partial);
+    partial = collapseEquivalentContractCandidates(character.id, partial);
     if (partial.length === 1)
       return { handled: true, result: executeContractInstance(character, partial[0].instance, partial[0].mode ? partial[0].mode.id : '', secret) };
     if (partial.length > 1) return { handled: true, result: contractConflict(partial, secret) };
@@ -3446,6 +3488,9 @@ var sheet_helper_setting = {
       return instance;
     });
     if (!instances.length) return { ok: false, error: '현재 시트에는 식을 바꿔 굴릴 수 있는 항목이 없습니다.' };
+    instances = collapseEquivalentContractCandidates(character.id, instances.map(function (instance) {
+      return { instance: instance };
+    }), safe).map(function (candidate) { return candidate.instance; });
     if (instances.length > 1)
       return contractConflict(instances.map(function (instance) { return { instance: instance }; }), secret, expressionText);
     return executeContractInstance(character, instances[0], '', secret, safe);
