@@ -817,6 +817,25 @@ assert(storedBlankRoll.handled && !storedBlankRoll.result.ok && /비어 있습�
 assert.strictEqual(sent.length, storedBlankStart,
   'Roll20이 저장된 빈 입력칸을 0으로 읽어도 굴림을 sendChat으로 넘기면 안 됩니다.');
 delete getAttrByNameOverrides[fixtureCharacter.id + '|blank_target|current'];
+const firstStoredValueStart = sent.length;
+storedBlankAttribute.set('current', '42');
+events['change:attribute'](storedBlankAttribute, { current: '' });
+const firstStoredValue = helper.scan(fixtureCharacter.id);
+assert.strictEqual(firstStoredValue.resources.find((item) => item.name === 'blank_target').value, 42,
+  '처음 비어 있던 기존 입력칸에 값을 넣으면 강제 새로고침 없이 즉시 읽어야 합니다.');
+assert(sent.slice(firstStoredValueStart).some((item) =>
+  String(item.content || '').includes('미입력 수치') && String(item.content || '').includes('42')),
+  '처음 비어 있던 기존 수치의 첫 입력도 변화 알림에서 빠지면 안 됩니다.');
+const firstStoredStatus = runApi('!!상태').find((item) => item.who === '시트 헬퍼');
+assert(firstStoredStatus && firstStoredStatus.content.includes('미입력 수치') && firstStoredStatus.content.includes('42'),
+  '처음 값을 넣은 기존 입력칸을 다음 !!상태에 표시해야 합니다.');
+storedBlankAttribute.set('current', '57');
+events['change:attribute'](storedBlankAttribute, { current: '42' });
+assert.strictEqual(helper.scan(fixtureCharacter.id).resources.find((item) => item.name === 'blank_target').value, 57,
+  '이미 읽은 수치를 다시 바꿔도 최신값을 사용해야 합니다.');
+assert(helper.resolveContractAction(fixtureCharacter, '사용자 항목', false).result.ok &&
+  sent.at(-1).content.includes('{{success=[[55]]}}'),
+  '기존 입력칸 갱신 뒤에도 사용자가 추가한 반복 기능치를 그대로 굴려야 합니다.');
 attributeObjects.splice(attributeObjects.indexOf(storedBlankAttribute), 1);
 events['destroy:attribute'](storedBlankAttribute);
 helper.scan(fixtureCharacter.id, true);
@@ -1642,6 +1661,21 @@ const blue29CommonScan = helper.scan(blue29AfterBloody.id, true);
 assert(blue29CommonScan.resources.some((item) => item.name === 'hp') &&
   blue29CommonScan.resources.some((item) => item.name === 'san'),
   '현재 시트 후보가 남아도 모두 같은 체력·이성 수치는 사용할 수 있어야 합니다.');
+assert(blue29CommonScan.resources.some((item) => item.name === 'san_start'),
+  '같은 시작 이성 입력칸의 표시 문구가 후보마다 달라도 실제 필드가 같으면 읽어야 합니다.');
+assert(!blue29CommonScan.trackedFields.edit_mode,
+  '여러 시트 영역의 표시만 바꾸는 편집용 토글을 상태 변화로 추적하면 안 됩니다.');
+const blue29EditAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === blue29AfterBloody.id && item.get('name') === 'edit_mode') ||
+  addAttribute(blue29AfterBloody.id, 'edit_mode', '');
+const blue29EditBefore = String(blue29EditAttribute.get('current'));
+const blue29EditStart = sent.length;
+blue29EditAttribute.set('current', blue29EditBefore === '1' ? '' : '1');
+events['change:attribute'](blue29EditAttribute, { current: blue29EditBefore });
+assert(!sent.slice(blue29EditStart).some((item) => /EDIT|edit_mode/.test(String(item.content || ''))),
+  '편집용 토글을 켜고 꺼도 수치 변화 알림을 보내면 안 됩니다.');
+blue29EditAttribute.set('current', blue29EditBefore);
+events['change:attribute'](blue29EditAttribute, { current: blue29EditBefore === '1' ? '' : '1' });
 assert.strictEqual(blue29CommonScan.resources.find((item) => item.name === 'hp').max, null,
   '일부 후보에만 있는 체력 최대값을 중상 판정에 임의 사용하면 안 됩니다.');
 const blue29HpAttribute = attributeObjects.find((item) =>
@@ -1680,6 +1714,8 @@ events['change:attribute'](blue29HpAttribute, { current: '8' });
 const blue29StatusMessages = runApi('!!상태', blue29AfterBloody.get('name'));
 assert(!blue29StatusMessages.some((item) => String(item.content || '').includes('현재 인식된 시트가 없습니다')),
   '안전하게 공통 항목을 읽은 시트를 미인식으로 표시하면 안 됩니다.');
+assert(blue29StatusMessages.some((item) => String(item.content || '').includes('50 / 시작 50 (100%)')),
+  '나중에 저장된 시작 이성을 현재 이성과 함께 최신값으로 보여줘야 합니다.');
 const blue29DuplicateStart = sent.length;
 const blue29Strength = helper.resolveContractAction(blue29AfterBloody, '근력', false);
 assert(blue29Strength.handled && blue29Strength.result.ok &&

@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.15
+ * Scene Suite 10 - Sheet Helper 0.6.16
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -333,7 +333,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.15';
+  var VERSION = '0.6.16';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -600,7 +600,6 @@ var sheet_helper_setting = {
       return current;
     });
     if (!replaced) KIBSheetContracts.push(contract);
-    contractIndexCache = {};
     contractCatalogCache = null;
     invalidate();
     return contract;
@@ -1218,6 +1217,18 @@ var sheet_helper_setting = {
     return op.indexOf('not-') === 0 || op === 'neq' ? !matched : matched;
   }
 
+  function contractVisibilityNames(condition, found) {
+    found = found || dictionary();
+    if (!condition || typeof condition !== 'object') return found;
+    if (Array.isArray(condition)) {
+      condition.forEach(function (item) { contractVisibilityNames(item, found); });
+      return found;
+    }
+    if (condition.name) found[trim(condition.name)] = true;
+    ['all', 'any', 'not'].forEach(function (key) { contractVisibilityNames(condition[key], found); });
+    return found;
+  }
+
   function contractOptionValues(control) {
     var source = control && (control.options || control.values);
     if (!Array.isArray(source) && source && typeof source === 'object') {
@@ -1395,7 +1406,24 @@ var sheet_helper_setting = {
       fieldGlobal: dictionary(),
       fieldSections: dictionary(),
       fieldPrefixes: trieNode(),
+      presentationControls: dictionary(),
     };
+    var visibilityReach = dictionary();
+    var visibilityConditions = [];
+    var visibilityNames = [];
+    var valueReferences = dictionary();
+    function countVisibility(condition) {
+      if (!condition) return;
+      var index = visibilityConditions.indexOf(condition);
+      if (index < 0) {
+        index = visibilityConditions.length;
+        visibilityConditions.push(condition);
+        visibilityNames.push(Object.keys(contractVisibilityNames(condition)));
+      }
+      visibilityNames[index].forEach(function (name) {
+        visibilityReach[name] = (visibilityReach[name] || 0) + 1;
+      });
+    }
     (Array.isArray(contract.fields) ? contract.fields : []).forEach(function (field) {
       if (!field || !trim(field.name)) return;
       if (!field.section) {
@@ -1419,6 +1447,7 @@ var sheet_helper_setting = {
       }
       [field.default, field.max].forEach(function (source) {
         String(source == null ? '' : source).replace(/@\{([^{}|]+)(?:\|max)?\}/g, function (token, name) {
+          valueReferences[trim(name)] = true;
           addDependency(name, '');
           return token;
         });
@@ -1432,6 +1461,7 @@ var sheet_helper_setting = {
         if (condition.name) addDependency(condition.name, trim(condition.scope).toLowerCase());
         ['all', 'any', 'not'].forEach(function (key) { visit(condition[key]); });
       })(field.visibility);
+      countVisibility(field.visibility);
     });
     Object.keys(index.fieldSections).forEach(function (section) {
       var prefix = 'repeating_' + section + '_';
@@ -1462,6 +1492,7 @@ var sheet_helper_setting = {
     });
     contract.rolls.forEach(function (roll) {
       if (!roll) return;
+      countVisibility(roll.visibility);
       var scopedControls = dictionary();
       contractControls(contract, roll).forEach(function (control) {
         var name = contractControlName(control);
@@ -1478,8 +1509,13 @@ var sheet_helper_setting = {
       });
       [roll.refs, roll.labelRefs, roll.expressionRefs].forEach(function (refs) {
         (Array.isArray(refs) ? refs : []).forEach(function (ref) {
-          addExact(contractRefName(ref));
+          var name = contractRefName(ref);
+          if (name) valueReferences[name] = true;
+          addExact(name);
         });
+      });
+      (roll.modes || []).forEach(function (mode) {
+        Object.keys(mode && mode.overrides || {}).forEach(function (name) { valueReferences[name] = true; });
       });
       Object.keys(scopedControls).forEach(function (name) {
         addExact(name);
@@ -1495,6 +1531,11 @@ var sheet_helper_setting = {
       fields.forEach(function (field) {
         if (index.sections[repeating.section].indexOf(field) < 0) index.sections[repeating.section].push(field);
       });
+    });
+    (Array.isArray(contract.fields) ? contract.fields : []).forEach(function (field) {
+      if (!field || field.section || !/^(?:checkbox|radio)$/i.test(trim(field.type))) return;
+      if ((visibilityReach[field.name] || 0) > 1 && !valueReferences[field.name])
+        index.presentationControls[field.name] = true;
     });
     Object.keys(index.fieldSections).forEach(function (section) {
       if (!index.sections[section]) index.sections[section] = [];
@@ -1890,9 +1931,14 @@ var sheet_helper_setting = {
       var sourceLabels = sourceFieldLabels(field, label, rowLabel);
       var rowContext = fieldRowContext(match);
       var definition = includeDefinition ? JSON.stringify(field) : '';
+      var structure = includeDefinition ? JSON.stringify([
+        type, trim(field.section), !!field.numericCandidate, !!field.trackCandidate,
+        !!field.readonly, !!field.disabled, !!field.hidden, trim(field.default), trim(field.max), trim(field.onValue),
+      ]) : '';
       var number = /^(?:text|number|range)$/.test(type)
         ? numericFieldValue(characterId, raw, fieldDefaults, rowContext) : null;
-      var tracked = !!field.trackCandidate && (number !== null || type === 'checkbox');
+      var tracked = !index.presentationControls[field.name] && !!field.trackCandidate &&
+        (number !== null || type === 'checkbox');
       if (tracked) result.tracked[fullName] = {
         attribute: attribute || null,
         name: fullName,
@@ -1905,6 +1951,7 @@ var sheet_helper_setting = {
         value: raw,
         automationVisible: visible === true,
         _definition: definition,
+        _structure: structure,
       };
       if (number === null) return;
       var maxRaw = attribute && attribute.get('max');
@@ -1925,6 +1972,7 @@ var sheet_helper_setting = {
         writable: !!field.numericCandidate,
         automationVisible: visible === true,
         _definition: definition,
+        _structure: structure,
         _maxDefinition: trim(field.max) ? JSON.stringify(field.max) : '',
       };
       result.references.push(item);
@@ -2001,13 +2049,9 @@ var sheet_helper_setting = {
   }
 
   function contractFieldItemFingerprint(item) {
-    function normalized(values) {
-      return (values || []).map(normalize).filter(Boolean).sort();
-    }
     return JSON.stringify([
-      item.name, item._definition || '', normalize(item.label), normalized(item.aliases),
-      normalized(item.sourceLabels), normalize(item.fieldLabel), item.kind || '', trim(item.onValue),
-      item.writable !== false, item.automationVisible === true, String(item.value),
+      item.name, item._structure || '', item.kind || '', trim(item.onValue),
+      item.writable !== false, item.automationVisible === true,
     ]);
   }
 
@@ -2045,6 +2089,18 @@ var sheet_helper_setting = {
         var key = contractFieldItemFingerprint(item);
         var peers = [item].concat(indexes.map(function (index) { return index[key]; }));
         var merged = merge({}, item);
+        ['aliases', 'sourceLabels'].forEach(function (property) {
+          var seen = dictionary();
+          merged[property] = [];
+          peers.forEach(function (peer) {
+            (peer[property] || []).forEach(function (value) {
+              var normalized = normalize(value);
+              if (!normalized || seen[normalized]) return;
+              seen[normalized] = true;
+              merged[property].push(value);
+            });
+          });
+        });
         if (!own(item, 'max')) return merged;
         var maximum = JSON.stringify([item.max, item._maxDefinition || '']);
         merged.max = peers.every(function (peer) {
@@ -3901,7 +3957,7 @@ var sheet_helper_setting = {
     var items = recognizedRollItems(data).concat((data.resources || []).map(function (item) {
       return {
         kind: 'resource', label: item.label, aliases: item.aliases,
-        value: fieldValueText(data.characterId, { name: item.name, kind: 'number', max: item.max }, item.value), command: '',
+        value: fieldValueText(data.characterId, item, resourceRawValue(data.characterId, item)), command: '',
       };
     }));
     items = items.filter(function (item) {
@@ -3966,7 +4022,7 @@ var sheet_helper_setting = {
       var resources = data.resources.map(function (item) {
         return {
           label: item.label,
-          value: fieldValueText(data.characterId, { name: item.name, kind: 'number', max: item.max }, item.value),
+          value: fieldValueText(data.characterId, item, resourceRawValue(data.characterId, item)),
         };
       });
       html += section('수치 ' + resources.length + '개', recognizedTable(resources, false));
@@ -4233,7 +4289,7 @@ var sheet_helper_setting = {
       body += section('다이스 종류 ' + modeLayout.diceTypes.length + '개', modeLayout.diceTypes.map(escapeHtml).join(', '));
     if (data.resources && data.resources.length)
       body += section('현재 수치 ' + data.resources.length + '개', data.resources.map(function (item) {
-        return escapeHtml(item.label) + ' <b>' + escapeHtml(fieldValueText(data.characterId, { name: item.name, kind: 'number', max: item.max }, item.value)) + '</b>';
+        return escapeHtml(item.label) + ' <b>' + escapeHtml(fieldValueText(data.characterId, item, resourceRawValue(data.characterId, item))) + '</b>';
       }).join(', '));
     return body + '<div style="padding:8px 10px;color:#555;font-size:11px">항목을 좁혀 보려면 <code>!!검색 이름</code>을 입력하세요.</div></div>';
   }
@@ -4330,7 +4386,8 @@ var sheet_helper_setting = {
     var sanity = detectedFieldRole(data, 'sanity', 'number');
     if (!sanity.item || sanity.item.name !== item.name) return '';
     var starting = detectedFieldRole(data, 'startingSanity', 'number');
-    var hasStarting = starting.item && starting.item.name !== item.name && starting.item.value > 0;
+    var startingValue = starting.item && numericFieldValue(characterId, resourceRawValue(characterId, starting.item));
+    var hasStarting = starting.item && starting.item.name !== item.name && startingValue > 0;
     var hasStartingField = starting.matches.length || sourceCandidateInspections(data.contractMatch).some(function (candidate) {
       return (candidate.contract.fields || []).some(function (field) {
         return matchesDetectedRole([field.label].concat(field.aliases || []), 'startingSanity');
@@ -4338,8 +4395,8 @@ var sheet_helper_setting = {
     });
     var text = String(current);
     if (hasStarting)
-      text += ' / 시작 ' + starting.item.value +
-        ' (' + Math.round((current / starting.item.value) * 100) + '%)';
+      text += ' / 시작 ' + startingValue +
+        ' (' + Math.round((current / startingValue) * 100) + '%)';
     else
       text += starting.ambiguous ? ' / 시작 확인 필요' : hasStartingField ? ' / 시작 미입력' : ' / 시작 항목 없음';
     if (sanity.item.max !== null) text += ' / 최대 ' + sanity.item.max;
@@ -4358,6 +4415,13 @@ var sheet_helper_setting = {
     return item.max !== null && item.max > 0
       ? current + ' / ' + item.max + ' (' + Math.round((current / item.max) * 100) + '%)'
       : String(current);
+  }
+
+  function resourceRawValue(characterId, item) {
+    if (!item) return undefined;
+    if (item.attribute) return item.attribute.get('current');
+    var current = getAttr(characterId, item.name);
+    return current === undefined || current === null ? item.value : current;
   }
 
   function resourceChangeContent(character, item, before, current, detail) {
@@ -4522,7 +4586,8 @@ var sheet_helper_setting = {
     }
     var longActive = longInsanity.item && trackedToggleEnabled(character.id, longInsanity.item);
     var startingSanity = detectedFieldRole(data, 'startingSanity', 'number');
-    var startingValue = startingSanity.item && startingSanity.item.value;
+    var startingValue = startingSanity.item &&
+      numericFieldValue(character.id, resourceRawValue(character.id, startingSanity.item));
     if (!longActive && startingValue !== null && startingValue > 0 &&
       startingValue - currentNumber >= startingValue / 5) {
       if (!longInsanity.item) details.push(detectedRoleProblem(character, '장기적 광기', longInsanity));
@@ -4570,7 +4635,7 @@ var sheet_helper_setting = {
     var amount = rollAmount(expression);
     if (!amount.ok) return { ok: false, error: '변경값은 +2, -1d3, =50 형식으로 입력해 주세요.' };
     var item = resolved.item;
-    var current = numericFieldValue(character.id, item.attribute ? item.attribute.get('current') : item.value);
+    var current = numericFieldValue(character.id, resourceRawValue(character.id, item));
     if (current === null) return { ok: false, error: item.label + ' 값이 숫자가 아닙니다.' };
     var next = operator === '+' ? current + amount.value : operator === '-' ? current - amount.value : amount.value;
     next = Math.round(next * 1000000) / 1000000;
@@ -4914,14 +4979,29 @@ var sheet_helper_setting = {
     sendTrackedChange(character, item, before, current, details.join(' / '));
   }
 
+  function cachedUntrackedToggle(characterId, name) {
+    var data = cache[characterId];
+    var candidates = data && sourceCandidateInspections(data.contractMatch);
+    if (!candidates || !candidates.length || data.trackedFields && data.trackedFields[name]) return false;
+    return candidates.every(function (candidate) {
+      var field = contractRuntimeIndex(candidate.contract).fieldGlobal[name];
+      return !!(field && /^(?:checkbox|radio)$/i.test(trim(field.type)));
+    });
+  }
+
   function onAttributeChanged(attribute, previous, membershipChanged) {
     var name = trim(attribute && attribute.get('name'));
     var characterId = attribute && attribute.get('_characterid');
-    if (previous) trackAttributeChange(attribute, previous);
     membershipChanged = !!membershipChanged || !!(previous && own(previous, 'name') && trim(previous.name) !== name);
     if (!characterId || (!membershipChanged && !contractRelevant(name))) return;
+    var presentationOnly = !membershipChanged && cachedUntrackedToggle(characterId, name);
+    var refreshBeforeTracking = !!(previous && !membershipChanged && !presentationOnly && cache[characterId] &&
+      !(cache[characterId].trackedFields && cache[characterId].trackedFields[name]) &&
+      numericFieldValue(characterId, attribute.get('current')) !== null);
+    if (previous && !presentationOnly && !refreshBeforeTracking) trackAttributeChange(attribute, previous);
     if (membershipChanged) invalidate();
     else invalidate(characterId);
+    if (refreshBeforeTracking) trackAttributeChange(attribute, previous);
     scheduleManager();
   }
 
