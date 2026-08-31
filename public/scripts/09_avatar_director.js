@@ -125,16 +125,17 @@ function avExpressionName(card, character) {
   return name == base ? '기본' : name.substring(base.length + 1) || '기본';
 }
 
-function avExpressionCard(character, expression, cardId) {
+function avExpressionCard(character, expression, cardId, cards) {
   var direct = cardId && getObj('card', cardId);
-  if (direct && avCardBelongs(direct, character)) return direct;
+  if (direct && avCardBelongs(direct, character, cards)) return direct;
   var value = String(expression || '').trim();
   var name =
     !value || value == '기본' || value.toLowerCase() == 'default'
       ? String(character.get('name') || '')
       : String(character.get('name') || '') + '-' + value;
+  cards = Array.isArray(cards) ? cards : avCards(character);
   return (
-    avCards(character).filter(function (card) {
+    cards.filter(function (card) {
       return card.get('name') == name;
     })[0] || null
   );
@@ -219,11 +220,20 @@ function avValidateChange(request) {
           avatar_setting.deck_name +
           ' 덱이 여러 개입니다. 하나만 남겨 주세요.',
       };
-    if (!avCards(character).length) {
+    var cards = avCards(
+      character,
+      findObjs({ _type: 'card', _deckid: decks[0].id }) || [],
+    );
+    if (!cards.length) {
       targets.avatar = false;
       targets.token = false;
     } else {
-      card = avExpressionCard(character, request.expression, request.cardId);
+      card = avExpressionCard(
+        character,
+        request.expression,
+        request.cardId,
+        cards,
+      );
       if (!card)
         return {
           ok: false,
@@ -338,8 +348,9 @@ function avSyncExternal(payload) {
   if (!character) return { ok: true, skipped: true };
   var targets = avTargets(character);
   if (!targets.avatar && !targets.token) return { ok: true, skipped: true };
-  if (!avCards(character).length) return { ok: true, skipped: true };
-  var card = avExpressionCard(character, payload.expression);
+  var cards = avCards(character);
+  if (!cards.length) return { ok: true, skipped: true };
+  var card = avExpressionCard(character, payload.expression, '', cards);
   if (!card) {
     avWhisperGm(
       '<b>' +
@@ -734,7 +745,7 @@ function avRefreshHandouts() {
   Object.keys(data.expressionHandouts).forEach(function (characterId) {
     if (!active[characterId]) avArchiveExpressionHandout(characterId);
   });
-  return avRefreshManagementHandout(characters, deckCards);
+  return avRefreshManagementHandout(characters, deckCards, active);
 }
 
 function avArchiveExpressionHandout(characterId) {
@@ -750,7 +761,7 @@ function avArchiveExpressionHandout(characterId) {
     });
 }
 
-function avRefreshManagementHandout(characters, deckCards) {
+function avRefreshManagementHandout(characters, deckCards, active) {
   var data = avInitState();
   characters = Array.isArray(characters) ? characters : avCharacters();
   if (!Array.isArray(deckCards)) {
@@ -778,7 +789,9 @@ function avRefreshManagementHandout(characters, deckCards) {
   var rows =
     characters
       .filter(function (character) {
-        return avCards(character, deckCards).length > 0;
+        return active
+          ? !!active[character.id]
+          : avCards(character, deckCards).length > 0;
       })
       .map(function (character) {
         var excluded = avIsExcluded(character);

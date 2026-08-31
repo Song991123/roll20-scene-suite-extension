@@ -669,10 +669,21 @@ var sheet_helper_setting = {
     });
     var defaultNames = Object.keys(available).sort();
     var defaultValues = dictionary();
+    var separatingDefaultNames = [];
     defaultNames.forEach(function (name) {
-      defaultValues[name] = records.map(function (record) {
-        return expectedDefault(record, name);
+      var firstExpected = '';
+      var different = false;
+      var hasNonEmpty = false;
+      var values = records.map(function (record, index) {
+        var expected = expectedDefault(record, name);
+        if (!index) firstExpected = expected;
+        else if (expected !== firstExpected) different = true;
+        if (expected.indexOf('value:') === 0 && expected.length > 6) hasNonEmpty = true;
+        return expected;
       });
+      defaultValues[name] = values;
+      if ((!savedNames || !savedNames[name]) && hasNonEmpty && different)
+        separatingDefaultNames.push(name);
     });
     function nextField() {
       if (!active.length) return '';
@@ -687,15 +698,15 @@ var sheet_helper_setting = {
       }
       var selected = '';
       var selectedSeparation = -1;
-      for (var fieldAt = 0; fieldAt < defaultNames.length; fieldAt += 1) {
-        var name = defaultNames[fieldAt];
-        if (used[name] || savedNames && savedNames[name]) continue;
+      for (var fieldAt = 0; fieldAt < separatingDefaultNames.length; fieldAt += 1) {
+        var name = separatingDefaultNames[fieldAt];
+        if (used[name]) continue;
         var counts = dictionary();
         var hasNonEmpty = false;
         for (var activeAt = 0; activeAt < active.length; activeAt += 1) {
           var expected = defaultValues[name][active[activeAt].ordinal];
           counts[expected] = (counts[expected] || 0) + 1;
-          if (/^value:.+/.test(expected)) hasNonEmpty = true;
+          if (expected.indexOf('value:') === 0 && expected.length > 6) hasNonEmpty = true;
         }
         var groups = Object.keys(counts);
         if (!hasNonEmpty || groups.length < 2) continue;
@@ -718,7 +729,8 @@ var sheet_helper_setting = {
       var actual = normalizedDefault(rawActual);
       if (rawActual === undefined || rawActual === null || !actual) {
         records.forEach(function (record) {
-          if (/^value:.+/.test(defaultValues[name][record.ordinal])) blankContradictions[record.ordinal] += 1;
+          var expected = defaultValues[name][record.ordinal];
+          if (expected.indexOf('value:') === 0 && expected.length > 6) blankContradictions[record.ordinal] += 1;
         });
         probes.push({ name: name, value: actual, matches: [] });
       } else {
@@ -1402,6 +1414,7 @@ var sheet_helper_setting = {
       sections: dictionary(),
       rollFields: dictionary(),
       rollControls: dictionary(),
+      rollsByKey: dictionary(),
       labelRefFrequency: dictionary(),
       fieldGlobal: dictionary(),
       fieldSections: dictionary(),
@@ -1492,6 +1505,8 @@ var sheet_helper_setting = {
     });
     contract.rolls.forEach(function (roll) {
       if (!roll) return;
+      var rollKey = String(roll.key);
+      if (!own(index.rollsByKey, rollKey)) index.rollsByKey[rollKey] = roll;
       countVisibility(roll.visibility);
       var scopedControls = dictionary();
       contractControls(contract, roll).forEach(function (control) {
@@ -2450,23 +2465,26 @@ var sheet_helper_setting = {
     return mode;
   }
 
+  function sourceResultTemplateForContract(contract, key) {
+    if (!contract || !contract.resultTemplates) return null;
+    var roll = contractRuntimeIndex(contract).rollsByKey[String(key)];
+    if (!roll || !roll.template) return null;
+    if (contract.resultTemplates[roll.template]) return contract.resultTemplates[roll.template];
+    var wanted = normalize(roll.template);
+    var names = Object.keys(contract.resultTemplates);
+    for (var index = 0; index < names.length; index += 1) {
+      if (normalize(names[index]) === wanted) return contract.resultTemplates[names[index]];
+    }
+    return null;
+  }
+
   function sourceResultTemplate(payload) {
     if (!payload || !payload.contractId || !payload.key) return null;
     var contracts = sheetContracts();
     for (var i = 0; i < contracts.length; i += 1) {
       var contract = contracts[i];
-      if (String(contract.id) !== String(payload.contractId) || !contract.resultTemplates) continue;
-      var roll = contract.rolls.filter(function (item) {
-        return item && String(item.key) === String(payload.key);
-      })[0];
-      if (!roll || !roll.template) return null;
-      if (contract.resultTemplates[roll.template]) return contract.resultTemplates[roll.template];
-      var wanted = normalize(roll.template);
-      var names = Object.keys(contract.resultTemplates);
-      for (var index = 0; index < names.length; index += 1) {
-        if (normalize(names[index]) === wanted) return contract.resultTemplates[names[index]];
-      }
-      return null;
+      if (String(contract.id) === String(payload.contractId))
+        return sourceResultTemplateForContract(contract, payload.key);
     }
     return null;
   }
@@ -3406,10 +3424,7 @@ var sheet_helper_setting = {
       return (values || []).map(normalize).filter(Boolean).sort();
     }
     var qualified = qualifyContractMacro(characterId, instance, mode, expression);
-    var resultTemplate = sourceResultTemplate({
-      contractId: instance.contract.id,
-      key: instance.roll.key,
-    });
+    var resultTemplate = sourceResultTemplateForContract(instance.contract, instance.roll.key);
     return JSON.stringify([
         instance.key,
         contractCutinKey(instance),

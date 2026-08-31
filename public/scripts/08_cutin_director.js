@@ -1063,20 +1063,11 @@ KIBScene.adapters = KIBScene.adapters || {};
           ? '<code>cutin</code> 덱이 여러 개입니다.'
           : '<code>cutin</code> 덱이 없습니다.',
       );
-    var groups = (findObjs({ _type: 'card', _deckid: decks[0].id }) || [])
+    var info = (findObjs({ _type: 'card', _deckid: decks[0].id }) || [])
       .map(cardInfo)
-      .filter(function (info, index, list) {
-        return (
-          list
-            .map(function (item) {
-              return item.groupKey;
-            })
-            .indexOf(info.groupKey) === index
-        );
-      });
-    var info = groups.filter(function (item) {
-      return item.groupKey === wanted;
-    })[0];
+      .filter(function (item) {
+        return item.groupKey === wanted;
+      })[0];
     if (!info)
       return whisper(
         '<code>cutin</code> 덱에서 <b>' +
@@ -1641,7 +1632,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function sheetBindButton(source, items) {
     if (!KIBScene.adapters || !KIBScene.adapters.sheet || !source || !source.card) return '';
-    var availableItems = sheetItems(items);
+    var availableItems = Array.isArray(items) ? items : sheetItems();
     var itemQuery = sheetChoiceQuery('판정 항목', availableItems.map(function (item) {
       return { label: item.displayLabel || item.label, value: encodeSheetCommandKey(item.key) };
     }));
@@ -1805,12 +1796,16 @@ KIBScene.adapters = KIBScene.adapters || {};
   }
 
   function splitList(value) {
+    var found = Object.create(null);
     return String(value || '')
       .split(',')
       .map(trim)
       .filter(Boolean)
-      .filter(function (item, index, list) {
-        return list.map(normalizeText).indexOf(normalizeText(item)) === index;
+      .filter(function (item) {
+        var key = normalizeText(item);
+        if (found[key]) return false;
+        found[key] = true;
+        return true;
       });
   }
 
