@@ -1143,10 +1143,11 @@ runtime.state.KIBSheetHelper.trackGmOnly = true;
 let gmOnlyMessageStart = sent.length;
 gmOnlyHealth.set('current', '9');
 events['change:attribute'](gmOnlyHealth, { current: '10' });
-assert(sent.slice(gmOnlyMessageStart).some((item) =>
-  item.content && item.content.startsWith('/w gm ') && item.content.includes('GM 전용 탐사자 / 체력')) &&
+let trackedMessage = sent.slice(gmOnlyMessageStart).find((item) =>
+  item.content && item.content.startsWith('/w gm ') && item.content.includes('GM 전용 탐사자 / 체력'));
+assert(trackedMessage && (!trackedMessage.options || trackedMessage.options.noarchive !== true) &&
   !sent.slice(gmOnlyMessageStart).some((item) => item.content && item.content.startsWith('/direct ')),
-  '공개 범위가 GM이면 GM 전용 캐릭터 알림도 전체 공개하면 안 됩니다.');
+  'GM 전용 변화 알림은 전체 공개하지 않고 채팅 로그에는 남겨야 합니다.');
 runtime.state.KIBSheetHelper.trackingMode = 'public';
 runtime.state.KIBSheetHelper.trackGmOnly = false;
 gmOnlyMessageStart = sent.length;
@@ -1159,9 +1160,10 @@ runtime.state.KIBSheetHelper.trackGmOnly = true;
 gmOnlyMessageStart = sent.length;
 gmOnlyHealth.set('current', '7');
 events['change:attribute'](gmOnlyHealth, { current: '8' });
-assert(sent.slice(gmOnlyMessageStart).some((item) =>
-  item.content && item.content.startsWith('/direct ') && item.content.includes('GM 전용 탐사자 / 체력')),
-  'GM 캐릭터 알림을 켜면 플레이어 권한이 없는 캐릭터의 변화를 보내야 합니다.');
+trackedMessage = sent.slice(gmOnlyMessageStart).find((item) =>
+  item.content && item.content.startsWith('/direct ') && item.content.includes('GM 전용 탐사자 / 체력'));
+assert(trackedMessage && (!trackedMessage.options || trackedMessage.options.noarchive !== true),
+  'GM 캐릭터 공개 알림은 표시하고 채팅 로그에도 남겨야 합니다.');
 characters.splice(characters.indexOf(gmOnlyCharacter), 1);
 attributeObjects.splice(gmOnlyAttributeStart);
 runtime.state.KIBSheetHelper.trackGmOnly = false;
@@ -2454,6 +2456,56 @@ function addSourceCharacter(sheet, id, name) {
   return { character, values };
 }
 
+function verifyEditableTitleSlot(sheet, fieldName, id, currentName, nextName) {
+  const sourceRolls = (sheet.rolls || []).filter((roll) => (roll.labelRefs || []).some((ref) =>
+    sourceRefName(ref) === fieldName));
+  assert(sourceRolls.length, `${sheet.id}: 편집형 이름칸과 연결된 원본 굴림이 필요합니다.`);
+  const sourceLabels = new Set(sourceRolls.flatMap((roll) => [roll.label].concat(roll.aliases || []))
+    .map((label) => String(label || '').trim()).filter(Boolean));
+  const runtimeSource = addSourceCharacter(sheet, id, id);
+  sourceRolls.forEach((roll) => satisfySimpleVisibility(roll.visibility, runtimeSource.values));
+  Object.entries(runtimeSource.values).forEach(([name, value]) => {
+    const attribute = attributeObjects.find((item) =>
+      item.get('_characterid') === runtimeSource.character.id && item.get('name') === name);
+    if (attribute) attribute.set('current', String(value));
+  });
+  const title = attributeObjects.find((item) =>
+    item.get('_characterid') === runtimeSource.character.id && item.get('name') === fieldName);
+  assert(title, `${sheet.id}: 편집형 이름 속성을 만들지 못했습니다.`);
+  const requiredNames = new Set(sourceRolls.flatMap((roll) =>
+    [roll.refs, roll.labelRefs].flat().map(sourceRefName).concat(
+      Array.from(String(roll.raw || '').matchAll(/@\{([^{}|]+)/g), (match) => match[1])))
+    .filter((name) => name && name !== fieldName));
+  attributeObjects.filter((item) => item.get('_characterid') === runtimeSource.character.id &&
+    requiredNames.has(item.get('name')) && String(item.get('current') || '').trim() === '')
+    .forEach((item) => item.set('current', '50'));
+  const blankStatus = runApi('!!상태', runtimeSource.character.get('name'));
+  assert(!blankStatus.some((item) => Array.from(sourceLabels).some((label) =>
+    item.content && item.content.includes(label))),
+  `${sheet.id}: 비어 있는 이름칸의 원본 안내문을 실제 굴림으로 표시하면 안 됩니다.`);
+
+  title.set('current', currentName);
+  events['change:attribute'](title, { current: '' });
+  let messages = runApi('!!' + currentName, runtimeSource.character.get('name'));
+  assert.strictEqual(messages.filter((item) => item.content && item.content.includes('kib_sheet_result=')).length, 1,
+    `${sheet.id}: 현재 입력한 이름은 선택 질문 없이 원본 굴림 한 번만 실행해야 합니다. ${JSON.stringify(messages)}`);
+  assert(!messages.some((item) => item.content && item.content.includes('어느 항목을 실행할까요?')),
+    `${sheet.id}: 현재 이름과 원본 안내문을 중복 후보로 만들면 안 됩니다.`);
+
+  title.set('current', nextName);
+  events['change:attribute'](title, { current: currentName });
+  messages = runApi('!!' + currentName, runtimeSource.character.get('name'));
+  assert(messages.some((item) => item.content && item.content.includes('찾지 못했습니다.')),
+    `${sheet.id}: 이름을 바꾼 뒤 이전 입력값이 굴림 별칭으로 남으면 안 됩니다.`);
+  messages = runApi('!!' + nextName, runtimeSource.character.get('name'));
+  assert.strictEqual(messages.filter((item) => item.content && item.content.includes('kib_sheet_result=')).length, 1,
+    `${sheet.id}: 바뀐 현재 이름으로 원본 굴림을 실행해야 합니다.`);
+}
+
+verifyEditableTitleSlot(newsSheet, 'otherskill1_name', '뉴스 빈 슬롯 시험', 'ㅇㄴ', '민속학');
+verifyEditableTitleSlot(marenHyeyoomSheet, 'ori_other_skills_title', '헤윰 빈 슬롯 시험', '기호학', '민간전승');
+verifyEditableTitleSlot(publicSheet, 'artandcraft1_inv_name', '공식 빈 슬롯 시험', '유리공예', '금속공예');
+
 // 실제 배포 시트의 사용자 추가 기능은 생성·변경을 모두 따라가야 합니다.
 const actualValues = {};
 actualSheet.signature.forEach((entry) => {
@@ -2490,8 +2542,11 @@ assert(!modeBoundaryMessages.some((item) => String(item.content || '').includes(
   modeBoundaryMessages.some((item) => /찾지 못했습니다/.test(String(item.content || ''))),
 '변장 굴림과 기본 선택 방식의 글자 경계를 가로질러 장기 굴림으로 오인하면 안 됩니다.');
 const blankSanMessages = runApi('!!이성', actualCharacter.get('name'));
-assert(blankSanMessages.some((item) => item.who === '시트 헬퍼' && /비어 있습니다/.test(item.content)),
+const blankSanNotice = blankSanMessages.find((item) => item.who === '시트 헬퍼' && /비어 있습니다/.test(item.content));
+assert(blankSanNotice,
   '이성 수치가 비었을 때 Roll20 파서로 보내지 말고 채팅 오류로 끝내야 합니다.');
+assert(blankSanNotice.options && blankSanNotice.options.noarchive === true,
+  '오류 안내는 세션 로그에 불필요하게 남기지 않아야 합니다.');
 assert(!blankSanMessages.some((item) => item.content && item.content.includes('&{template:coc}')),
   '이성 수치가 빈 굴림을 Roll20 sendChat으로 보내면 안 됩니다.');
 const actualName = actualRow[0];

@@ -1758,19 +1758,52 @@ var sheet_helper_setting = {
         var staticLabels = contractStaticLabels(roll);
         var dynamic = [];
         var expressionNames = (Array.isArray(roll.expressionRefs) ? roll.expressionRefs : []).map(contractRefName);
+        var titleRefs = dictionary();
+        var sourceTitleLabels = dictionary();
+        var sectionFields = repeating && index.fieldSections[repeating.section] || dictionary();
+        var titleValue = '';
         var expressionLabels = [];
         (Array.isArray(roll.labelRefs) ? roll.labelRefs : []).forEach(function (ref) {
           var refName = contractRefName(ref);
+          var sourceField = sectionFields[refName] || index.fieldGlobal[refName] || scopedControls[refName];
+          if (expressionNames.indexOf(refName) < 0 && sourceField &&
+            /^(?:name|subject|title|label|skill|skill_name|attribute)$/i.test(trim(ref && ref.field)) &&
+            /^(?:text|textarea)$/i.test(trim(sourceField.type)) && !sourceField.hidden &&
+            !sourceField.readonly && !sourceField.disabled && !trim(sourceField.default) &&
+            // ponytail: 편집 이름칸은 소수 굴림에만 쓰인다. 한 이름칸을 5개 이상 공유하는 시트가 생기면 이 상한만 넓힌다.
+            (index.labelRefFrequency[refName] || 0) <= 4) {
+            var fieldLabels = [sourceField.label].concat(sourceField.aliases || []).map(normalize).filter(Boolean);
+            var rawKey = normalize(rawVisible).replace(/(?:name|check|roll)$/i, '');
+            var refKey = normalize(refName).replace(/(?:name|check|roll)$/i, '');
+            var machineNamed = (normalize(rawVisible) === normalize(roll.name) || normalize(rawVisible) === normalize(roll.key)) &&
+              rawKey && refKey && (rawKey.indexOf(refKey) > -1 || refKey.indexOf(rawKey) > -1);
+            if (fieldLabels.indexOf(normalize(rawVisible)) > -1 || machineNamed) {
+              titleRefs[refName] = true;
+              fieldLabels.forEach(function (label) { sourceTitleLabels[label] = true; });
+            }
+          }
           if (expressionNames.indexOf(refName) > -1) {
-            var sourceField = index.fieldGlobal[refName] || scopedControls[refName];
             var sourceLabel = contractDisplayLabel(sourceField && sourceField.label);
             if (sourceLabel && normalize(sourceLabel) !== normalize(refName)) expressionLabels.push(sourceLabel);
             return;
           }
           var value = contractLabelRef(characterId, contract, roll, row, ref, read);
-          if (value) dynamic.push({ value: value, frequency: index.labelRefFrequency[refName] || 0 });
+          if (titleRefs[refName] && value && !titleValue) titleValue = value;
+          if (value) dynamic.push({
+            value: value,
+            frequency: index.labelRefFrequency[refName] || 0,
+            title: !!titleRefs[refName],
+          });
         });
-        dynamic.sort(function (left, right) { return left.frequency - right.frequency; });
+        if (Object.keys(titleRefs).length) {
+          if (!titleValue) return;
+          rawVisible = '';
+          visible = '';
+          staticLabels = staticLabels.filter(function (label) { return !sourceTitleLabels[normalize(label)]; });
+        }
+        dynamic.sort(function (left, right) {
+          return Number(!!right.title) - Number(!!left.title) || left.frequency - right.frequency;
+        });
         var usefulDynamic = dynamic.filter(function (entry) { return normalize(entry.value) !== characterName; });
         if (!usefulDynamic.length) usefulDynamic = dynamic;
         var rowLabels = usefulDynamic.map(function (entry) { return contractDisplayLabel(entry.value); }).filter(Boolean);
@@ -1782,7 +1815,7 @@ var sheet_helper_setting = {
         if (!displayLabels.length && expressionNames.length === 1) displayLabels.push('자유 주사위');
         var labels = displayLabels
           .concat([rawVisible])
-          .concat(roll.aliases || [])
+          .concat((roll.aliases || []).filter(function (label) { return !sourceTitleLabels[normalize(label)]; }))
           .concat(staticLabels)
           .concat(expressionNames.length === 1 ? ['자유 주사위', expressionNames[0]] : [])
           .concat([roll.name, roll.key])
@@ -4784,7 +4817,7 @@ var sheet_helper_setting = {
     if (settings.trackingMode === 'off') return false;
     if (!settings.trackGmOnly && !hasPlayerController(character)) return false;
     var content = resourceChangeContent(character, item, before, current, detail);
-    sendChat('시트 헬퍼', settings.trackingMode === 'gm' ? '/w gm ' + content : '/direct ' + content, null, { noarchive: true });
+    sendChat('시트 헬퍼', settings.trackingMode === 'gm' ? '/w gm ' + content : '/direct ' + content, null);
     return true;
   }
 
