@@ -668,6 +668,13 @@ try {
   const unnamedKorean = parseSheetContract(unnamedHtml, { translations: [{ 'unnamed-roll': '사용자 굴림' }] });
   assert.strictEqual(unnamedEnglish.rolls[0].key, unnamedKorean.rolls[0].key,
     '이름 없는 롤의 내부 키가 번역 라벨에 따라 바뀌면 안 됩니다.');
+  const hiddenAdjacent = parseSheetContract(`
+    <fieldset><legend>Initiative</legend>
+      <span class="sheet-hidden">Re-roll?:</span>
+      <button name="roll_init" type="roll" value="&{template:test} {{roll=[[1d100]]}}"></button>
+    </fieldset>`);
+  assert(!hiddenAdjacent.rolls[0].label.includes('Re-roll'),
+    '화면에서 숨긴 인접 문구를 굴림 이름으로 인식하면 안 됩니다.');
   const firstHash = translated.contract.sourceHash;
   fs.writeFileSync(path.join(translationRoot, 'translations', 'ko.json'), JSON.stringify({
     'normal-mode': '표준', 'bonus-mode': '이점', 'live-label': '현재', 'appraise-label': '평가',

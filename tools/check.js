@@ -21,6 +21,11 @@ scripts.forEach((name) =>
   execFileSync(process.execPath, ['--check', path.join(scriptsRoot, name)]),
 );
 execFileSync(process.execPath, ['--check', contractParserFile]);
+execFileSync(
+  process.execPath,
+  [path.join(root, 'tools', 'check-github-release-preservation.js')],
+  { stdio: 'inherit' },
+);
 
 const publicTextFiles = [
   path.join(root, 'README.md'),

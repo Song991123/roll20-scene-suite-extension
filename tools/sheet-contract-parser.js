@@ -879,6 +879,15 @@
   };
   var ADJACENT_SKIP_TAGS = { button: true, input: true, select: true, textarea: true };
 
+  function hiddenLabelNode(node) {
+    if (!node || node.tag === '#text') return false;
+    if (hasAttr(node, 'hidden')) return true;
+    if (/(?:^|;)\s*display\s*:\s*none(?:\s*!important)?\s*(?:;|$)/i.test(node.attrs.style || '')) return true;
+    return (node.attrs['class'] || '').split(/\s+/).some(function (name) {
+      return /^(?:sheet-)?(?:hidden|hide)$/i.test(name);
+    });
+  }
+
   function adjacentLabelDetails(node, translations, parentDepth) {
     var current = node;
     for (var depth = 0; current && current.parent && depth <= parentDepth; depth += 1) {
@@ -896,6 +905,7 @@
             }
             continue;
           }
+          if (hiddenLabelNode(sibling)) continue;
           if (ADJACENT_SKIP_TAGS[sibling.tag]) {
             if (sibling.tag === 'input' &&
               (hasAttr(sibling, 'hidden') || (sibling.attrs.type || '').toLowerCase() === 'hidden')) continue;

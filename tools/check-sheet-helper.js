@@ -43,7 +43,7 @@ assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expected
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
 assert.strictEqual(
   crypto.createHash('sha256').update(JSON.stringify(embeddedSheets)).digest('hex'),
-  '1b50e8a19c41e13f899e67ead7cab6875e27134b5af36e82bf660c9966ce523e',
+  'b2d7981b576a3adae43e013e8ce28a603ba063900cb1b16f5cd2bb190b10c89c',
   'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
 );
 assert(!/\brequire\s*\(/.test(recognitionBlock) &&
@@ -827,8 +827,8 @@ assert(sent.slice(firstStoredValueStart).some((item) =>
   String(item.content || '').includes('미입력 수치') && String(item.content || '').includes('42')),
   '처음 비어 있던 기존 수치의 첫 입력도 변화 알림에서 빠지면 안 됩니다.');
 const firstStoredStatus = runApi('!!상태').find((item) => item.who === '시트 헬퍼');
-assert(firstStoredStatus && firstStoredStatus.content.includes('미입력 수치') && firstStoredStatus.content.includes('42'),
-  '처음 값을 넣은 기존 입력칸을 다음 !!상태에 표시해야 합니다.');
+assert(firstStoredStatus && !firstStoredStatus.content.includes('미입력 수치'),
+  '원본에서 현재·최대·시작 수치로 묶이지 않은 숫자 입력칸을 상태 수치에 늘리면 안 됩니다.');
 storedBlankAttribute.set('current', '57');
 events['change:attribute'](storedBlankAttribute, { current: '42' });
 assert.strictEqual(helper.scan(fixtureCharacter.id).resources.find((item) => item.name === 'blank_target').value, 57,
@@ -957,12 +957,12 @@ assert(conflict.content.includes('겹친 굴림 (선택 1)') &&
 
 const status = runApi('!!상태').find((item) => item.who === '시트 헬퍼');
 assert(status && status.content.includes('정밀 관찰') && status.content.includes('새 항목'));
-const rollGroupTitles = ['기능 / 판정', '무기', '주문', '광기', '기타 주사위'];
+const rollGroupTitles = ['특성치', '기능 / 판정', '무기', '주문', '광기', '기타 주사위'];
 const rollGroupMarkers = rollGroupTitles.map((title) => 'font-weight:bold">' + title + ' ');
 const rollGroupPositions = rollGroupMarkers.map((marker) => status.content.indexOf(marker));
 assert(rollGroupPositions.every((position) => position >= 0) &&
   rollGroupPositions.every((position, index) => index === 0 || position > rollGroupPositions[index - 1]),
-  'PL 상태 화면은 파싱한 굴림 구조에 따라 기능 / 판정, 무기, 주문, 광기, 기타 주사위 순으로 나눠야 합니다.');
+  'PL 상태 화면은 특성치, 기능 / 판정, 무기, 주문, 광기, 기타 주사위 순으로 나눠야 합니다.');
 const rollGroupContents = Object.fromEntries(rollGroupTitles.map((title, index) => [
   title,
   status.content.slice(rollGroupPositions[index], rollGroupPositions[index + 1] || status.content.length),
@@ -972,6 +972,9 @@ assert(rollGroupContents['기능 / 판정'].includes('정밀 관찰') &&
   rollGroupContents['기능 / 판정'].includes('숙련 기능') &&
   !rollGroupContents['기능 / 판정'].includes('개조 무기'),
   '판정 구조와 사용자 추가 기능은 기능 / 판정 구역에만 보여야 합니다.');
+assert(rollGroupContents['특성치'].includes('지능') &&
+  !rollGroupContents['특성치'].includes('정밀 관찰'),
+  '특성치는 기능과 분리하고 기능을 특성치로 섞으면 안 됩니다.');
 assert(rollGroupContents['무기'].includes('연습용 칼') &&
   rollGroupContents['무기'].includes('개조 무기') &&
   !rollGroupContents['무기'].includes('개량 주문'),
@@ -1047,7 +1050,7 @@ resetFixture({ vital_current: 10, temporary_mode: '', major_state: 0 });
 const manager = helper.refresh();
 const managerNotes = manager && manager.get('notes');
 assert(managerNotes && managerNotes.includes('<table') &&
-  managerNotes.includes('기능 / 판정') && managerNotes.includes('무기') &&
+  managerNotes.includes('특성치') && managerNotes.includes('기능 / 판정') && managerNotes.includes('무기') &&
   managerNotes.includes('주문') && managerNotes.includes('광기') &&
   managerNotes.includes('수치') && managerNotes.includes('기타 주사위'),
   'GM 관리 화면은 현재 캐릭터에서 인식한 모든 종류를 분류별 표로 보여야 합니다.');
@@ -1507,6 +1510,10 @@ const blue29Sheet = findEmbeddedSheet(360, 244, 638);
 const bloodySheet = findEmbeddedSheet(422, 253, 2928);
 const publicSheet = embeddedLargeSheet;
 const marenHyeyoomSheet = findEmbeddedSheet(187, 72, 374);
+const achtungSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-cf240692b20596fc');
+const nativeLimitSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-4ffca055eb552326');
+assert(achtungSheet, 'Achtung! Cthulhu 공개 시트 인식 정보가 필요합니다.');
+assert(nativeLimitSheet, 'HTML max를 현재 자원 최대값으로 쓰는 공개 시트 인식 정보가 필요합니다.');
 const actualField = (name) => actualSheet.fields.find((field) => field.name === name);
 assert([actualField('str').label].concat(actualField('str').aliases || []).includes('근력'));
 assert([actualField('hp').label].concat(actualField('hp').aliases || []).includes('체력'));
@@ -1642,6 +1649,8 @@ staleBloodyValues.san_start = '50';
 staleBloodyValues.str = '50';
 staleBloodyValues.hp = '10';
 staleBloodyValues.hp_max = '10';
+staleBloodyValues.mp = '10';
+staleBloodyValues.mp_max = '10';
 const blue29AfterBloody = addCharacter(
   'blue29-after-bloody',
   'BLUE29 시트 교체 반례',
@@ -1652,12 +1661,27 @@ sheetFieldDefaults[blue29AfterBloody.id] = sourceDefaults(blue29Sheet);
 useContracts(...embeddedSheets);
 useRoomCharacters(blue29AfterBloody);
 const blue29AfterBloodyInspection = helper.inspectContracts(blue29AfterBloody.id);
-assert.strictEqual(blue29AfterBloodyInspection.status, 'ambiguous');
-assert.strictEqual(blue29AfterBloodyInspection.recognitionReason, 'source-defaults-ambiguous');
-assert((blue29AfterBloodyInspection.matches || []).some((item) => item.id === blue29Sheet.id) &&
-  !(blue29AfterBloodyInspection.matches || []).some((item) => item.id === bloodySheet.id),
-  '현재 기본값과 맞지 않는 이전 시트를 실행 후보로 남기면 안 됩니다.');
+assert.strictEqual(blue29AfterBloodyInspection.status, 'matched');
+assert.strictEqual(blue29AfterBloodyInspection.contract.id, blue29Sheet.id,
+  '현재 원본에 없는 비어 있지 않은 기본 필드로 구조가 비슷한 다른 시트를 제외해야 합니다.');
+assert.strictEqual(blue29AfterBloodyInspection.recognitionReason, 'source-defaults');
 const blue29CommonScan = helper.scan(blue29AfterBloody.id, true);
+['감정 (05%)', '관찰력 (25%)', '근접전(격투) (25%)'].forEach((label) => {
+  assert(blue29CommonScan.contractRolls.some((item) => item.label === label),
+    '현재 BLUE29 원본의 기본 기능을 빠뜨리면 안 됩니다: ' + label);
+});
+const blue29StatusResources = blue29CommonScan.resources
+  .filter((item) => item.statusResource)
+  .map((item) => item.name);
+['hp', 'mp', 'san'].forEach((name) => {
+  assert(blue29StatusResources.includes(name),
+    '현재 수치에는 원본의 현재/최대 수치 묶음을 표시해야 합니다: ' + name +
+      ' / actual=' + blue29StatusResources.join(','));
+});
+['str', 'appraise_mod', 'edit_mode'].forEach((name) => {
+  assert(!blue29StatusResources.includes(name),
+    '현재 수치에 특성치·기능치·편집 토글을 섞으면 안 됩니다: ' + name);
+});
 assert(blue29CommonScan.resources.some((item) => item.name === 'hp') &&
   blue29CommonScan.resources.some((item) => item.name === 'san'),
   '현재 시트 후보가 남아도 모두 같은 체력·이성 수치는 사용할 수 있어야 합니다.');
@@ -1674,6 +1698,11 @@ blue29EditAttribute.set('current', blue29EditBefore === '1' ? '' : '1');
 events['change:attribute'](blue29EditAttribute, { current: blue29EditBefore });
 assert(!sent.slice(blue29EditStart).some((item) => /EDIT|edit_mode/.test(String(item.content || ''))),
   '편집용 토글을 켜고 꺼도 수치 변화 알림을 보내면 안 됩니다.');
+const blue29EditScan = helper.scan(blue29AfterBloody.id, true);
+['감정 (05%)', '관찰력 (25%)', '근접전(격투) (25%)'].forEach((label) => {
+  assert(blue29EditScan.contractRolls.some((item) => item.label === label),
+    '편집 화면에서도 원본 기본 기능을 명령 굴림에서 빠뜨리면 안 됩니다: ' + label);
+});
 blue29EditAttribute.set('current', blue29EditBefore);
 events['change:attribute'](blue29EditAttribute, { current: blue29EditBefore === '1' ? '' : '1' });
 assert.strictEqual(blue29CommonScan.resources.find((item) => item.name === 'hp').max, 10,
@@ -1748,6 +1777,32 @@ assert(blue29Short.handled && blue29Short.result.ok &&
   /rand_roll=\[\[1d10\]\]/i.test(sent.at(-1).content),
   'BLUE29의 일시 광기도 현재 시트 원본 굴림을 실행해야 합니다.');
 
+const blue29FieldNames = new Set((blue29Sheet.fields || []).map((field) => field.name));
+const blue29AttributeNames = new Set(blue29Sheet.attributes || []);
+const blue29Family = embeddedSheets.filter((sheet) => sheet.id !== blue29Sheet.id &&
+  Array.from(blue29AttributeNames).every((name) => (sheet.attributes || []).includes(name)));
+const staleSiblingDefaults = {};
+blue29Family.forEach((sheet) => {
+  (sheet.fields || []).forEach((field) => {
+    if (!blue29FieldNames.has(field.name) && !field.section && String(field.default || '').trim())
+      staleSiblingDefaults[field.name] = String(field.default);
+  });
+});
+assert(Object.keys(staleSiblingDefaults).length >= 2,
+  '구조가 비슷한 상위 시트의 과거 기본 필드 반례가 필요합니다.');
+const blue29WithStaleSibling = addCharacter(
+  'blue29-with-stale-sibling',
+  'BLUE29 과거 형제 시트 반례',
+  'player-1',
+  staleSiblingDefaults,
+);
+sheetFieldDefaults[blue29WithStaleSibling.id] = sourceDefaults(blue29Sheet);
+useRoomCharacters(blue29WithStaleSibling);
+const blue29WithStaleSiblingInspection = helper.inspectContracts(blue29WithStaleSibling.id);
+assert.strictEqual(blue29WithStaleSiblingInspection.status, 'ambiguous',
+  '과거 시트의 저장 필드만으로 현재 시트를 다른 형제 시트로 확정하면 안 됩니다.');
+assert.strictEqual(blue29WithStaleSiblingInspection.recognitionReason, 'source-defaults-ambiguous');
+
 const blue29BlankDefaults = sourceDefaults(blue29Sheet);
 Object.keys(blue29BlankDefaults).filter((name) =>
   String(blue29BlankDefaults[name]).trim() && name !== 'bonus_dice' && name !== 'penalty_dice',
@@ -1761,13 +1816,40 @@ const blue29WithBlankDefaults = addCharacter(
 sheetFieldDefaults[blue29WithBlankDefaults.id] = blue29BlankDefaults;
 useRoomCharacters(blue29WithBlankDefaults);
 const blue29BlankInspection = helper.inspectContracts(blue29WithBlankDefaults.id);
-assert.strictEqual(blue29BlankInspection.status, 'ambiguous');
-assert((blue29BlankInspection.matches || []).some((item) => item.id === blue29Sheet.id),
+assert.strictEqual(blue29BlankInspection.status, 'matched');
+assert.strictEqual(blue29BlankInspection.contract.id, blue29Sheet.id,
   '현재 시트의 미저장 기본 필드를 빈값만으로 반대 증거로 사용하면 안 됩니다.');
 const blue29BlankLong = helper.resolveContractAction(blue29WithBlankDefaults, '장기', false);
 assert(blue29BlankLong.handled && blue29BlankLong.result.ok &&
   blue29BlankLong.result.payload.contractId === blue29Sheet.id,
   '현재 시트가 완전히 확정되지 않아도 유일한 원본 굴림은 안전하게 실행해야 합니다.');
+
+const achtungCharacter = addCharacter('achtung-availability', 'Achtung 기능 표시 반례', 'player-1', {
+  'edit-mode': '1',
+  'sk-appraise-avl': '0',
+});
+sheetFieldDefaults[achtungCharacter.id] = sourceDefaults(achtungSheet);
+useRoomCharacters(achtungCharacter);
+assert.strictEqual(helper.inspectContracts(achtungCharacter.id).contract.id, achtungSheet.id);
+const achtungStatusResources = helper.scan(achtungCharacter.id, true).resources
+  .filter((item) => item.statusResource)
+  .map((item) => item.name);
+['char-age', 'char-move', 'sk-credit-min', 'sk-credit-max', 'sk-credit-rating'].forEach((name) => {
+  assert(!achtungStatusResources.includes(name),
+    'HTML 입력 제한 max를 현재/최대 자원 묶음으로 오인하면 안 됩니다: ' + name);
+});
+const achtungEditMode = attributeObjects.find((item) =>
+  item.get('_characterid') === achtungCharacter.id && item.get('name') === 'edit-mode');
+achtungEditMode.set('current', '0');
+events['change:attribute'](achtungEditMode, { current: '1' });
+assert(!helper.scan(achtungCharacter.id, true).contractRolls.some((item) => item.label === 'Appraise'),
+  '원본에서 사용하지 않도록 끈 기능을 편집 화면 토글로 오인해 굴림 목록에 남기면 안 됩니다.');
+const achtungAvailability = attributeObjects.find((item) =>
+  item.get('_characterid') === achtungCharacter.id && item.get('name') === 'sk-appraise-avl');
+achtungAvailability.set('current', '1');
+events['change:attribute'](achtungAvailability, { current: '0' });
+assert(helper.scan(achtungCharacter.id, true).contractRolls.some((item) => item.label === 'Appraise'),
+  '원본에서 켠 기능은 굴림 목록에 다시 보여야 합니다.');
 
 const survivorRollA = parseSheetContract([
   '<input name="attr_source_probe_one" value="current">',
@@ -2457,6 +2539,29 @@ assert(publicCombinedLabel,
     item.content && inlineRollFieldCount(item.content) >= 3),
   '공개 시트의 통합 ' + mode + ' 굴림을 실행하지 못했습니다.');
 });
+
+const nativeLimitRuntime = addSourceCharacter(
+  nativeLimitSheet,
+  'source-native-limit',
+  'HTML 최대값 공개 시트 시험',
+);
+const damageBonusAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === nativeLimitRuntime.character.id && item.get('name') === 'Damage-Bonus') ||
+  addAttribute(nativeLimitRuntime.character.id, 'Damage-Bonus', '0');
+damageBonusAttribute.set('current', '0');
+const nativeLimitResources = helper.scan(nativeLimitRuntime.character.id, true).resources
+  .filter((item) => item.statusResource);
+[
+  ['HP', 15, 37],
+  ['MP', 9, 37],
+  ['Sanity', 45, 99],
+].forEach(([name, value, maximum]) => {
+  const item = nativeLimitResources.find((candidate) => candidate.name === name);
+  assert(item && item.value === value && item.max === maximum,
+    'HTML max를 실제 현재 자원 최대값으로 쓰는 공개 시트를 읽지 못했습니다: ' + name);
+});
+assert(!nativeLimitResources.some((item) => item.name === 'Damage-Bonus'),
+  '인접 별칭이 섞인 피해 보너스를 현재/최대 자원 묶음으로 오인하면 안 됩니다.');
 
 // 배포본에 들어간 모든 실제 시트도 시트 화면에서 직접 누른 rolltemplate 결과를
 // 명령 굴림과 같은 판정 컷인 키로 전달해야 합니다.
