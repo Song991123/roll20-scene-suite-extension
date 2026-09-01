@@ -277,8 +277,9 @@
     return { parts: [], end: source.length };
   }
 
-  function workerStoredAttributes(root) {
+  function workerStoredAttributes(root, translations) {
     var found = dictionary();
+    var defaults = dictionary();
     walk(root, function (node) {
       if (node.tag !== 'script' || normalizeText(node.attrs.type).toLowerCase() !== 'text/worker') return;
       var source = (node.children || []).filter(function (child) { return child.tag === '#text'; })
@@ -292,12 +293,20 @@
           var clean = part.replace(/^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))+/, '');
           var key = clean.match(/^(?:["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\]|([A-Za-z_$\u0080-\uFFFF][\w$\u0080-\uFFFF-]*))\s*(?=:|$)/);
           var name = baseAttrName(key && (key[1] || key[2] || key[3]) || '');
-          if (name) found[name] = true;
+          if (!name) return;
+          found[name] = true;
+          var translated = clean.match(/:\s*getTranslationByKey\s*\(\s*["']([^"']+)["']\s*\)/);
+          if (translated) (translations || []).some(function (messages) {
+            if (!Object.prototype.hasOwnProperty.call(messages, translated[1]) ||
+              typeof messages[translated[1]] !== 'string') return false;
+            defaults[name] = messages[translated[1]];
+            return true;
+          });
         });
         pattern.lastIndex = object.end + 1;
       }
     });
-    return Object.keys(found).sort();
+    return { names: Object.keys(found).sort(), defaults: defaults };
   }
 
   function elementChildren(node) {
@@ -2435,8 +2444,15 @@
     var opts = options || {};
     var translations = translationMaps(opts.translations);
     var tree = parseHtml(html);
-    var storedByWorker = workerStoredAttributes(tree);
+    var storedByWorker = workerStoredAttributes(tree, translations);
     var controlScopes = collectControls(tree, translations);
+    (controlScopes.fields || []).forEach(function (field) {
+      if (!Object.prototype.hasOwnProperty.call(storedByWorker.defaults, field.name)) return;
+      var translated = normalizeText(storedByWorker.defaults[field.name]);
+      if (!translated || translated === normalizeText(field.default)) return;
+      field.defaultVariants = uniqueTexts([translated].concat(field.defaultVariants || [], [field.default]));
+      field.default = translated;
+    });
     var globalControls = controlScopes.global;
     var rollNodes = collectRollNodes(tree);
     var visibilityNodes = rollNodes.slice();
@@ -2478,7 +2494,7 @@
         if (!roll.repeating || rowFields.indexOf(ref.name) < 0) globalAttributes[ref.name] = true;
       });
     });
-    storedByWorker.forEach(function (name) {
+    storedByWorker.names.forEach(function (name) {
       attributes[name] = true;
       globalAttributes[name] = true;
     });

@@ -43,7 +43,7 @@ assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expected
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
 assert.strictEqual(
   crypto.createHash('sha256').update(JSON.stringify(embeddedSheets)).digest('hex'),
-  '38ff341b36c80f0da7f8dc03779c281b4f6b86f9d6cdcb7ec3ff0a6ccd7cc02d',
+  '3d3ae7dab5b382c77b8b6e8d2159436120500589c257b5a61d0bfe988457e1bb',
   'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
 );
 assert(!/\brequire\s*\(/.test(recognitionBlock) &&
@@ -2633,8 +2633,6 @@ Object.assign(newsValues, {
   hp: '5', mp: '6', con: '50', siz: '50', pow: '50',
   san: '50', san_start: '50', cthulhu_mythos: '0', fighting_brawl: '25', damage_bonus: '1d6',
   temp_insane: '0', indef_insane: '0',
-  str_txt: '근력', con_txt: '건강', siz_txt: '크기', dex_txt: '민첩',
-  app_txt: '외모', edu_txt: '교육', int_txt: '지능', pow_txt: '정신',
 });
 delete newsValues.dex;
 const newsAttributeStart = attributeObjects.length;

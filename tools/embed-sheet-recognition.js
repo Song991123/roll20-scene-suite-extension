@@ -112,6 +112,8 @@ function packModes(sheet) {
       }
       visibilityId = fieldVisibilityIds.get(visibilityKey);
     }
+    const defaultVariants = Array.isArray(field.defaultVariants) && field.defaultVariants.length
+      ? field.defaultVariants.slice(1) : [];
     const values = [
       packed.attributes.indexOf(field.name),
       Math.max(0, fieldTypes.indexOf(field.type)),
@@ -124,7 +126,7 @@ function packModes(sheet) {
       field.onValue || 0,
       visibilityId,
       field.groupLabel || 0,
-      field.defaultVariants || 0,
+      defaultVariants.length ? defaultVariants : 0,
     ];
     while (values.length > 4 && !values[values.length - 1]) values.pop();
     return values;
@@ -335,7 +337,7 @@ ${renderBrotliDecoder()}
         section: field[5] ? sections[field[5] - 1] : null, default: field[6] || '', max: field[7] || '', onValue: field[8] || '', visibility: field[9] ? fieldVisibilitySets[field[9] - 1] : null, groupLabel: field[10] || '',
         numericCandidate: !!(flags & 1), trackCandidate: !!(flags & 2), readonly: !!(flags & 4),
         disabled: !!(flags & 8), hidden: !!(flags & 16) };
-      if (field[11]) restored.defaultVariants = field[11];
+      if (field[11]) restored.defaultVariants = [restored.default].concat(field[11]);
       return restored;
     });
     delete sheet.f;
