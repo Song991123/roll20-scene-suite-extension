@@ -1779,6 +1779,17 @@ var sheet_helper_setting = {
         var visible = contractDisplayLabel(rawVisible);
         if (visible && roll.name && normalize(visible) === normalize(roll.name)) visible = '';
         var staticLabels = contractStaticLabels(roll);
+        if (!visible && rawVisible && !repeating) {
+          var sourceGroups = dictionary();
+          String(roll.raw || '').replace(/@\{([^{}|]+)(?:\|max)?\}/g, function (match, name) {
+            var field = index.fieldGlobal[name];
+            var group = contractDisplayLabel(field && field.numericCandidate ? field.groupLabel : '');
+            if (group) sourceGroups[normalize(group)] = group;
+            return match;
+          });
+          var sourceGroupKeys = Object.keys(sourceGroups);
+          if (sourceGroupKeys.length === 1) visible = sourceGroups[sourceGroupKeys[0]];
+        }
         var dynamic = [];
         var expressionNames = (Array.isArray(roll.expressionRefs) ? roll.expressionRefs : []).map(contractRefName);
         var titleRefs = dictionary();
@@ -2256,7 +2267,7 @@ var sheet_helper_setting = {
         add({ field: field, name: name, rowId: '' }, null, field.default);
       else if (!field.hidden && /^(?:text|number|range)$/.test(trim(field.type).toLowerCase()) && own(field, 'default')) {
         var fallback = field.default;
-        if (liveFields[name]) {
+        if (liveFields[name] && trim(fallback) === '') {
           var live = readLive(name, 'current');
           if (live !== undefined && live !== null && trim(live) !== '') fallback = live;
         }
@@ -2384,6 +2395,11 @@ var sheet_helper_setting = {
     value.characterId = characterId;
     value.characterName = trim(character.get('name'));
     value.contractMatch = contractMatch;
+    value.attributeByName = dictionary();
+    objects.forEach(function (attribute) {
+      var name = trim(attribute.get('name'));
+      if (name) value.attributeByName[name] = attribute;
+    });
     var readLive = cachedAttrReader(characterId);
     value.contractAllRolls = commonContractRolls(characterId, value.contractMatch, true, objects, readLive);
     value.contractRolls = value.contractAllRolls.filter(function (instance) { return !instance.hidden; });
@@ -2415,7 +2431,7 @@ var sheet_helper_setting = {
     characteristic: [
       '근력', 'str', 'strength', '건강', 'con', 'constitution', '크기', 'siz', 'size',
       '민첩', '민첩성', 'dex', 'dexterity', '외모', 'app', 'appearance',
-      '지능', 'int', 'intelligence', '정신력', 'pow', 'power', '교육', 'edu', 'education',
+      '지능', 'int', 'intelligence', '정신', '정신력', 'pow', 'power', '교육', 'edu', 'education',
     ],
   };
 
@@ -3399,10 +3415,14 @@ var sheet_helper_setting = {
           return expand(overrides[name], depth + 1, nextTrail, requiredHere);
         }
         var fullName = contractRowAttr(instance.contract, instance.roll, instance.row, name);
-        var actual = getAttr(characterId, fullName, maximum ? 'max' : 'current');
-        var stored = actual === undefined || actual === null || trim(actual) === '' || trim(actual) === '0'
-          ? savedAttribute(fullName) : null;
-        if (stored) actual = stored.get(maximum ? 'max' : 'current');
+        var stored = savedAttribute(fullName);
+        var sourceField = sourceFields[name] || runtimeIndex.fieldGlobal[name];
+        var visibleDefault = !stored && sourceField && sourceField.numericCandidate &&
+          !sourceField.hidden && !sourceField.readonly && !sourceField.disabled
+          ? sourceValue(name, maximum) : null;
+        var actual = stored ? stored.get(maximum ? 'max' : 'current')
+          : visibleDefault !== null ? visibleDefault
+            : getAttr(characterId, fullName, maximum ? 'max' : 'current');
         if (actual !== undefined && actual !== null && trim(actual) !== '' && /@\{[^{}]+\}/.test(String(actual))) {
           var attrKey = 'attr|' + fullName + '|' + (maximum ? 'max' : 'current');
           if (trail[attrKey]) {
@@ -4173,11 +4193,17 @@ var sheet_helper_setting = {
     }).join('');
   }
 
-  function contractRollDisplayValue(characterId, instance) {
+  function contractRollDisplayValue(data, instance) {
+    var characterId = data.characterId;
     var values = [];
     var seenRefs = dictionary();
     var seenValues = dictionary();
     var ignored = dictionary();
+    var runtimeIndex = contractRuntimeIndex(instance.contract);
+    var repeating = contractRepeating(instance.roll);
+    var sourceFields = repeating && runtimeIndex.fieldSections[repeating.section] || runtimeIndex.fieldGlobal;
+    var sourceControls = runtimeIndex.rollControls[instance.roll.key] || runtimeIndex.controls;
+    var savedAttributes = data.attributeByName || dictionary();
     contractControls(instance.contract, instance.roll).forEach(function (control) {
       var name = contractControlName(control);
       if (name) ignored[name] = true;
@@ -4190,7 +4216,21 @@ var sheet_helper_setting = {
         var refKey = fullName + '|' + (valueType || 'current');
         if (seenRefs[refKey]) return match;
         seenRefs[refKey] = true;
-        var raw = getAttr(characterId, fullName, valueType || 'current');
+        var resource = data.resourcesByAttribute && data.resourcesByAttribute[fullName];
+        var property = valueType === 'max' ? 'max' : 'value';
+        var field = sourceFields[name] || runtimeIndex.fieldGlobal[name];
+        var fallback = field && field[valueType === 'max' ? 'max' : 'default'];
+        if ((fallback === undefined || fallback === null || trim(fallback) === '') && valueType !== 'max') {
+          var control = sourceControls[name] || runtimeIndex.controls[name];
+          fallback = control && control.default;
+        }
+        var stored = savedAttributes[fullName];
+        var raw = resource && own(resource, property) && resource[property] !== null
+          ? resource[property]
+          : stored ? stored.get(valueType === 'max' ? 'max' : 'current')
+            : field && field.numericCandidate && !field.hidden && !field.readonly && !field.disabled &&
+              fallback !== undefined && fallback !== null && trim(fallback) !== ''
+              ? fallback : getAttr(characterId, fullName, valueType || 'current');
         if (raw === undefined) return match;
         var resolved = resolvedResourceValue(characterId, raw);
         if (resolved.number === null || seenValues[resolved.text]) return match;
@@ -4239,7 +4279,7 @@ var sheet_helper_setting = {
           kind: 'contract',
           label: instance.label,
           aliases: instance.aliases || [],
-          value: contractRollDisplayValue(data.characterId, instance),
+          value: contractRollDisplayValue(data, instance),
           modes: sortedUnique((instance.modes || []).reduce(function (labels, mode) {
             return labels.concat(contractUserModeLabels(mode));
           }, [])),
@@ -4335,7 +4375,7 @@ var sheet_helper_setting = {
       var context = rollStatusContext(instance);
       var item = {
         label: label,
-        value: contractRollDisplayValue(data.characterId, instance),
+        value: contractRollDisplayValue(data, instance),
         command: contractSelectionCommand(data.characterId, instance, counts[normalize(instance.label)] || 1, false),
         modeEntries: modeEntries,
         groupLabels: context.groups,

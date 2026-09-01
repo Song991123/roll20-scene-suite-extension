@@ -2526,10 +2526,14 @@ Object.assign(newsValues, {
   hp: '5', mp: '6', con: '50', siz: '50', pow: '50',
   san: '50', san_start: '50', cthulhu_mythos: '0', fighting_brawl: '25', damage_bonus: '1d6',
   temp_insane: '0', indef_insane: '0',
+  str_txt: '근력', con_txt: '건강', siz_txt: '크기', dex_txt: '민첩',
+  app_txt: '외모', edu_txt: '교육', int_txt: '지능', pow_txt: '정신',
 });
+delete newsValues.dex;
 const newsAttributeStart = attributeObjects.length;
 const newsCharacter = addCharacter('news-theme-character', '뉴스 테마 탐사자', 'player-1', newsValues);
 sheetFieldDefaults[newsCharacter.id] = sourceDefaults(newsSheet);
+getAttrByNameOverrides[newsCharacter.id + '|dex|current'] = '-5';
 useContracts(newsSheet);
 useRoomCharacters(newsCharacter);
 const newsData = helper.scan(newsCharacter.id, true);
@@ -2540,6 +2544,15 @@ assert(newsHealth && newsHealth.value === 5 && newsHealth.max === 10,
 assert(newsMagic && newsMagic.value === 6 && newsMagic.max === 10,
   '원본 마력 공식에서 현재·최대값을 읽어야 합니다.');
 const newsStatus = runApi('!!상태', newsCharacter.get('name'));
+const newsStatusHtml = newsStatus.map((item) => item.content || '').join('\n');
+const newsCharacteristicsHtml = newsStatusHtml.slice(
+  newsStatusHtml.indexOf('특성치 8개'), newsStatusHtml.indexOf('기능 / 판정'));
+const newsChecksHtml = newsStatusHtml.slice(
+  newsStatusHtml.indexOf('기능 / 판정'), newsStatusHtml.indexOf('무기 1개'));
+assert(newsCharacteristicsHtml.includes('민첩 <b>50') && newsCharacteristicsHtml.includes('정신 <b>50') &&
+  !newsCharacteristicsHtml.includes('민첩 <b>-5') && newsChecksHtml.includes('정신분석 <b>1') &&
+  !newsChecksHtml.includes('>정신 <b>50'),
+  '원본 화면의 특성치 이름과 표시 기본값을 숨은 중복 기본값보다 우선해야 합니다.');
 assert(newsStatus.some((item) => item.content && item.content.includes('체력 <b>5 / 10 (50%)') &&
   item.content.includes('마력 <b>6 / 10 (60%)') && item.content.includes('이성 <b>50') &&
   !item.content.includes('광기 <b>50') && !item.content.includes('체력 <b>6')),
@@ -2548,10 +2561,46 @@ assert(newsStatus.some((item) => item.content && item.content.includes('비무�
   item.content.includes('피해 1d3+1d6') && item.content.includes('+1d6') && !item.content.includes('+1d4') &&
   !item.content.includes('+10d6') && !item.content.includes('+9d6')),
   '무기 상태에는 원본 피해식과 현재 피해보너스만 보여야 하며 선택지 전체를 나열하면 안 됩니다.');
+assert(!newsStatusHtml.includes('SAN Roll'),
+  '글자 없는 원본 이성 버튼은 매크로 내부 영문명이 아니라 화면의 이성 그룹명으로 보여야 합니다.');
+const newsDexterityRoll = runApi('!!민첩', newsCharacter.get('name'));
+assert.strictEqual(newsDexterityRoll.filter((item) => item.content &&
+  item.content.includes('{{success=[[50]]}}') && !item.content.includes('-5')).length, 1,
+  '저장값이 없는 보이는 특성치는 숨은 중복값 대신 원본 화면 기본값으로 굴려야 합니다.');
+const newsSavedDexterity = roll20Object('news-theme-dexterity', {
+  _characterid: newsCharacter.id, characterid: newsCharacter.id,
+  name: 'dex', current: '65', max: '',
+});
+attributeObjects.push(newsSavedDexterity);
+helper.scan(newsCharacter.id, true);
+assert(runApi('!!상태', newsCharacter.get('name')).some((item) =>
+  item.content && item.content.includes('민첩 <b>65')),
+  '사용자가 저장한 특성치는 현황에도 바로 반영해야 합니다.');
+assert.strictEqual(runApi('!!민첩', newsCharacter.get('name')).filter((item) => item.content &&
+  item.content.includes('{{success=[[65]]}}') && !item.content.includes('-5')).length, 1,
+  '사용자가 저장한 특성치는 숨은 기본값보다 우선해야 합니다.');
+newsSavedDexterity.set('current', '0');
+helper.scan(newsCharacter.id, true);
+assert(runApi('!!상태', newsCharacter.get('name')).some((item) =>
+  item.content && item.content.includes('민첩 <b>0')),
+  '사용자가 저장한 0도 현황에 그대로 보여야 합니다.');
+assert.strictEqual(runApi('!!민첩', newsCharacter.get('name')).filter((item) => item.content &&
+  item.content.includes('{{success=[[0]]}}') && !item.content.includes('-5')).length, 1,
+  '사용자가 저장한 0도 빈 값으로 취급하지 않아야 합니다.');
+const newsSanityAction = helper.resolveContractAction(newsCharacter, '이성', false);
+const newsSanityAliasAction = helper.resolveContractAction(newsCharacter, 'SAN Roll', false);
+assert(newsSanityAction.result.ok && newsSanityAliasAction.result.ok &&
+  newsSanityAction.result.payload.cutinKey === newsSanityAliasAction.result.payload.cutinKey &&
+  helper.cutinItems().some((item) => item.key === newsSanityAction.result.payload.cutinKey &&
+    item.label === '이성' && item.aliases.includes('SAN Roll')),
+  '한국어 표시명과 원본 별칭은 같은 기존 컷인 연결 키를 사용해야 합니다.');
 const newsSanityRoll = runApi('!!이성', newsCharacter.get('name'));
 assert.strictEqual(newsSanityRoll.filter((item) => item.content &&
   item.content.includes('{{name=SAN Roll}}') && item.content.includes('kib_sheet_result=')).length, 1,
   '원본 SAN Roll을 한국어 !!이성 명령으로 한 번 실행해야 합니다.');
+assert.strictEqual(runApi('!!SAN Roll', newsCharacter.get('name')).filter((item) => item.content &&
+  item.content.includes('{{name=SAN Roll}}') && item.content.includes('kib_sheet_result=')).length, 1,
+  '기존 원본 매크로 이름 별칭도 계속 한 번 실행해야 합니다.');
 const newsAttribute = (name) => attributeObjects.find((item) =>
   item.get('_characterid') === newsCharacter.id && item.get('name') === name);
 function changeNewsValue(name, next) {
@@ -2573,7 +2622,7 @@ newsAttribute('temp_insane').set('current', '0');
 helper.scan(newsCharacter.id, true);
 const newsTemporaryMessages = changeNewsValue('san', 45);
 const newsIntelligenceRolls = newsTemporaryMessages.filter((item) => item.content &&
-  item.content.includes('{{name=INT Roll}}') && item.content.includes('kib_sheet_result='));
+  item.content.includes('{{name=지능}}') && item.content.includes('kib_sheet_result='));
 assert.strictEqual(newsIntelligenceRolls.length, 1,
   '장기 기준 미만인 5 이성 손실은 원본 지능 판정을 한 번 실행해야 합니다.');
 const newsIntelligenceToken = newsIntelligenceRolls[0].content
@@ -2581,7 +2630,7 @@ const newsIntelligenceToken = newsIntelligenceRolls[0].content
 setPlayerSpeakingAs(newsCharacter.get('name'), 'player-1');
 events['chat:message']({
   type: 'general',
-  content: '&{template:coc-1} {{name=INT Roll}} {{success=$[[0]]}} {{hard=$[[1]]}} ' +
+  content: '&{template:coc-1} {{name=지능}} {{success=$[[0]]}} {{hard=$[[1]]}} ' +
     '{{extreme=$[[2]]}} {{roll1=$[[3]]}} {{kib_sheet_result=' + newsIntelligenceToken + '}}',
   inlinerolls: [50, 25, 10, 40].map((value) => ({ results: { total: value } })),
   who: newsCharacter.get('name'),
@@ -2603,6 +2652,7 @@ assert(sent.slice(newsDamageStart).some((item) => item.content &&
   '최대 체력의 절반 피해는 최대값과 중상 항목 부재를 채팅에 기록해야 합니다.');
 characters.splice(characters.indexOf(newsCharacter), 1);
 attributeObjects.splice(newsAttributeStart);
+delete getAttrByNameOverrides[newsCharacter.id + '|dex|current'];
 
 function sourceRefName(ref) {
   return typeof ref === 'string'
@@ -3247,7 +3297,10 @@ embeddedSheets.forEach((sheet, index) => {
     'direct-source-' + index,
     '직접 굴림 시험 ' + index,
   );
-  const instance = helper.contractRolls(directRuntime.character.id).find((item) =>
+  const directInstances = helper.contractRolls(directRuntime.character.id);
+  assert(!directInstances.some((item) => item.label === 'false'),
+    sheet.id + ': 내부 boolean 값을 굴림 표시명으로 노출하면 안 됩니다.');
+  const instance = directInstances.find((item) =>
     item.roll && item.roll.template &&
     Array.isArray(item.roll.staticLabels) && item.roll.staticLabels.length);
   assert(instance, sheet.id + ': 직접 결과를 식별할 원본 rolltemplate 굴림이 없습니다.');
