@@ -10,6 +10,7 @@ const publicRoot = path.join(root, 'public');
 const scriptsRoot = path.join(publicRoot, 'scripts');
 const sourcesFile = path.join(publicRoot, 'assets', 'sources.js');
 const contractParserFile = path.join(root, 'tools', 'sheet-contract-parser.js');
+const readText = (file) => fs.readFileSync(file, 'utf8').replace(/\r\n?/g, '\n');
 const scripts = Array.from({ length: 11 }, (_, index) =>
   fs
     .readdirSync(scriptsRoot)
@@ -35,7 +36,7 @@ const publicTextFiles = [
   path.join(publicRoot, 'assets', 'styles.css'),
 ];
 const publicText = publicTextFiles
-  .map((file) => fs.readFileSync(file, 'utf8'))
+  .map(readText)
   .join('\n');
 const artifactRoot = path.join(root, 'artifacts');
 const publicDocs = publicTextFiles.concat(
@@ -46,45 +47,21 @@ const publicDocs = publicTextFiles.concat(
 );
 publicDocs.forEach((file) =>
   assert(
-    !/[A-Z]:\\/i.test(fs.readFileSync(file, 'utf8')),
+    !/[A-Z]:\\/i.test(readText(file)),
     `공개 문서에 개인 컴퓨터 경로가 남았습니다: ${path.relative(root, file)}`,
   ),
 );
-const indexText = fs.readFileSync(path.join(publicRoot, 'index.html'), 'utf8');
-const appText = fs.readFileSync(
-  path.join(publicRoot, 'assets', 'app.js'),
-  'utf8',
-);
-const cutinText = fs.readFileSync(
-  path.join(scriptsRoot, '08_cutin_director.js'),
-  'utf8',
-);
-const sceneDirectorText = fs.readFileSync(
-  path.join(scriptsRoot, '00_scene_director.js'),
-  'utf8',
-);
-const narratorText = fs.readFileSync(
-  path.join(scriptsRoot, '01_narrator_director.js'),
-  'utf8',
-);
-const audioText = fs.readFileSync(
-  path.join(scriptsRoot, '02_audio_bridge.js'),
-  'utf8',
-);
-const visualDialogueText = fs.readFileSync(
-  path.join(scriptsRoot, '03_visual_dialogue_compatible.js'),
-  'utf8',
-);
-const handoutText = fs.readFileSync(
-  path.join(scriptsRoot, '07_handout_director.js'),
-  'utf8',
-);
-const avatarText = fs.readFileSync(
-  path.join(scriptsRoot, '09_avatar_director.js'),
-  'utf8',
-);
+const indexText = readText(path.join(publicRoot, 'index.html'));
+const appText = readText(path.join(publicRoot, 'assets', 'app.js'));
+const cutinText = readText(path.join(scriptsRoot, '08_cutin_director.js'));
+const sceneDirectorText = readText(path.join(scriptsRoot, '00_scene_director.js'));
+const narratorText = readText(path.join(scriptsRoot, '01_narrator_director.js'));
+const audioText = readText(path.join(scriptsRoot, '02_audio_bridge.js'));
+const visualDialogueText = readText(path.join(scriptsRoot, '03_visual_dialogue_compatible.js'));
+const handoutText = readText(path.join(scriptsRoot, '07_handout_director.js'));
+const avatarText = readText(path.join(scriptsRoot, '09_avatar_director.js'));
 const scriptText = scripts
-  .map((name) => fs.readFileSync(path.join(scriptsRoot, name), 'utf8'))
+  .map((name) => readText(path.join(scriptsRoot, name)))
   .join('\n');
 const releaseText = `${publicText}\n${scriptText}`;
 new Function(scriptText);
@@ -662,7 +639,7 @@ assert(!/(?:처음부터|재시작|restart): 'restart'/.test(audioText));
 });
 
 assert.strictEqual(
-  fs.readFileSync(sourcesFile, 'utf8'),
+  readText(sourcesFile),
   buildSourceCatalog(),
   '코드 원문 묶음을 다시 만들어야 합니다: node tools/build-sources.js',
 );
