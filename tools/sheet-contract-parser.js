@@ -1116,6 +1116,11 @@
     return hasAttr(node, 'hidden') || fieldNodeType(node) === 'hidden';
   }
 
+  function suppressedDefaultNode(node) {
+    return /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?:\.0*)?)\s*(?:!important\s*)?(?:;|$)/i
+      .test(node && node.attrs && node.attrs.style || '');
+  }
+
   function nearbyRollLabelDetails(node, translations) {
     var current = node && node.parent;
     for (var depth = 0; current && depth < 2; depth += 1, current = current.parent) {
@@ -1630,10 +1635,12 @@
         if (!hiddenFieldNode(node))
           labels = mergeLabelDetails(labels, fieldContextLabelDetails(node, translations));
       });
-      var candidate = nodes.filter(function (node) {
+      var candidates = nodes.filter(function (node) {
         return node.tag === 'input' && /^(?:text|number|range)$/.test(fieldNodeType(node)) &&
           !hasAttr(node, 'readonly') && !hasAttr(node, 'disabled') && !hiddenFieldNode(node);
-      })[0];
+      });
+      var visibleCandidates = candidates.filter(function (node) { return !suppressedDefaultNode(node); });
+      var candidate = visibleCandidates[0] || candidates[0];
       var trackable = nodes.some(function (node) {
         return node.tag === 'input' && /^(?:text|number|range|checkbox|radio)$/.test(fieldNodeType(node)) &&
           !hasAttr(node, 'readonly') && !hasAttr(node, 'disabled') && !hiddenFieldNode(node);
@@ -1642,7 +1649,7 @@
         return (node.tag === 'input' || node.tag === 'select' || node.tag === 'textarea') &&
           !hasAttr(node, 'readonly') && !hasAttr(node, 'disabled') && !hiddenFieldNode(node);
       });
-      return {
+      var field = {
         name: name,
         type: candidate ? fieldNodeType(candidate) : controls[name].type,
         label: labels.label || name,
@@ -1659,6 +1666,22 @@
         trackCandidate: trackable,
         persistCandidate: persistable
       };
+      if (candidate && visibleCandidates.length) {
+        var explicitVisibleDefault = hasAttr(candidate, 'value');
+        var visibleDefault = explicitVisibleDefault ? candidate.attrs.value : '';
+        var suppressedDefaults = nodes.filter(function (node) {
+          return node !== candidate && (suppressedDefaultNode(node) ||
+            (explicitVisibleDefault && hiddenFieldNode(node)));
+        });
+        var alternateDefaults = uniqueTexts(suppressedDefaults.map(function (node) {
+          return hasAttr(node, 'value') ? node.attrs.value : '';
+        })).filter(function (value) { return value !== normalizeText(visibleDefault); });
+        if (suppressedDefaults.length) field.default = visibleDefault;
+        if (alternateDefaults.length) {
+          field.defaultVariants = [visibleDefault].concat(alternateDefaults);
+        }
+      }
+      return field;
     });
   }
 

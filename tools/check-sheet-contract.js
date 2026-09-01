@@ -110,7 +110,7 @@ const contract = parseSheetContract(html, { name: '합성 시트', id: 'fixture'
 function packedContractShape(sheet) {
   const fieldKeys = [
     'name', 'type', 'label', 'aliases', 'section', 'default', 'max', 'onValue', 'visibility',
-    'groupLabel', 'numericCandidate', 'trackCandidate', 'readonly', 'disabled', 'hidden',
+    'groupLabel', 'defaultVariants', 'numericCandidate', 'trackCandidate', 'readonly', 'disabled', 'hidden',
   ];
   (sheet.fields || []).forEach((field) => {
     const unknown = Object.keys(field).filter((key) => !fieldKeys.includes(key));
@@ -134,6 +134,7 @@ function packedContractShape(sheet) {
       onValue: field.onValue || '',
       visibility: field.visibility || null,
       groupLabel: field.groupLabel || '',
+      defaultVariants: field.defaultVariants || [],
       numericCandidate: field.numericCandidate === true,
       trackCandidate: field.trackCandidate === true,
       readonly: field.readonly === true,
@@ -147,6 +148,46 @@ const packedContractRuntime = { KIBSheetContracts: [] };
 vm.runInNewContext(render([contract]), packedContractRuntime);
 assert.deepStrictEqual(packedContractShape(packedContractRuntime.KIBSheetContracts[0]), packedContractShape(contract),
   '시트 정보 압축·복원 과정에서 굴림·선택지·수치·반복 구역 정보가 달라지면 안 됩니다.');
+
+const duplicateDefaults = parseSheetContract(`
+  <input type="number" name="attr_score" value="-5" style="opacity:0">
+  <input type="number" name="attr_score" value="50">
+  <input type="number" name="attr_blank_first" style="opacity:0">
+  <input type="number" name="attr_blank_first" value="50">
+  <input type="hidden" name="attr_hidden_first" value="-5">
+  <input type="number" name="attr_hidden_first" value="50">
+  <input type="hidden" name="attr_hidden_default" value="10">
+  <input type="number" name="attr_hidden_default">
+  <input type="number" name="attr_transparent_control" value="3" style="opacity:0">
+  <input type="number" name="attr_visible_duplicate" value="10">
+  <input type="number" name="attr_visible_duplicate" value="20">
+`, { name: '중복 기본값', id: 'duplicate-defaults' });
+const scoreField = duplicateDefaults.fields.find((field) => field.name === 'score');
+const transparentField = duplicateDefaults.fields.find((field) => field.name === 'transparent_control');
+const blankFirstField = duplicateDefaults.fields.find((field) => field.name === 'blank_first');
+const hiddenFirstField = duplicateDefaults.fields.find((field) => field.name === 'hidden_first');
+const hiddenDefaultField = duplicateDefaults.fields.find((field) => field.name === 'hidden_default');
+const visibleDuplicateField = duplicateDefaults.fields.find((field) => field.name === 'visible_duplicate');
+assert.strictEqual(scoreField.default, '50');
+assert.deepStrictEqual(scoreField.defaultVariants, ['50', '-5'],
+  '숨은 중복 입력이 먼저 있어도 보이는 입력값을 기본값으로 보존해야 합니다.');
+assert.strictEqual(blankFirstField.default, '50',
+  '값이 빈 숨은 입력이 먼저 있어도 보이는 입력값을 기본값으로 보존해야 합니다.');
+assert.deepStrictEqual(hiddenFirstField.defaultVariants, ['50', '-5'],
+  '명시적인 보이는 값은 같은 이름의 숨은 입력값보다 우선해야 합니다.');
+assert.strictEqual(hiddenDefaultField.default, '10');
+assert.strictEqual(Object.prototype.hasOwnProperty.call(hiddenDefaultField, 'defaultVariants'), false,
+  '보이는 입력에 기본값이 없으면 같은 이름의 숨은 입력값을 원본 기본값으로 유지해야 합니다.');
+assert(transparentField.numericCandidate && transparentField.trackCandidate && !transparentField.defaultVariants,
+  '단독 투명 입력은 실제 입력으로 유지해야 합니다.');
+assert.strictEqual(visibleDuplicateField.default, '10');
+assert.strictEqual(Object.prototype.hasOwnProperty.call(visibleDuplicateField, 'defaultVariants'), false,
+  '보이는 같은 이름 입력끼리는 숨은 기본값으로 추정하지 않아야 합니다.');
+const duplicateRuntime = { KIBSheetContracts: [] };
+vm.runInNewContext(render([duplicateDefaults]), duplicateRuntime);
+assert.deepStrictEqual(Array.from(duplicateRuntime.KIBSheetContracts[0].fields
+  .find((field) => field.name === 'score').defaultVariants), ['50', '-5'],
+  '숨은 중복 기본값은 압축·복원 뒤에도 유지해야 합니다.');
 
 const sharedModeRuntime = { KIBSheetContracts: [] };
 vm.runInNewContext(render([{ id: 'shared-modes', rolls: [

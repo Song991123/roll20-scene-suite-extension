@@ -43,7 +43,7 @@ assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expected
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
 assert.strictEqual(
   crypto.createHash('sha256').update(JSON.stringify(embeddedSheets)).digest('hex'),
-  'e0f97a0009e928a64cf257cf5bfe7bdbfcbd6639041987022a0731a9ed4842a5',
+  '38ff341b36c80f0da7f8dc03779c281b4f6b86f9d6cdcb7ec3ff0a6ccd7cc02d',
   'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
 );
 assert(!/\brequire\s*\(/.test(recognitionBlock) &&
@@ -2517,6 +2517,10 @@ assert.strictEqual(publicAttribute('dying').get('current'), '1',
 // 미저장 체크박스가 들어간 원본 최대값, 한국어 자원 굴림, 무기 상태 표시를 함께 검증합니다.
 const newsSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-5cab2ac801cda404');
 assert(newsSheet, '크툴루 뉴스 테마 시트 인식 정보가 필요합니다.');
+const newsDexField = newsSheet.fields.find((field) => field.name === 'dex');
+assert(newsDexField && newsDexField.default === '50' &&
+  JSON.stringify(newsDexField.defaultVariants) === JSON.stringify(['50', '-5']),
+  '뉴스 테마의 보이는 민첩 기본값과 숨은 중복값을 원본 순서와 무관하게 구분해야 합니다.');
 const newsValues = {};
 newsSheet.signature.forEach((entry) => {
   const name = typeof entry === 'string' ? entry : entry.name;
@@ -2567,6 +2571,16 @@ const newsDexterityRoll = runApi('!!민첩', newsCharacter.get('name'));
 assert.strictEqual(newsDexterityRoll.filter((item) => item.content &&
   item.content.includes('{{success=[[50]]}}') && !item.content.includes('-5')).length, 1,
   '저장값이 없는 보이는 특성치는 숨은 중복값 대신 원본 화면 기본값으로 굴려야 합니다.');
+getAttrByNameOverrides[newsCharacter.id + '|dex|current'] = '75';
+helper.scan(newsCharacter.id, true);
+assert(runApi('!!상태', newsCharacter.get('name')).some((item) =>
+  item.content && item.content.includes('민첩 <b>75')),
+  '저장 객체가 없어도 실제 시트 워커가 계산한 값은 원본 기본값보다 우선해야 합니다.');
+assert.strictEqual(runApi('!!민첩', newsCharacter.get('name')).filter((item) => item.content &&
+  item.content.includes('{{success=[[75]]}}')).length, 1,
+  '저장 객체가 없는 실제 시트 워커 값으로 굴려야 합니다.');
+getAttrByNameOverrides[newsCharacter.id + '|dex|current'] = '-5';
+helper.scan(newsCharacter.id, true);
 const newsSavedDexterity = roll20Object('news-theme-dexterity', {
   _characterid: newsCharacter.id, characterid: newsCharacter.id,
   name: 'dex', current: '65', max: '',
@@ -2653,6 +2667,29 @@ assert(sent.slice(newsDamageStart).some((item) => item.content &&
 characters.splice(characters.indexOf(newsCharacter), 1);
 attributeObjects.splice(newsAttributeStart);
 delete getAttrByNameOverrides[newsCharacter.id + '|dex|current'];
+
+const nestedDefaultSheet = parseSheetContract(`
+  <label>점수<input type="number" name="attr_score" value="-5" style="opacity:0"></label>
+  <label>점수<input type="number" name="attr_score" value="50"></label>
+  <label>중간값<input type="number" name="attr_middle" value="@{score}+10"></label>
+  <label>결과<input type="number" name="attr_result" value="floor(@{middle}/2)"></label>
+`, { name: '중첩 기본값 시험', id: 'nested-default-sheet' });
+const nestedDefaultCharacter = addCharacter(
+  'nested-default-character', '중첩 기본값 탐사자', 'player-1', {});
+sheetFieldDefaults[nestedDefaultCharacter.id] = sourceDefaults(nestedDefaultSheet);
+getAttrByNameOverrides[nestedDefaultCharacter.id + '|score|current'] = '-5';
+useContracts(nestedDefaultSheet);
+useRoomCharacters(nestedDefaultCharacter);
+assert.strictEqual(helper.scan(nestedDefaultCharacter.id, true)
+  .resourcesByAttribute.result.value, 30,
+  '숨은 중복 기본값은 중첩 수식에서도 보이는 값을 사용해야 합니다.');
+getAttrByNameOverrides[nestedDefaultCharacter.id + '|score|current'] = '75';
+assert.strictEqual(helper.scan(nestedDefaultCharacter.id, true)
+  .resourcesByAttribute.result.value, 42,
+  '실제 시트 워커 값은 중첩 수식에서도 원본 기본값보다 우선해야 합니다.');
+characters.splice(characters.indexOf(nestedDefaultCharacter), 1);
+delete sheetFieldDefaults[nestedDefaultCharacter.id];
+delete getAttrByNameOverrides[nestedDefaultCharacter.id + '|score|current'];
 
 function sourceRefName(ref) {
   return typeof ref === 'string'

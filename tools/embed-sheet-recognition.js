@@ -124,6 +124,7 @@ function packModes(sheet) {
       field.onValue || 0,
       visibilityId,
       field.groupLabel || 0,
+      field.defaultVariants || 0,
     ];
     while (values.length > 4 && !values[values.length - 1]) values.pop();
     return values;
@@ -329,11 +330,13 @@ ${renderBrotliDecoder()}
     delete sheet.g;
     sheet.fields = (sheet.f || []).map(function (field) {
       var flags = Number(field[3]) || 0;
-      return { name: sheet.attributes[field[0]], type: fieldTypes[field[1]] || 'text',
+      var restored = { name: sheet.attributes[field[0]], type: fieldTypes[field[1]] || 'text',
         label: field[2] || sheet.attributes[field[0]], aliases: field[4] ? fieldAliasSets[field[4] - 1] : [],
         section: field[5] ? sections[field[5] - 1] : null, default: field[6] || '', max: field[7] || '', onValue: field[8] || '', visibility: field[9] ? fieldVisibilitySets[field[9] - 1] : null, groupLabel: field[10] || '',
         numericCandidate: !!(flags & 1), trackCandidate: !!(flags & 2), readonly: !!(flags & 4),
         disabled: !!(flags & 8), hidden: !!(flags & 16) };
+      if (field[11]) restored.defaultVariants = field[11];
+      return restored;
     });
     delete sheet.f;
     if (!KIBSheetContracts.some(function (current) { return current && current.id === sheet.id; }))
