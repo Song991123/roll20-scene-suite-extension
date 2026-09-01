@@ -455,8 +455,12 @@ const compactHelp = runtime.KIBScene.adapters.sheet.help.join('\n');
 [':수치이름+3', '!!화자 본인', '!!변화알림 공개|GM|끄기', '!!GM캐릭터알림 켜기|끄기']
   .forEach((command) => assert(compactHelp.includes(command), '!sd help에 명령이 없습니다: ' + command));
 
-function addCharacter(id, name, controlledby, values) {
-  const character = roll20Object(id, { name, controlledby: controlledby || '' });
+function addCharacter(id, name, controlledby, values, inplayerjournals) {
+  const character = roll20Object(id, {
+    name,
+    controlledby: controlledby || '',
+    inplayerjournals: inplayerjournals || '',
+  });
   characters.push(character);
   Object.entries(values || {}).forEach(([attribute, current], index) => {
     attributeObjects.push(roll20Object(id + '-attribute-' + index, {
@@ -1191,7 +1195,7 @@ const gmOnlyAttributeStart = attributeObjects.length;
 const gmOnlyCharacter = addCharacter('gm-only-character', 'GM 전용 탐사자', '', {
   ...fixtureValues,
   vital_current: '10',
-});
+}, 'all');
 const gmOnlyHealth = attributeObjects.find((item) =>
   item.get('_characterid') === gmOnlyCharacter.id && item.get('name') === 'vital_current');
 helper.scan(gmOnlyCharacter.id, true);
@@ -1212,11 +1216,19 @@ gmOnlyHealth.set('current', '8');
 events['change:attribute'](gmOnlyHealth, { current: '9' });
 assert(!sent.slice(gmOnlyMessageStart).some((item) =>
   item.content && item.content.includes('GM 전용 탐사자 / 체력')),
-  'GM 캐릭터 알림을 끄면 플레이어 권한이 없는 캐릭터의 변화를 보내면 안 됩니다.');
-runtime.state.KIBSheetHelper.trackGmOnly = true;
+  '보기 권한만 공개된 캐릭터는 플레이어 제어 캐릭터로 추적하면 안 됩니다.');
+gmOnlyCharacter.set('controlledby', 'missing-player');
 gmOnlyMessageStart = sent.length;
 gmOnlyHealth.set('current', '7');
 events['change:attribute'](gmOnlyHealth, { current: '8' });
+assert(!sent.slice(gmOnlyMessageStart).some((item) =>
+  item.content && item.content.includes('GM 전용 탐사자 / 체력')),
+  '삭제된 플레이어 제어 ID가 남아도 플레이어 제어 캐릭터로 추적하면 안 됩니다.');
+gmOnlyCharacter.set('controlledby', '');
+runtime.state.KIBSheetHelper.trackGmOnly = true;
+gmOnlyMessageStart = sent.length;
+gmOnlyHealth.set('current', '6');
+events['change:attribute'](gmOnlyHealth, { current: '7' });
 trackedMessage = sent.slice(gmOnlyMessageStart).find((item) =>
   item.content && item.content.startsWith('/desc ') && item.content.includes('GM 전용 탐사자 / 체력'));
 assert(trackedMessage && !trackedMessage.content.includes('vd-permitted-api-chat') &&

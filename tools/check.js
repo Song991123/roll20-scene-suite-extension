@@ -52,6 +52,7 @@ publicDocs.forEach((file) =>
   ),
 );
 const indexText = readText(path.join(publicRoot, 'index.html'));
+const readmeText = readText(path.join(root, 'README.md'));
 const appText = readText(path.join(publicRoot, 'assets', 'app.js'));
 const cutinText = readText(path.join(scriptsRoot, '08_cutin_director.js'));
 const sceneDirectorText = readText(path.join(scriptsRoot, '00_scene_director.js'));
@@ -371,6 +372,14 @@ assert.deepStrictEqual(
   Array.from(mixedExpressions.cues, (cue) => cue.type),
   ['audio', 'apng', 'avatar', 'avatar'],
 );
+const expressionBeforeCue = narratorRuntime.ntExtractCues(
+  '대사 @웃음 @오디오 재생|BGM 이름',
+);
+assert.deepStrictEqual(
+  Array.from(expressionBeforeCue.cues, (cue) => cue.type),
+  ['audio', 'avatar'],
+);
+assert.strictEqual(expressionBeforeCue.text, '대사');
 const expressionAndExit = narratorRuntime.ntExtractCues(
   '대사 @인물A:불안 @퇴장:전원',
 );
@@ -898,6 +907,70 @@ assert(
 assert(
   publicText.includes('단독 사용 가능'),
   '단독 사용 가능 표기가 필요합니다.',
+);
+const directorEvents = {};
+const directorMessages = [];
+const directorHandoutData = {};
+const directorHandout = {
+  id: 'help-handout',
+  get(key, callback) {
+    const value = directorHandoutData[key] || '';
+    if (callback) callback(value);
+    return value;
+  },
+  set(updates) {
+    Object.assign(directorHandoutData, updates);
+  },
+};
+const directorRuntime = {
+  KIBScene: { adapters: { narrator: {} } },
+  state: {},
+  on(event, callback) { directorEvents[event] = callback; },
+  playerIsGM() { return true; },
+  sendChat(who, content, callback, options) {
+    directorMessages.push({ who, content, options });
+  },
+  findObjs() { return []; },
+  getObj() { return null; },
+  createObj() { return directorHandout; },
+  setTimeout() { return 1; },
+  clearTimeout() {},
+  log() {},
+};
+vm.createContext(directorRuntime);
+vm.runInContext(sceneDirectorText, directorRuntime);
+directorEvents['chat:message']({ type: 'api', content: '!도움', playerid: 'gm' });
+assert(
+  directorHandoutData.notes.includes('01 나레이터') &&
+    directorMessages.some((message) =>
+      message.content.includes('journal.roll20.net/handout/help-handout')),
+  '!도움은 설치된 기능의 세팅법과 명령어 핸드아웃을 갱신하고 열어야 합니다.',
+);
+assert(
+  sceneDirectorText.includes("var helpAlias = content === '!도움';") &&
+    sceneDirectorText.includes("helpAlias ? 'handout'") &&
+    sceneDirectorText.includes('세팅법과 명령어 열기'),
+  '!도움은 세팅법과 명령어가 담긴 00 통합 도움말로 연결되어야 합니다.',
+);
+assert(
+  appText.includes('채팅에 !도움을 입력합니다.'),
+  '설치 페이지는 통합 도움말 명령을 !도움으로 안내해야 합니다.',
+);
+assert(
+  appText.includes('방에 적용된 시트를 인식해 명령어로 실행, 자동 트래킹 기능'),
+  '설치 페이지는 시트 헬퍼를 사용자 관점에서 설명해야 합니다.',
+);
+assert(
+  !appText.includes('비슷한 시트가 여러 개로 표시되면') &&
+    !appText.includes('현재 시트를 인식하지 못하면 별도 JS를 만들지 말고'),
+  '시트 헬퍼 세팅법에 시트 선택이나 개발자용 지원 절차를 넣으면 안 됩니다.',
+);
+assert(
+  readmeText.includes('채팅에 `!도움`을 입력해 설치된 기능의 세팅법과 명령어를 확인합니다.') &&
+    readmeText.includes('방에 적용된 시트를 인식해 명령어로 실행, 자동 트래킹') &&
+    !readmeText.includes('현황 확인 중') &&
+    !readmeText.includes('지원 시트 추가를 요청'),
+  'README의 설치·시트 헬퍼 안내도 배포 페이지와 같아야 합니다.',
 );
 assert(
   appText.includes("label: '패널 이미지 주소'") &&

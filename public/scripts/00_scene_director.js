@@ -244,17 +244,17 @@ var KIBScene = KIBScene || {};
   });
 
   on('chat:message', function (msg) {
+    var content = String(msg.content || '').trim();
+    var helpAlias = content === '!도움';
     if (
       msg.type !== 'api' ||
-      String(msg.content || '').indexOf(DEFAULTS.command) !== 0
+      (!helpAlias && content.indexOf(DEFAULTS.command) !== 0)
     )
       return;
     if (!playerIsGM(msg.playerid)) return;
     try {
       handleCommand(
-        String(msg.content || '')
-          .substring(DEFAULTS.command.length)
-          .trim(),
+        helpAlias ? 'handout' : content.substring(DEFAULTS.command.length).trim(),
         msg,
       );
     } catch (err) {
@@ -285,8 +285,14 @@ var KIBScene = KIBScene || {};
     if (command === 'status') return whisper(statusHtml());
     if (command === 'config') return whisper(configHtml());
     if (command === 'handout') {
-      refreshHandout();
-      return whisper('사용법 핸드아웃을 갱신했습니다.');
+      var handout = refreshHandout();
+      return whisper(
+        handout
+          ? '<a href="http://journal.roll20.net/handout/' +
+              encodeURIComponent(handout.id) +
+              '" style="display:inline-block;padding:6px 9px;background:#111;color:#fff;text-decoration:none;font-weight:bold">세팅법과 명령어 열기</a>'
+          : '사용법 핸드아웃을 만들지 못했습니다.',
+      );
     }
     if (command === 'estimate') return showEstimate(parts);
     if (command === 'set') return setConfig(parts[0], parts.slice(1).join('|'));
@@ -1218,7 +1224,7 @@ var KIBScene = KIBScene || {};
           archived: false,
         });
     }
-    if (!handout) return;
+    if (!handout) return null;
     state.KIBSceneDirector.helpId = handout.id;
     var desired = {
       name: name,
@@ -1242,6 +1248,7 @@ var KIBScene = KIBScene || {};
     }
     var direct = handout.get('notes', apply);
     if (typeof direct === 'string') apply(direct);
+    return handout;
   }
 
   var handoutTimer = null;

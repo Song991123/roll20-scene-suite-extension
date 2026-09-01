@@ -549,19 +549,22 @@ function ntExtractCues(source) {
   }
   text = stripLineDelay(text);
   const expressionCues = [];
-  let expressionMatch = text.match(/(^|\s)!?@([^\s@|{}]*)\s*$/);
-  while (
-    expressionMatch &&
-    !ntKnownCue(ntCueHead(expressionMatch[2]).type)
-  ) {
-    expressionCues.unshift({
-      type: ntExpressionCueType(expressionMatch[2]),
-      args: [expressionMatch[2]],
-      raw: '@' + expressionMatch[2],
-    });
-    text = text.substring(0, expressionMatch.index) + expressionMatch[1];
-    expressionMatch = text.match(/(^|\s)!?@([^\s@|{}]*)\s*$/);
+  function extractTrailingExpressions() {
+    let expressionMatch = text.match(/(^|\s)!?@([^\s@|{}]*)\s*$/);
+    while (
+      expressionMatch &&
+      !ntKnownCue(ntCueHead(expressionMatch[2]).type)
+    ) {
+      expressionCues.unshift({
+        type: ntExpressionCueType(expressionMatch[2]),
+        args: [expressionMatch[2]],
+        raw: '@' + expressionMatch[2],
+      });
+      text = text.substring(0, expressionMatch.index) + expressionMatch[1];
+      expressionMatch = text.match(/(^|\s)!?@([^\s@|{}]*)\s*$/);
+    }
   }
+  extractTrailingExpressions();
   const names = ntCueAliases()
     .map(ntRegexEscape)
     .sort(function (a, b) {
@@ -594,6 +597,7 @@ function ntExtractCues(source) {
     cues.push({ type: type, args: args, raw: all.substring(prefix.length) });
     return prefix;
   });
+  extractTrailingExpressions();
   expressionCues.forEach(function (cue) {
     cues.push(cue);
   });

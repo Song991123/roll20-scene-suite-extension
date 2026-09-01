@@ -5,7 +5,7 @@ const MODULES = [
     title: 'Scene Director',
     description: '설치된 기능 연결, 출력 시간과 도움말 관리',
     required: true,
-    setup: ['선택한 기능 코드와 함께 설치합니다.', '채팅에 !sd help를 입력합니다.'],
+    setup: ['선택한 기능 코드와 함께 설치합니다.', '채팅에 !도움을 입력합니다.'],
     settings: [
       { id: 'firstDelay', group: '출력 시간', label: '첫 줄 대기(ms)', note: '명령 입력 후 첫 출력까지', type: 'number', value: 500, min: 0, codeKey: 'firstDelay' },
       { id: 'lineInterval', shared: 'lineInterval', group: '출력 시간', label: '대사 간격(ms)', note: '나레이터와 공통', type: 'number', value: 2800, min: 0, codeKey: 'lineInterval' },
@@ -178,13 +178,11 @@ const MODULES = [
     id: '10',
     file: '10_sheet_helper.js',
     title: '시트 헬퍼',
-    description: '지원되는 공개 및 커스텀 시트의 원본 굴림을 읽어 실행(인식 가능한 CoC 7판 성공 단계는 08 컷인 연결)',
+    description: '방에 적용된 시트를 인식해 명령어로 실행, 자동 트래킹 기능',
     setup: [
       '이 10번 코드 하나를 Roll20 Mod Scripts에 넣고 저장합니다.',
       '채팅에 !!관리를 입력해 인식된 항목을 확인합니다.',
-      '비슷한 시트가 여러 개로 표시되면 관리 화면에서 현재 사용하는 시트를 한 번 선택합니다.',
       '!!굴릴항목이름으로 실행하고, !!검색 이름으로 현재 수치와 굴림 버튼을 찾습니다.',
-      '현재 시트를 인식하지 못하면 별도 JS를 만들지 말고 지원 시트 추가를 요청합니다.',
     ],
     settings: [
       { id: 'legacyCommands', group: '명령어', label: '!! 간편 명령어 사용', type: 'checkbox', value: true, codeKey: 'legacy_commands' },

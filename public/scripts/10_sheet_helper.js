@@ -2626,7 +2626,7 @@ var sheet_helper_setting = {
       .split(',')
       .map(trim)
       .filter(Boolean)
-      .some(function (playerId) { return playerId === 'all' || !playerIsGM(playerId); });
+      .some(function(id){return id==='all'||getObj('player',id)&&!playerIsGM(id);});
   }
 
   function profileCharacters() {
