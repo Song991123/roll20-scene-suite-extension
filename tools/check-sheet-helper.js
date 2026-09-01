@@ -570,6 +570,24 @@ const fixtureCharacter = addCharacter(
 );
 useRoomCharacters(fixtureCharacter);
 
+const secondFixtureValues = Object.fromEntries(Object.entries(fixtureValues).filter(([name]) =>
+  !name.startsWith('repeating_skill_') && name !== '_reporder_repeating_skill'));
+Object.assign(secondFixtureValues, {
+  repeating_skill_otherRow_item_name: '사용자 항목',
+  repeating_skill_otherRow_item_value: '55',
+  _reporder_repeating_skill: 'otherRow',
+});
+const secondFixtureCharacter = addCharacter(
+  'generic-character-second',
+  '두 번째 범용 탐사자',
+  'player-1',
+  secondFixtureValues,
+);
+useRoomCharacters(fixtureCharacter, secondFixtureCharacter);
+assert.strictEqual(helper.cutinItems().filter((item) => item.label === '사용자 항목').length, 1,
+  '한 방의 같은 시트 굴림을 캐릭터 수만큼 중복 스캔하면 안 됩니다.');
+useRoomCharacters(fixtureCharacter);
+
 // 새 설치는 안전한 비공개로 시작하고, 명시적으로 저장된 기존 설정은 그대로 보존해야 합니다.
 delete runtime.state.hide_tracking;
 delete runtime.state.KIBSheetHelper.trackingMode;

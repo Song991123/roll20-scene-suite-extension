@@ -4582,8 +4582,8 @@ var sheet_helper_setting = {
         command: item.command || '', type: item.type || '',
       };
     }
-    characterObjects().forEach(function (character) {
-      if (!usableContractInspection(inspectContracts(character.id))) return;
+    var character = profileCharacters()[0];
+    if (character) {
       var data = scan(character.id);
       data.contractRolls.forEach(function (instance) {
         add(
@@ -4594,7 +4594,7 @@ var sheet_helper_setting = {
           character.get('name'),
         );
       });
-    });
+    }
     var items = Object.keys(found).map(function (key) { return found[key]; }).sort(function (a, b) {
       return a.label.localeCompare(b.label);
     });
