@@ -577,7 +577,6 @@ var sheet_helper_setting = {
     });
   }
 
-  // ===== 시트 HTML 인식 =====
   function sheetContracts() {
     var found = dictionary();
     var result = [];
@@ -759,7 +758,6 @@ var sheet_helper_setting = {
         });
         probes.push({ name: name, value: actual, matches: matched.map(function (record) { return record.contract.id; }) });
       }
-      // 최대 24개 구분값을 모두 비교합니다.
       var strongest = Math.max.apply(Math, scores);
       var viable = records.filter(function (record) {
         return missingContradictions[record.ordinal] === 0;
@@ -926,7 +924,6 @@ var sheet_helper_setting = {
       if (characterId) contractMatchCache[characterId] = result;
       return result;
     }
-    // 방 전체 Attribute 이름으로 현재 시트를 한 번 판별합니다.
     var roomCharacters = characterObjects();
     var liveOwners = dictionary();
     roomCharacters.forEach(function (character) { liveOwners[character.id] = true; });
@@ -1801,7 +1798,7 @@ var sheet_helper_setting = {
             /^(?:name|subject|title|label|skill|skill_name|attribute)$/i.test(trim(ref && ref.field)) &&
             /^(?:text|textarea)$/i.test(trim(sourceField.type)) && !sourceField.hidden &&
             !sourceField.readonly && !sourceField.disabled && !trim(sourceField.default) &&
-            // ponytail: 편집 이름칸은 소수 굴림에만 쓰인다. 한 이름칸을 5개 이상 공유하는 시트가 생기면 이 상한만 넓힌다.
+            // ponytail: 이름칸은 굴림 4개까지만; 더 공유하면 상한 확대.
             (index.labelRefFrequency[refName] || 0) <= 4) {
             var fieldLabels = [sourceField.label].concat(sourceField.aliases || []).map(normalize).filter(Boolean);
             var rawKey = normalize(rawVisible).replace(/(?:name|check|roll)$/i, '');
@@ -4250,6 +4247,15 @@ var sheet_helper_setting = {
 
   function contractRollDisplayValue(data, instance) {
     var characterId = data.characterId;
+    var tr = /\{\{\s*(?:[^={}]*?(?:threshold|target)[^={}]*|stat|s(?:core|uccess|kill)|ability|characteristic)\s*=\s*\[\[([\s\S]*?)\]\]\s*\}\}/i;
+    var tm = String(instance.roll.raw).match(tr);
+    var m = tm && !/^@\{[^{}]+\}$/.test(trim(tm[1]))
+      ? qualifyContractMacro(characterId, instance, null) : null;
+    if (m && m.ok) {
+      var v = m.content.match(tr);
+      var n = v && resolvedResourceValue(characterId, v[1]);
+      if (n && n.number !== null) return n.text;
+    }
     var values = [];
     var seenRefs = dictionary();
     var seenValues = dictionary();
@@ -4531,7 +4537,6 @@ var sheet_helper_setting = {
       }).join('') + '</table></div>';
   }
 
-  // ===== 관리 핸드아웃 =====
   function button(label, command, color) {
     return '<a href="' + escapeHtml(command) + '" style="display:inline-block;margin:2px 1px;padding:5px 8px;background:' +
       (color || '#53657d') + ';color:#fff;text-decoration:none;font-weight:bold;font-size:12px">' + escapeHtml(label) + '</a>';
@@ -4753,7 +4758,6 @@ var sheet_helper_setting = {
       : '관리 핸드아웃을 만들지 못했습니다.';
   }
 
-  // ===== 안내 =====
   function playerName(msg) {
     var player = getObj('player', msg.playerid);
     return player ? trim(player.get('_displayname')) : trim(msg.who).replace(/\s*\(GM\)\s*$/, '') || 'gm';
@@ -4878,7 +4882,6 @@ var sheet_helper_setting = {
     return result;
   }
 
-  // ===== 명령 처리 =====
   function withCharacter(msg, explicitId, callback) {
     var resolved = resolveCharacter(msg, explicitId);
     if (!resolved.ok) return reportResult(msg, resolved);
@@ -5270,8 +5273,6 @@ var sheet_helper_setting = {
       return false;
     }
 
-    // 원본 시트에 관리 명령과 같은 이름의 굴림이 있으면 원본 굴림을 우선합니다.
-    // 관리 기능은 명시형 !시트 명령으로 항상 실행할 수 있습니다.
     if (handleLegacyAliasRoll(msg, body)) return true;
 
     var search = body.match(/^검색(?:\s+(.+))?$/i);
@@ -5591,7 +5592,6 @@ var sheet_helper_setting = {
     attributeChangeTimer = setTimeout(flushAttributeChanges, 25);
   }
 
-  // ===== 외부 연결 =====
   api.version = VERSION;
   api.scan = scan;
   api.roll = rollCheck;

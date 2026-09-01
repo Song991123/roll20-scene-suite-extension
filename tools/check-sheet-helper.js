@@ -1844,6 +1844,10 @@ assert(nativeResourceStatus.includes('Hit Points') && nativeResourceStatus.inclu
 const officialSixCharacter = addCharacter(
   'official-six-status-character', '공식 6판 분류 반례', 'player-1', {},
 );
+attributeObjects.push(roll20Object('official-six-dexterity', {
+  _characterid: officialSixCharacter.id, characterid: officialSixCharacter.id,
+  name: 'dex', current: '10', max: '',
+}));
 sheetFieldDefaults[officialSixCharacter.id] = sourceDefaults(officialSixSheet);
 useContracts(...embeddedSheets);
 useRoomCharacters(officialSixCharacter);
@@ -1857,6 +1861,8 @@ assert(officialSixCharacteristicAt >= 0 && officialSixCheckAt > officialSixChara
   officialSixStrengthAt > officialSixCharacteristicAt && officialSixStrengthAt < officialSixCheckAt &&
   officialSixSpotAt > officialSixCheckAt,
   '원본의 characteristic/skill 구조로 특성치와 기능을 구분해야 합니다.');
+assert(officialSixStatus.includes('백병전 <b>20') && !officialSixStatus.includes('백병전 <b>10'),
+  '현황의 계산형 판정 기준값은 원본 시트 굴림과 같은 수식 결과를 보여야 합니다.');
 
 // Roll20이 시트를 교체한 뒤 없는 필드는 빈 문자열로, 이전 시트의 기본값 일부는
 // 계속 반환하더라도 그 한 번의 값과 빈값들을 현재 시트의 증거로 확정하면 안 됩니다.
