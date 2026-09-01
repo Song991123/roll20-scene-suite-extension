@@ -1797,6 +1797,32 @@ embeddedSheets.forEach((sheet, index) => {
 assert(safelyMatchedEmptySheets > 0,
   '비어 있지 않은 독립 기본값이 충분한 새 캐릭터까지 전부 인식하지 못하면 안 됩니다.');
 
+// 실제 Roll20은 원본 HTML의 수식 기본값 상당수를 아직 계산할 수 없는 새 캐릭터에서
+// 빈 문자열로 돌려줍니다. 앞쪽 24개 빈 probe 뒤에 남은 원본 고유 기본값까지 읽어야 합니다.
+const nativeLiveDefaults = sourceDefaults(nativeLimitSheet);
+const nativeLiveCharacter = addCharacter(
+  'native-live-default-character', '공식 구판 실시간 기본값 반례', 'player-1', {},
+);
+sheetFieldDefaults[nativeLiveCharacter.id] = nativeLiveDefaults;
+Object.keys(nativeLiveDefaults).forEach((name) => {
+  getAttrByNameOverrides[nativeLiveCharacter.id + '|' + name + '|current'] = '';
+});
+Object.assign(getAttrByNameOverrides, {
+  [nativeLiveCharacter.id + '|HP|current']: '15',
+  [nativeLiveCharacter.id + '|MP|current']: '9',
+  [nativeLiveCharacter.id + '|Sanity|current']: '45',
+  [nativeLiveCharacter.id + '|Max-Sanity|current']: '99-@{Cthulhu-Mythos}',
+  [nativeLiveCharacter.id + '|Active|current']: '10',
+  [nativeLiveCharacter.id + '|Aminus1|current']: '@{Active}-1',
+});
+useContracts(...embeddedSheets);
+useRoomCharacters(nativeLiveCharacter);
+const nativeLiveInspection = helper.inspectContracts(nativeLiveCharacter.id);
+assert.strictEqual(nativeLiveInspection.status, 'matched',
+  'Roll20이 수식 기본값을 빈값으로 돌려줘도 뒤쪽 원본 구분값까지 읽어야 합니다.');
+assert.strictEqual(nativeLiveInspection.contract.id, nativeLimitSheet.id,
+  '뒤쪽 기본값으로 확인한 현재 원본과 다른 시트를 선택하면 안 됩니다.');
+
 // Roll20이 시트를 교체한 뒤 없는 필드는 빈 문자열로, 이전 시트의 기본값 일부는
 // 계속 반환하더라도 그 한 번의 값과 빈값들을 현재 시트의 증거로 확정하면 안 됩니다.
 const liveOfficialCharacter = addCharacter(
@@ -2315,6 +2341,25 @@ assert.strictEqual(lateDefaultInspection.contract.id, currentDefaultSheet.id,
   '과거 기본값 두 개에서 조기 종료하지 말고 현재 시트의 모든 구분값을 비교해야 합니다.');
 assert(helper.scan(lateDefaultCharacter.id, true).contractRolls.some((item) => item.label === '감정'),
   '현재 시트를 확정한 뒤 해당 시트의 전체 기능 굴림을 복구해야 합니다.');
+
+// 새 캐릭터가 추가된 직후에도 이전 방 판별 캐시를 계속 쓰면 새 As 캐릭터가
+// 현재 시트의 굴림을 사용할 수 없습니다.
+const cachedSourceCharacter = addCharacter(
+  'cached-source-character', '캐시 이전 시트', 'player-1', {},
+);
+sheetFieldDefaults[cachedSourceCharacter.id] = sourceDefaults(currentDefaultSheet);
+useContracts(currentDefaultSheet, staleDefaultSheet);
+useRoomCharacters(cachedSourceCharacter);
+assert.strictEqual(helper.inspectContracts(cachedSourceCharacter.id).contract.id, currentDefaultSheet.id);
+sheetFieldDefaults[cachedSourceCharacter.id] = sourceDefaults(staleDefaultSheet);
+const addedAfterSourceChange = addCharacter(
+  'added-after-source-change', '가 새 캐릭터', 'player-1', {},
+);
+sheetFieldDefaults[addedAfterSourceChange.id] = sourceDefaults(staleDefaultSheet);
+roomCharacterIds.add(addedAfterSourceChange.id);
+events['add:character'](addedAfterSourceChange);
+assert.strictEqual(helper.inspectContracts(addedAfterSourceChange.id).contract.id, staleDefaultSheet.id,
+  '새 캐릭터가 추가되면 방의 이전 시트 판별 캐시를 비워야 합니다.');
 
 useContracts(survivorRollA, survivorRollB, removedSourceCandidate);
 const ambiguousMultipleRollCharacter = addCharacter(

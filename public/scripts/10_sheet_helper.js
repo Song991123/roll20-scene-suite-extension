@@ -732,7 +732,7 @@ var sheet_helper_setting = {
       }
       return selected;
     }
-    for (var attempt = 0; attempt < 24; attempt += 1) {
+    for (var attempt = 0; attempt < 48; attempt += 1) {
       var name = nextField();
       if (!name) break;
       used[name] = true;
@@ -798,31 +798,26 @@ var sheet_helper_setting = {
 
   function roomSourceDefaultEvidence(characters, records, ownersByName) {
     var fallback = { record: null, survivors: records.slice(), scores: records.map(function () { return 0; }), probes: [], matched: false };
+    var savedCounts = dictionary();
+    (characters || []).forEach(function (character) { savedCounts[character.id] = 0; });
+    Object.keys(ownersByName || {}).forEach(function (name) {
+      Object.keys(ownersByName[name] || {}).forEach(function (characterId) {
+        if (own(savedCounts, characterId)) savedCounts[characterId] += 1;
+      });
+    });
     var candidates = (characters || []).slice().sort(function (left, right) {
-      function savedCount(character) {
-        var count = 0;
-        Object.keys(ownersByName || {}).forEach(function (name) {
-          if (ownersByName[name] && ownersByName[name][character.id]) count += 1;
-        });
-        return count;
-      }
-      return savedCount(left) - savedCount(right) ||
+      return savedCounts[left.id] - savedCounts[right.id] ||
         trim(left.get('name')).localeCompare(trim(right.get('name')));
     });
-    for (var index = 0; index < candidates.length; index += 1) {
-      var character = candidates[index];
-      var savedNames = dictionary();
-      Object.keys(ownersByName || {}).forEach(function (name) {
-        if (ownersByName[name] && ownersByName[name][character.id]) savedNames[name] = true;
-      });
-      var evidence = sourceDefaultEvidence(character.id, records, savedNames);
-      evidence.characterId = character.id;
-      if (evidence.matched) return evidence;
-      if (evidence.survivors.length < fallback.survivors.length ||
-          evidence.survivors.length === fallback.survivors.length && evidence.probes.length > fallback.probes.length)
-        fallback = evidence;
-    }
-    return fallback;
+    var character = candidates[0];
+    if (!character) return fallback;
+    var savedNames = dictionary();
+    Object.keys(ownersByName || {}).forEach(function (name) {
+      if (ownersByName[name] && ownersByName[name][character.id]) savedNames[name] = true;
+    });
+    var evidence = sourceDefaultEvidence(character.id, records, savedNames);
+    evidence.characterId = character.id;
+    return evidence;
   }
 
   function trieNode() {
@@ -5666,6 +5661,7 @@ var sheet_helper_setting = {
   });
 
   on('add:character', function (character) {
+    invalidate();
     scheduleManager();
   });
   on('destroy:character', function (character) {
