@@ -1838,7 +1838,6 @@ var sheet_helper_setting = {
           return Number(!!right.title) - Number(!!left.title) || left.frequency - right.frequency;
         });
         var usefulDynamic = dynamic.filter(function (entry) { return normalize(entry.value) !== characterName; });
-        if (!usefulDynamic.length) usefulDynamic = dynamic;
         var rowLabels = usefulDynamic.map(function (entry) { return contractDisplayLabel(entry.value); }).filter(Boolean);
         var displayLabels = (row && rowLabels.length ? rowLabels : [visible])
           .concat(staticLabels.map(contractDisplayLabel).filter(Boolean))
@@ -1926,6 +1925,18 @@ var sheet_helper_setting = {
     return label;
   }
 
+  function fieldChoiceLegend(value) {
+    return /(?:^|\s)-?\d+(?:\.\d+)?\s*=\s*\S+/.test(trim(value));
+  }
+
+  function fieldRangeOnly(value) {
+    return /^\(?\s*-?\d+(?:\.\d+)?\s*(?:to|~|\u2013|\u2014)\s*-?\d+(?:\.\d+)?\s*\)?$/i.test(trim(value));
+  }
+
+  function cleanFieldRange(value) {
+    return trim(value).replace(/\s*\(\s*-?\d+(?:\.\d+)?\s*(?:to|~|\u2013|\u2014)\s*-?\d+(?:\.\d+)?\s*\)\s*$/i, '');
+  }
+
   function fieldLabel(field, rowLabel) {
     var name = trim(field && field.name);
     var label = localFieldLabel(field) || name;
@@ -1935,11 +1946,12 @@ var sheet_helper_setting = {
     if (group && /^(?:현재|current|now)(?:값|수치|점수|value|score)?$/i.test(role)) label = group;
     else if (group && /^(?:최대|maximum|max|시작|초기|start|starting|initial|45|80%|threshold|문턱값|기준값)(?:값|수치|점수|value|score)?$/i.test(role))
       label = /[가-힣]/.test(label) ? label + ' ' + group : group + ' ' + label;
-    if (normalize(label) === normalize(name) || generic.test(normalize(label))) {
+    if (normalize(label) === normalize(name) || generic.test(normalize(label)) || fieldChoiceLegend(label)) {
       var preferred = (field && field.aliases || []).map(contractDisplayLabel).filter(function (alias) {
-        return alias && normalize(alias) !== normalize(name) && !generic.test(normalize(alias));
+        return alias && normalize(alias) !== normalize(name) && !generic.test(normalize(alias)) &&
+          !fieldChoiceLegend(alias) && !fieldRangeOnly(alias);
       })[0];
-      if (preferred) label = preferred;
+      if (preferred) label = cleanFieldRange(preferred);
     }
     if (rowLabel && normalize(rowLabel) !== normalize(label)) return rowLabel + ' / ' + label;
     return rowLabel || label;

@@ -1809,6 +1809,7 @@ Object.keys(nativeLiveDefaults).forEach((name) => {
   getAttrByNameOverrides[nativeLiveCharacter.id + '|' + name + '|current'] = '';
 });
 Object.assign(getAttrByNameOverrides, {
+  [nativeLiveCharacter.id + '|character_name|current']: nativeLiveCharacter.get('name'),
   [nativeLiveCharacter.id + '|HP|current']: '15',
   [nativeLiveCharacter.id + '|MP|current']: '9',
   [nativeLiveCharacter.id + '|Sanity|current']: '45',
@@ -1825,12 +1826,20 @@ assert.strictEqual(nativeLiveInspection.contract.id, nativeLimitSheet.id,
   '뒤쪽 기본값으로 확인한 현재 원본과 다른 시트를 선택하면 안 됩니다.');
 const nativeLiveStatus = runApi('!!상태', nativeLiveCharacter.get('name'))
   .find((item) => item.who === '시트 헬퍼').content;
+assert(!helper.scan(nativeLiveCharacter.id, true).contractRolls
+  .some((item) => item.label === nativeLiveCharacter.get('name')),
+  '이름이 비어 있는 굴림에 캐릭터 이름을 항목명으로 대신 표시하면 안 됩니다.');
 const nativeCheckAt = nativeLiveStatus.indexOf('font-weight:bold">기능 / 판정 ');
 const nativeOtherAt = nativeLiveStatus.indexOf('font-weight:bold">기타 주사위 ');
 const nativeAccountingAt = nativeLiveStatus.indexOf('Accounting');
 assert(nativeCheckAt >= 0 && nativeAccountingAt > nativeCheckAt &&
   (nativeOtherAt < 0 || nativeAccountingAt < nativeOtherAt),
   '1d100과 판정 기준값이 있는 원본 굴림은 기타 주사위가 아니라 기능 / 판정으로 보여야 합니다.');
+const nativeResourceStatus = nativeLiveStatus.slice(nativeLiveStatus.indexOf('font-weight:bold">현재 수치 '));
+assert(nativeResourceStatus.includes('Hit Points') && nativeResourceStatus.includes('Magic Points') &&
+  nativeResourceStatus.includes('Sanity Points') &&
+  !/(?:Dead|Unconscious|Insane)/.test(nativeResourceStatus),
+  '수치 이름에는 상태 선택지 전체가 아니라 원본의 사람이 읽는 항목명을 보여야 합니다.');
 
 const officialSixCharacter = addCharacter(
   'official-six-status-character', '공식 6판 분류 반례', 'player-1', {},
