@@ -584,8 +584,13 @@ const secondFixtureCharacter = addCharacter(
   secondFixtureValues,
 );
 useRoomCharacters(fixtureCharacter, secondFixtureCharacter);
-assert.strictEqual(helper.cutinItems().filter((item) => item.label === '사용자 항목').length, 1,
+addAttribute(fixtureCharacter.id, 'cutin_catalog_probe', '');
+const cutinLiveReadStart = getAttrByNameCalls.length;
+const fixtureCutinItems = helper.cutinItems();
+assert.strictEqual(fixtureCutinItems.filter((item) => item.label === '사용자 항목').length, 1,
   '한 방의 같은 시트 굴림을 캐릭터 수만큼 중복 스캔하면 안 됩니다.');
+assert.strictEqual(getAttrByNameCalls.length, cutinLiveReadStart,
+  '컷인 항목 이름만 만들 때 존재하지 않는 실시간 시트 값을 조회하면 안 됩니다.');
 useRoomCharacters(fixtureCharacter);
 
 // 새 설치는 안전한 비공개로 시작하고, 명시적으로 저장된 기존 설정은 그대로 보존해야 합니다.

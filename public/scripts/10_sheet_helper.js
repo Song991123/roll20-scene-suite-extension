@@ -4584,8 +4584,13 @@ var sheet_helper_setting = {
     }
     var character = profileCharacters()[0];
     if (character) {
-      var data = scan(character.id);
-      data.contractRolls.forEach(function (instance) {
+      commonContractRolls(
+        character.id,
+        inspectContracts(character.id),
+        false,
+        attrObjects(character.id),
+        function () { return undefined; },
+      ).forEach(function (instance) {
         add(
           { label: instance.label, aliases: instance.aliases, command: '', type: 'contract' },
           instance.roll.kind || 'contract',
