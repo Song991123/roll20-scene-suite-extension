@@ -2384,8 +2384,8 @@ var sheet_helper_setting = {
     startingSanity: ['시작이성', '초기이성', 'startingsanity', 'initialsanity'],
     majorWound: ['중상', 'majorwound'],
     dying: ['빈사', 'dying'],
-    longInsanity: ['장기광기', '장기적광기', 'indefiniteinsanity', 'indefinsane'],
-    temporaryInsanity: ['일시광기', '일시적광기', '단기광기', 'temporaryinsanity', 'tempinsane'],
+    longInsanity: ['장기', '장기광기', '장기적광기', 'indefiniteinsanity', 'indefinsane'],
+    temporaryInsanity: ['일시', '일시광기', '일시적광기', '단기광기', 'temporaryinsanity', 'tempinsane'],
     intelligence: ['지능', 'int', 'intelligence'],
     characteristic: [
       '근력', 'str', 'strength', '건강', 'con', 'constitution', '크기', 'siz', 'size',
@@ -2401,7 +2401,7 @@ var sheet_helper_setting = {
       var key = normalize(contractDisplayLabel(label));
       var stripped = key
         .replace(/^(?:현재|current)/i, '')
-        .replace(/(?:현재|current|값|수치|점수|value|score|체크|check)$/i, '');
+        .replace(/(?:현재|current|값|수치|점수|value|score|체크|check|굴림|roll|판정)$/i, '');
       [key, stripped].forEach(function (candidate) {
         if (!candidate || seen[candidate]) return;
         seen[candidate] = true;
@@ -2417,14 +2417,30 @@ var sheet_helper_setting = {
   }
 
   function uniqueDetectedItems(items, role) {
-    var seen = dictionary();
-    var matches = (items || []).filter(function (item) {
-      var labels = item && item.kind === 'toggle' && item.fieldLabel ? [item.fieldLabel] : item && item.sourceLabels;
-      if (!item || item.automationVisible !== true || !matchesDetectedRole(labels, role) || seen[item.name]) return false;
-      seen[item.name] = true;
-      return true;
-    });
+    function collect(useToggleAliases) {
+      var seen = dictionary();
+      return (items || []).filter(function (item) {
+        var labels = item && item.kind === 'toggle' && item.fieldLabel && !useToggleAliases
+          ? [item.fieldLabel] : item && item.sourceLabels;
+        if (!item || item.automationVisible !== true || !matchesDetectedRole(labels, role) || seen[item.name]) return false;
+        seen[item.name] = true;
+        return true;
+      });
+    }
+    var matches = collect(false);
+    if (!matches.length && (items || []).some(function (item) { return item && item.kind === 'toggle'; }))
+      matches = collect(true);
     return { item: matches.length === 1 ? matches[0] : null, ambiguous: matches.length > 1, matches: matches };
+  }
+
+  function linkedStartingSanityField(item, sanityName, labels) {
+    var starting = detectedLabelKeys(labels).some(function (key) {
+      return /^(?:시작|초기|starting|initial|start)(?:값|수치|점수|value|score)?$/i.test(key);
+    });
+    var candidateKey = fieldPairNameKey(item && item.name)
+      .replace(/^(?:starting|initial|start|시작|초기)/i, '')
+      .replace(/(?:starting|initial|start|시작|초기)$/i, '');
+    return starting && candidateKey && candidateKey === fieldPairNameKey(sanityName);
   }
 
   function detectedFieldRole(data, role, kind) {
@@ -2436,7 +2452,21 @@ var sheet_helper_setting = {
             !maximumFieldLabel(item.sourceLabels) &&
             !/^(?:시작|start|초기|initial)/i.test(normalize(item.fieldLabel));
         });
-    return uniqueDetectedItems(items, role);
+    var detected = uniqueDetectedItems(items, role);
+    if (role !== 'startingSanity' || detected.matches.length) return detected;
+    var sanity = uniqueDetectedItems((data.resources || []).filter(function (item) {
+      return !maximumFieldLabel(item.sourceLabels) &&
+        !/^(?:시작|start|초기|initial)/i.test(normalize(item.fieldLabel));
+    }), 'sanity');
+    if (!sanity.item) return detected;
+    var seen = dictionary();
+    var matches = items.filter(function (item) {
+      if (!item || item.automationVisible !== true || seen[item.name] ||
+        !linkedStartingSanityField(item, sanity.item.name, item.sourceLabels)) return false;
+      seen[item.name] = true;
+      return true;
+    });
+    return { item: matches.length === 1 ? matches[0] : null, ambiguous: matches.length > 1, matches: matches };
   }
 
   function detectedRollLabels(instance) {
@@ -4764,7 +4794,9 @@ var sheet_helper_setting = {
     var hasStarting = starting.item && starting.item.name !== item.name && startingValue > 0;
     var hasStartingField = starting.matches.length || sourceCandidateInspections(data.contractMatch).some(function (candidate) {
       return (candidate.contract.fields || []).some(function (field) {
-        return matchesDetectedRole([field.label].concat(field.aliases || []), 'startingSanity');
+        var labels = [field.label].concat(field.aliases || []);
+        return matchesDetectedRole(labels, 'startingSanity') ||
+          linkedStartingSanityField(field, sanity.item.name, labels);
       });
     });
     var text = String(current);

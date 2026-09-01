@@ -1870,11 +1870,45 @@ runGeneral(':이성-3', blue29AfterBloody.get('name'));
 assert.strictEqual(blue29SanAttribute.get('current'), '47', '공통 이성 수치 감소가 실제 Attribute에 적용되어야 합니다.');
 runGeneral(':이성+3', blue29AfterBloody.get('name'));
 assert.strictEqual(blue29SanAttribute.get('current'), '50');
+const blue29LongAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === blue29AfterBloody.id && item.get('name') === 'indef_insane');
+const blue29TemporaryAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === blue29AfterBloody.id && item.get('name') === 'temp_insane');
+blue29LongAttribute.set('current', '0');
+blue29TemporaryAttribute.set('current', '0');
+helper.scan(blue29AfterBloody.id, true);
 const blue29SanLossMessages = runGeneral(':이성-5', blue29AfterBloody.get('name'));
 assert.strictEqual(blue29SanLossMessages.filter((item) =>
   String(item.content || '').includes('kib_sheet_result=') && String(item.content || '').includes('지능')).length, 1,
   '공통 이성이 한 번에 5 감소하면 공통 지능 판정을 정확히 한 번 실행해야 합니다.');
+const blue29IntelligenceToken = blue29SanLossMessages.find((item) =>
+  String(item.content || '').includes('kib_sheet_result=') && String(item.content || '').includes('지능'))
+  .content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+setPlayerSpeakingAs(blue29AfterBloody.get('name'), 'player-1');
+events['chat:message']({
+  type: 'general',
+  content: '&{template:coc} {{subject=지능}} {{success=$[[0]]}} {{hard=$[[1]]}} ' +
+    '{{extreme=$[[2]]}} {{roll=$[[3]]}} {{kib_sheet_result=' + blue29IntelligenceToken + '}}',
+  inlinerolls: [100, 50, 20, 7].map((value) => ({ results: { total: value } })),
+  who: blue29AfterBloody.get('name'),
+  playerid: 'player-1',
+});
+assert.strictEqual(attributeObjects.find((item) =>
+  item.get('_characterid') === blue29AfterBloody.id && item.get('name') === 'temp_insane').get('current'), '1',
+  '지능 판정 성공 시 일시라고 표시된 원본 체크박스를 활성화해야 합니다.');
 runGeneral(':이성+5', blue29AfterBloody.get('name'));
+blue29SanAttribute.set('current', '50');
+blue29LongAttribute.set('current', '0');
+blue29TemporaryAttribute.set('current', '0');
+helper.scan(blue29AfterBloody.id, true);
+const blue29LongMessages = runGeneral(':이성-10', blue29AfterBloody.get('name'));
+assert.strictEqual(blue29LongAttribute.get('current'), '1',
+  '시작 이성의 5분의 1 손실은 장기라고 표시된 원본 체크박스를 먼저 활성화해야 합니다.');
+assert.strictEqual(intelligenceRolls(blue29LongMessages).length, 0,
+  '장기적 광기 기준에 도달한 손실은 일시적 광기용 지능 판정을 실행하면 안 됩니다.');
+blue29SanAttribute.set('current', '50');
+blue29LongAttribute.set('current', '0');
+helper.scan(blue29AfterBloody.id, true);
 const blue29DirectStart = sent.length;
 blue29HpAttribute.set('current', '8');
 events['change:attribute'](blue29HpAttribute, { current: '10' });
@@ -2357,9 +2391,11 @@ newsSheet.signature.forEach((entry) => {
 Object.assign(newsValues, {
   hp: '5', mp: '6', con: '50', siz: '50', pow: '50',
   san: '50', san_start: '50', cthulhu_mythos: '0', fighting_brawl: '25', damage_bonus: '1d6',
+  temp_insane: '0', indef_insane: '0',
 });
 const newsAttributeStart = attributeObjects.length;
 const newsCharacter = addCharacter('news-theme-character', '뉴스 테마 탐사자', 'player-1', newsValues);
+sheetFieldDefaults[newsCharacter.id] = sourceDefaults(newsSheet);
 useContracts(newsSheet);
 useRoomCharacters(newsCharacter);
 const newsData = helper.scan(newsCharacter.id, true);
@@ -2382,6 +2418,43 @@ const newsSanityRoll = runApi('!!이성', newsCharacter.get('name'));
 assert.strictEqual(newsSanityRoll.filter((item) => item.content &&
   item.content.includes('{{name=SAN Roll}}') && item.content.includes('kib_sheet_result=')).length, 1,
   '원본 SAN Roll을 한국어 !!이성 명령으로 한 번 실행해야 합니다.');
+const newsAttribute = (name) => attributeObjects.find((item) =>
+  item.get('_characterid') === newsCharacter.id && item.get('name') === name);
+function changeNewsValue(name, next) {
+  const attribute = newsAttribute(name);
+  const before = attribute.get('current');
+  const start = sent.length;
+  attribute.set('current', String(next));
+  events['change:attribute'](attribute, { current: before });
+  return sent.slice(start);
+}
+const newsLongMessages = changeNewsValue('san', 40);
+assert.strictEqual(newsAttribute('indef_insane').get('current'), 'on',
+  '짧은 화면 표시와 원본 별칭을 함께 읽어 시작 이성의 5분의 1 손실에서 장기적 광기를 활성화해야 합니다.');
+assert.strictEqual(intelligenceRolls(newsLongMessages).length, 0,
+  '장기적 광기가 우선되는 손실에서는 일시적 광기용 지능 판정을 실행하면 안 됩니다.');
+newsAttribute('san').set('current', '50');
+newsAttribute('indef_insane').set('current', '0');
+newsAttribute('temp_insane').set('current', '0');
+helper.scan(newsCharacter.id, true);
+const newsTemporaryMessages = changeNewsValue('san', 45);
+const newsIntelligenceRolls = newsTemporaryMessages.filter((item) => item.content &&
+  item.content.includes('{{name=INT Roll}}') && item.content.includes('kib_sheet_result='));
+assert.strictEqual(newsIntelligenceRolls.length, 1,
+  '장기 기준 미만인 5 이성 손실은 원본 지능 판정을 한 번 실행해야 합니다.');
+const newsIntelligenceToken = newsIntelligenceRolls[0].content
+  .match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+setPlayerSpeakingAs(newsCharacter.get('name'), 'player-1');
+events['chat:message']({
+  type: 'general',
+  content: '&{template:coc-1} {{name=INT Roll}} {{success=$[[0]]}} {{hard=$[[1]]}} ' +
+    '{{extreme=$[[2]]}} {{roll1=$[[3]]}} {{kib_sheet_result=' + newsIntelligenceToken + '}}',
+  inlinerolls: [50, 25, 10, 40].map((value) => ({ results: { total: value } })),
+  who: newsCharacter.get('name'),
+  playerid: 'player-1',
+});
+assert.strictEqual(newsAttribute('temp_insane').get('current'), 'on',
+  '원본 지능 판정이 성공하면 짧은 화면 표시의 일시적 광기 체크박스를 활성화해야 합니다.');
 runtime.state.KIBSheetHelper.trackingMode = 'public';
 const newsHealthAttribute = attributeObjects.find((item) =>
   item.get('_characterid') === newsCharacter.id && item.get('name') === 'hp');
