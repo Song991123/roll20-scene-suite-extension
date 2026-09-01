@@ -4193,6 +4193,14 @@ var sheet_helper_setting = {
     return Object.keys(matched).length > 1;
   }
 
+  function rollHasPercentileThreshold(item) {
+    var raw = String(item && item.roll && item.roll.raw || '');
+    if (!/\b(?:\d+)?d100/i.test(raw) || !/@\{[^}]+\}/.test(raw)) return false;
+    return sourceTemplateFieldNames(raw).some(function (name) {
+      return /(?:^|[_-])(?:stat|threshold|target|success|skill|ability|characteristic|score)(?:$|[_-])/i.test(name);
+    });
+  }
+
   function rollStatusCategory(item) {
     var structure = (item.groupLabels || []).concat(item.structureLabels || []);
     if (rollStatusMatches(structure, /(?:광기|정신\s*이상|발작|insanit|madness|bout)/i)) return 'madness';
@@ -4200,8 +4208,9 @@ var sheet_helper_setting = {
     if (rollStatusMatches(structure, /(?:무기|전투|공격|피해|방어구|장갑|탄약|weapon|combat|attack|damage|defen[cs]e|armo(?:u)?r|ammo)/i)) return 'combat';
     if (/&\{tracker\}/i.test(String(item && item.roll && item.roll.raw || ''))) return 'other';
     var context = (item.contextLabels || []).concat([item.label]);
-    if (!contractRepeating(item.roll) && matchesDetectedRole(context, 'characteristic')) return 'characteristic';
-    if (rollHasOutcomeStructure(item)) return 'check';
+    if (!contractRepeating(item.roll) && (matchesDetectedRole(context, 'characteristic') ||
+        rollStatusMatches(item.structureLabels, /(?:^|[_-])characteristic(?:$|[_-])/i))) return 'characteristic';
+    if (rollHasOutcomeStructure(item) || rollHasPercentileThreshold(item)) return 'check';
     if (rollStatusMatches(context, /(?:광기|정신\s*이상|발작|insanit|madness|bout)/i)) return 'madness';
     if (rollStatusMatches(context, /(?:주문|마법|주술|spell|magic|ritual)/i)) return 'spell';
     if (rollStatusMatches(context, /(?:무기|weapon)/i)) return 'combat';

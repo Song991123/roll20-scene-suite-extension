@@ -1723,6 +1723,7 @@ assert(!helper.scan(singleCheckboxRuntime.character.id, true).contractRolls
 
 const achtungSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-cf240692b20596fc');
 const nativeLimitSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-4ffca055eb552326');
+const officialSixSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-c236bcff42e9a873');
 assert(achtungSheet, 'Achtung! Cthulhu 공개 시트 인식 정보가 필요합니다.');
 assert(nativeLimitSheet, 'HTML max를 현재 자원 최대값으로 쓰는 공개 시트 인식 정보가 필요합니다.');
 const actualField = (name) => actualSheet.fields.find((field) => field.name === name);
@@ -1822,6 +1823,31 @@ assert.strictEqual(nativeLiveInspection.status, 'matched',
   'Roll20이 수식 기본값을 빈값으로 돌려줘도 뒤쪽 원본 구분값까지 읽어야 합니다.');
 assert.strictEqual(nativeLiveInspection.contract.id, nativeLimitSheet.id,
   '뒤쪽 기본값으로 확인한 현재 원본과 다른 시트를 선택하면 안 됩니다.');
+const nativeLiveStatus = runApi('!!상태', nativeLiveCharacter.get('name'))
+  .find((item) => item.who === '시트 헬퍼').content;
+const nativeCheckAt = nativeLiveStatus.indexOf('font-weight:bold">기능 / 판정 ');
+const nativeOtherAt = nativeLiveStatus.indexOf('font-weight:bold">기타 주사위 ');
+const nativeAccountingAt = nativeLiveStatus.indexOf('Accounting');
+assert(nativeCheckAt >= 0 && nativeAccountingAt > nativeCheckAt &&
+  (nativeOtherAt < 0 || nativeAccountingAt < nativeOtherAt),
+  '1d100과 판정 기준값이 있는 원본 굴림은 기타 주사위가 아니라 기능 / 판정으로 보여야 합니다.');
+
+const officialSixCharacter = addCharacter(
+  'official-six-status-character', '공식 6판 분류 반례', 'player-1', {},
+);
+sheetFieldDefaults[officialSixCharacter.id] = sourceDefaults(officialSixSheet);
+useContracts(...embeddedSheets);
+useRoomCharacters(officialSixCharacter);
+const officialSixStatus = runApi('!!상태', officialSixCharacter.get('name'))
+  .find((item) => item.who === '시트 헬퍼').content;
+const officialSixCharacteristicAt = officialSixStatus.indexOf('font-weight:bold">특성치 ');
+const officialSixCheckAt = officialSixStatus.indexOf('font-weight:bold">기능 / 판정 ');
+const officialSixStrengthAt = officialSixStatus.indexOf('힘');
+const officialSixSpotAt = officialSixStatus.indexOf('관찰력');
+assert(officialSixCharacteristicAt >= 0 && officialSixCheckAt > officialSixCharacteristicAt &&
+  officialSixStrengthAt > officialSixCharacteristicAt && officialSixStrengthAt < officialSixCheckAt &&
+  officialSixSpotAt > officialSixCheckAt,
+  '원본의 characteristic/skill 구조로 특성치와 기능을 구분해야 합니다.');
 
 // Roll20이 시트를 교체한 뒤 없는 필드는 빈 문자열로, 이전 시트의 기본값 일부는
 // 계속 반환하더라도 그 한 번의 값과 빈값들을 현재 시트의 증거로 확정하면 안 됩니다.
