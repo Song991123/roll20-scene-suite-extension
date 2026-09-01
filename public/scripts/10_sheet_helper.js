@@ -659,9 +659,8 @@ var sheet_helper_setting = {
     var blankContradictions = records.map(function () { return 0; });
     var missingContradictions = records.map(function () { return 0; });
     var active = records.slice();
-    var used = dictionary();
-    var probes = [];
-    var reads = cachedAttrReader(characterId);
+    var used = dictionary(),probes = [];
+    var reads = typeof getSheetDefaultValue == 'function'?getSheetDefaultValue:cachedAttrReader(characterId);
     var savedUnique = records.map(function () { return 0; });
     Object.keys(savedNames || {}).forEach(function (name) {
       var owners = records.filter(function (record) { return !!record.globalSet[name]; });
@@ -4992,10 +4991,10 @@ var sheet_helper_setting = {
     var currentNumber = numericFieldValue(character.id, current);
     var delta = beforeNumber !== null && currentNumber !== null ? currentNumber - beforeNumber : 0;
     var deltaText = !delta || item.kind === 'toggle' ? ''
-      : ' <span style="color:#777">(' + escapeHtml(Math.abs(delta)) + (delta > 0 ? ' 증가' : ' 감소') + ')</span>';
-    var detailText = detail ? '<br><span style="color:#777">' + escapeHtml(detail) + '</span>' : '';
-    return '<span style="color:#555"><b>' + escapeHtml(character.get('name')) + ' / ' + escapeHtml(item.label) +
-      '</b> <span style="color:#aaa">' + escapeHtml(beforeText) + '</span> → <b>' + escapeHtml(currentText) +
+      : ' <span style="color:#aaa">(' + escapeHtml(Math.abs(delta)) + (delta > 0 ? ' 증가' : ' 감소') + ')</span>';
+    var detailText = detail ? '<br><span style="color:#aaa">' + escapeHtml(detail) + '</span>' : '';
+    return '<span style="font-size:10px;line-height:1.35;color:#969696"><b>' + escapeHtml(character.get('name')) + ' / ' + escapeHtml(item.label) +
+      '</b> <span style="color:#b8b8b8">' + escapeHtml(beforeText) + '</span> → <b>' + escapeHtml(currentText) +
       '</b>' + deltaText + detailText + '</span>';
   }
 

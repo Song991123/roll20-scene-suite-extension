@@ -331,6 +331,14 @@ const runtime = {
   on(name, callback) {
     events[name] = callback;
   },
+  getSheetDefaultValue(name) {
+    const ids = roomCharacterIds ? Array.from(roomCharacterIds) : characters.map((item) => item.id);
+    for (const id of ids) {
+      const defaults = sheetFieldDefaults[id];
+      if (defaults && Object.prototype.hasOwnProperty.call(defaults, name)) return defaults[name];
+    }
+    return undefined;
+  },
   getAttrByName(characterId, name, valueType) {
     getAttrByNameCalls.push({ characterId, name, valueType: valueType || 'current' });
     const overrideKey = characterId + '|' + name + '|' + (valueType === 'max' ? 'max' : 'current');
@@ -1284,6 +1292,9 @@ const longInsanityNotice = longInsanityMessages.find((item) => item.content &&
 assert(longInsanityNotice && !longInsanityNotice.content.includes('/ 최대 99'),
   '이성 변화 알림은 시작 이성 비율만 보여 주고 최대 이성은 생략해야 합니다: ' +
   JSON.stringify(longInsanityMessages.map((item) => item.content)));
+assert(longInsanityNotice.content.includes('font-size:10px') &&
+  longInsanityNotice.content.includes('color:#969696'),
+  '수치 변화 알림은 작은 연회색 로그 스타일이어야 합니다.');
 assert(!longInsanityMessages.some((item) => item.content &&
   item.content.includes('장기적 광기 활성화 상태라 지능 판정 생략')),
   '장기적 광기가 우선되더라도 지능 판정 생략 안내를 중복 표시하면 안 됩니다.');
@@ -1784,7 +1795,11 @@ embeddedSheets.forEach((sheet, index) => {
     name: 'pulp_hp', current: '1', max: '',
   }));
   useRoomCharacters(character);
+  const defaultReadsBefore = getAttrByNameCalls.length;
   const result = helper.inspectContracts(character.id);
+  assert.strictEqual(getAttrByNameCalls.slice(defaultReadsBefore)
+    .filter((call) => call.characterId === character.id).length, 0,
+  sheet.id + ': 현재 시트 기본값 탐색은 캐릭터의 없는 필드를 조회하면 안 됩니다.');
   if (result.status === 'matched') {
     assert.strictEqual(result.contract.id, sheet.id, sheet.id + ': 다른 원본 시트로 잘못 인식했습니다.');
     safelyMatchedEmptySheets += 1;
