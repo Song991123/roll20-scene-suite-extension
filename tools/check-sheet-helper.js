@@ -1228,9 +1228,14 @@ assert.strictEqual(fixtureAttribute('long_madness').get('current'), 'active',
   '장기적 광기는 최대 이성이 아니라 시작 이성에서 현재 이성이 5분의 1 이상 줄었을 때 활성화해야 합니다.');
 assert.strictEqual(intelligenceRolls(longInsanityMessages).length, 0,
   '장기적 광기가 활성화된 손실에서는 일시적 광기용 지능 판정을 실행하면 안 됩니다.');
-assert(longInsanityMessages.some((item) => item.content && item.content.includes('40 / 시작 50 (80%) / 최대 99')),
-  '이성 변화 알림도 시작 이성 기준 비율과 최대 이성 상한을 구분해야 합니다: ' +
+const longInsanityNotice = longInsanityMessages.find((item) => item.content &&
+  item.content.includes('40 / 시작 50 (80%)'));
+assert(longInsanityNotice && !longInsanityNotice.content.includes('/ 최대 99'),
+  '이성 변화 알림은 시작 이성 비율만 보여 주고 최대 이성은 생략해야 합니다: ' +
   JSON.stringify(longInsanityMessages.map((item) => item.content)));
+assert(!longInsanityMessages.some((item) => item.content &&
+  item.content.includes('장기적 광기 활성화 상태라 지능 판정 생략')),
+  '장기적 광기가 우선되더라도 지능 판정 생략 안내를 중복 표시하면 안 됩니다.');
 
 resetFixture({ mind_current: 50, long_madness: 0, temporary_madness: 0 });
 const successfulIntelligence = changeFixture('mind_current', 45);

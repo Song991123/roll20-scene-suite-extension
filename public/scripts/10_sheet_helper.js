@@ -4785,7 +4785,7 @@ var sheet_helper_setting = {
     return null;
   }
 
-  function sanityValueText(characterId, item, current) {
+  function sanityValueText(characterId, item, current, hideMaximum) {
     var data = scan(characterId);
     var sanity = detectedFieldRole(data, 'sanity', 'number');
     if (!sanity.item || sanity.item.name !== item.name) return '';
@@ -4805,18 +4805,18 @@ var sheet_helper_setting = {
         ' (' + Math.round((current / startingValue) * 100) + '%)';
     else
       text += starting.ambiguous ? ' / 시작 확인 필요' : hasStartingField ? ' / 시작 미입력' : ' / 시작 항목 없음';
-    if (sanity.item.max !== null) text += ' / 최대 ' + sanity.item.max;
+    if (!hideMaximum && sanity.item.max !== null) text += ' / 최대 ' + sanity.item.max;
     return text;
   }
 
-  function fieldValueText(characterId, item, raw) {
+  function fieldValueText(characterId, item, raw, hideSanityMaximum) {
     if (item.kind === 'toggle') {
       var enabled = trim(item.onValue) ? trim(raw) === trim(item.onValue) : toggleValue(raw);
       return enabled === null ? trim(raw) : enabled ? '활성화' : '해제';
     }
     var current = numericFieldValue(characterId, raw);
     if (current === null) return trim(raw);
-    var sanityText = sanityValueText(characterId, item, current);
+    var sanityText = sanityValueText(characterId, item, current, hideSanityMaximum);
     if (sanityText) return sanityText;
     return item.max !== null && item.max > 0
       ? current + ' / ' + item.max + ' (' + Math.round((current / item.max) * 100) + '%)'
@@ -4831,8 +4831,8 @@ var sheet_helper_setting = {
   }
 
   function resourceChangeContent(character, item, before, current, detail) {
-    var beforeText = fieldValueText(character.id, item, before);
-    var currentText = fieldValueText(character.id, item, current);
+    var beforeText = fieldValueText(character.id, item, before, true);
+    var currentText = fieldValueText(character.id, item, current, true);
     var beforeNumber = numericFieldValue(character.id, before);
     var currentNumber = numericFieldValue(character.id, current);
     var delta = beforeNumber !== null && currentNumber !== null ? currentNumber - beforeNumber : 0;
@@ -5000,10 +5000,7 @@ var sheet_helper_setting = {
       longActive = true;
     }
     if (beforeNumber - currentNumber < 5) return details;
-    if (longActive) {
-      details.push('장기적 광기 활성화 상태라 지능 판정 생략');
-      return details;
-    }
+    if (longActive) return details;
     var intelligence = detectedRollRole(data, 'intelligence');
     if (!intelligence.item) {
       details.push(detectedRoleProblem(character, '지능 판정', intelligence));
