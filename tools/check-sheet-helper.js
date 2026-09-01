@@ -1121,7 +1121,7 @@ resetFixture({ vital_current: 20, major_state: 0, dying_state: 0, temporary_mode
 const majorMessages = changeFixture('vital_current', 10);
 assert.strictEqual(fixtureAttribute('major_state').get('current'), 'active',
   '변화 알림을 꺼도 최대 체력의 절반 이상 피해는 중상을 활성화해야 합니다.');
-assert(!majorMessages.some((item) => item.content && item.content.startsWith('/direct ')),
+assert(!majorMessages.some((item) => item.content && item.content.startsWith('/desc ')),
   '변화 알림 끄기 상태에서는 공개 변화 메시지를 보내면 안 됩니다.');
 changeFixture('vital_current', 0);
 assert.strictEqual(fixtureAttribute('dying_state').get('current'), 'active',
@@ -1146,7 +1146,7 @@ events['change:attribute'](gmOnlyHealth, { current: '10' });
 let trackedMessage = sent.slice(gmOnlyMessageStart).find((item) =>
   item.content && item.content.startsWith('/w gm ') && item.content.includes('GM 전용 탐사자 / 체력'));
 assert(trackedMessage && (!trackedMessage.options || trackedMessage.options.noarchive !== true) &&
-  !sent.slice(gmOnlyMessageStart).some((item) => item.content && item.content.startsWith('/direct ')),
+  !sent.slice(gmOnlyMessageStart).some((item) => item.content && item.content.startsWith('/desc ')),
   'GM 전용 변화 알림은 전체 공개하지 않고 채팅 로그에는 남겨야 합니다.');
 runtime.state.KIBSheetHelper.trackingMode = 'public';
 runtime.state.KIBSheetHelper.trackGmOnly = false;
@@ -1161,9 +1161,12 @@ gmOnlyMessageStart = sent.length;
 gmOnlyHealth.set('current', '7');
 events['change:attribute'](gmOnlyHealth, { current: '8' });
 trackedMessage = sent.slice(gmOnlyMessageStart).find((item) =>
-  item.content && item.content.startsWith('/direct ') && item.content.includes('GM 전용 탐사자 / 체력'));
-assert(trackedMessage && (!trackedMessage.options || trackedMessage.options.noarchive !== true),
+  item.content && item.content.startsWith('/desc ') && item.content.includes('GM 전용 탐사자 / 체력'));
+assert(trackedMessage && !trackedMessage.content.includes('vd-permitted-api-chat') &&
+  (!trackedMessage.options || trackedMessage.options.noarchive !== true),
   'GM 캐릭터 공개 알림은 표시하고 채팅 로그에도 남겨야 합니다.');
+assert.strictEqual(trackedMessage.who, '',
+  '공개 변화 알림은 발화자 이름 없는 desc로 표시해야 합니다.');
 characters.splice(characters.indexOf(gmOnlyCharacter), 1);
 attributeObjects.splice(gmOnlyAttributeStart);
 runtime.state.KIBSheetHelper.trackGmOnly = false;

@@ -615,6 +615,36 @@ assert.strictEqual(
   }),
   false,
 );
+assert.strictEqual(
+  vdRuntime.vdShouldCollectMessage({
+    type: 'desc',
+    content: '<span style="color:#555">수치 변화</span>',
+    playerid: 'API',
+    who: '시트 헬퍼',
+  }),
+  false,
+  '시트 헬퍼가 남긴 desc 기록은 비주얼 스크립트창에 표시하면 안 됩니다.',
+);
+assert.strictEqual(
+  vdRuntime.vdShouldCollectMessage({
+    type: 'desc',
+    content: vdRuntime.state.api_tag + '나레이터 지문',
+    playerid: 'API',
+    who: '',
+  }),
+  true,
+  '나레이터가 승인 태그를 붙인 API desc는 기존처럼 비주얼 스크립트창에 표시해야 합니다.',
+);
+assert.strictEqual(
+  vdRuntime.vdShouldCollectMessage({
+    type: 'desc',
+    content: '공개 지문',
+    playerid: 'gm',
+    who: '테스터 GM',
+  }),
+  true,
+  '일반 GM desc 지문은 기존처럼 비주얼 스크립트창에 표시해야 합니다.',
+);
 
 assert(!audioText.includes('RESTART_DELAY_MS'));
 assert(!/(?:처음부터|재시작|restart): 'restart'/.test(audioText));

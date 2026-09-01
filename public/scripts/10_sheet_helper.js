@@ -4849,7 +4849,8 @@ var sheet_helper_setting = {
     if (settings.trackingMode === 'off') return false;
     if (!settings.trackGmOnly && !hasPlayerController(character)) return false;
     var content = resourceChangeContent(character, item, before, current, detail);
-    sendChat('시트 헬퍼', settings.trackingMode === 'gm' ? '/w gm ' + content : '/direct ' + content, null);
+    sendChat(settings.trackingMode === 'gm' ? '시트 헬퍼' : '',
+      settings.trackingMode === 'gm' ? '/w gm ' + content : '/desc ' + content, null);
     return true;
   }
 
