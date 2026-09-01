@@ -342,6 +342,9 @@ var sheet_helper_setting = {
   var contractMatchCache = {};
   var contractCatalogCache = null;
   var suppressedAttributeChanges = {};
+  var pendingAttributeChanges = {};
+  var pendingAttributeOrder = [];
+  var attributeChangeTimer = null;
 
   // ===== 공통 처리 =====
   function own(obj, key) {
@@ -1529,8 +1532,19 @@ var sheet_helper_setting = {
         var negative = op.indexOf('not-') === 0 || op === 'neq';
         var polarity = negative !== !!negated ? 'negative' : 'positive';
         if (!rollVisibilityPolarity[name])
-          rollVisibilityPolarity[name] = { positive: false, negative: false };
+          rollVisibilityPolarity[name] = {
+            positive: false,
+            negative: false,
+            positiveValues: dictionary(),
+            positiveEqualityOnly: true,
+          };
         rollVisibilityPolarity[name][polarity] = true;
+        if (polarity === 'positive') {
+          rollVisibilityPolarity[name].positiveEqualityOnly =
+            rollVisibilityPolarity[name].positiveEqualityOnly && op === 'eq';
+          if (own(condition, 'value'))
+            rollVisibilityPolarity[name].positiveValues[String(condition.value)] = true;
+        }
       }
       ['all', 'any'].forEach(function (key) { countRollVisibility(condition[key], negated); });
     }
@@ -1655,8 +1669,16 @@ var sheet_helper_setting = {
     });
     Object.keys(index.presentationControls).forEach(function (name) {
       var polarity = rollVisibilityPolarity[name];
-      if (polarity && polarity.negative && !polarity.positive &&
-          (index.rollVisibilityReach[name] || 0) * 2 > contract.rolls.length)
+      var field = index.fieldGlobal[name];
+      var positiveValues = polarity ? Object.keys(polarity.positiveValues || {}) : [];
+      var onValue = field && own(field, 'onValue') ? String(field.onValue) : '';
+      var positiveCollapsedPanel = polarity && polarity.positive && !polarity.negative &&
+        polarity.positiveEqualityOnly && positiveValues.length === 1 &&
+        (index.rollVisibilityReach[name] || 0) * 2 > contract.rolls.length &&
+        field && trim(field.default) === '' && onValue !== '' && positiveValues[0] === onValue;
+      if ((polarity && polarity.negative && !polarity.positive &&
+          (index.rollVisibilityReach[name] || 0) * 2 > contract.rolls.length) ||
+          positiveCollapsedPanel)
         index.presentationRollGates[name] = true;
     });
     Object.keys(index.fieldSections).forEach(function (section) {
@@ -1738,9 +1760,10 @@ var sheet_helper_setting = {
           var liveValue = hasValue ? attributeValues[fullName].current : read(fullName, 'current');
           hasValue = hasValue || liveValue !== undefined && liveValue !== null && String(liveValue) !== '';
           if (hasValue) {
-            var options = /^(?:select|radio)$/i.test(trim(control && control.type))
-              ? contractOptionValues(control) : [];
-            if (!options.length || options.indexOf(String(liveValue)) > -1)
+            var options = contractOptionValues(control);
+            var validatesOptions = options.length > 1 ||
+              /^(?:select|radio)$/i.test(trim(control && control.type));
+            if (!validatesOptions || !options.length || options.indexOf(String(liveValue)) > -1)
               return { known: true, value: liveValue };
             return control && own(control, 'default')
               ? { known: true, value: control.default }
@@ -1777,7 +1800,9 @@ var sheet_helper_setting = {
             var refKey = normalize(refName).replace(/(?:name|check|roll)$/i, '');
             var machineNamed = (normalize(rawVisible) === normalize(roll.name) || normalize(rawVisible) === normalize(roll.key)) &&
               rawKey && refKey && (rawKey.indexOf(refKey) > -1 || refKey.indexOf(rawKey) > -1);
-            if (fieldLabels.indexOf(normalize(rawVisible)) > -1 || machineNamed) {
+            var editableTitle = /^(?:name|subject|title|label|skill|skill_name|attribute)$/i.test(trim(ref && ref.field)) &&
+              /(?:^|_)(?:name|title|label)(?:_|$)/i.test(refName);
+            if (fieldLabels.indexOf(normalize(rawVisible)) > -1 || machineNamed || editableTitle) {
               titleRefs[refName] = true;
               fieldLabels.forEach(function (label) { sourceTitleLabels[label] = true; });
             }
@@ -4119,6 +4144,7 @@ var sheet_helper_setting = {
     if (rollStatusMatches(structure, /(?:광기|정신\s*이상|발작|insanit|madness|bout)/i)) return 'madness';
     if (rollStatusMatches(structure, /(?:주문|마법|주술|시전|spell|magic|sorcer|ritual)/i)) return 'spell';
     if (rollStatusMatches(structure, /(?:무기|전투|공격|피해|방어구|장갑|탄약|weapon|combat|attack|damage|defen[cs]e|armo(?:u)?r|ammo)/i)) return 'combat';
+    if (/&\{tracker\}/i.test(String(item && item.roll && item.roll.raw || ''))) return 'other';
     var context = (item.contextLabels || []).concat([item.label]);
     if (!contractRepeating(item.roll) && matchesDetectedRole(context, 'characteristic')) return 'characteristic';
     if (rollHasOutcomeStructure(item)) return 'check';
@@ -4262,13 +4288,35 @@ var sheet_helper_setting = {
   }
 
   function statusRollIdentity(instance) {
-    return normalize(rollStatusLabel(instance)) + (instance.row ? '|row:' + instance.row.id : '');
+    if (!rollStatusLabel(instance)) return '';
+    var roll = instance && instance.roll || {};
+    var repeating = contractRepeating(roll);
+    var source = trim(roll.name) ? 'name:' + trim(roll.name) : 'raw:' + String(roll.raw || '');
+    return JSON.stringify([
+      instance && instance.contract && instance.contract.id || '',
+      roll.kind || 'contract',
+      repeating && repeating.section || '',
+      instance && instance.row && instance.row.id || '',
+      source,
+      instance && instance.modes || [],
+    ]);
+  }
+
+  function statusRollLabelIdentity(instance) {
+    var roll = instance && instance.roll || {};
+    var repeating = contractRepeating(roll);
+    return JSON.stringify([
+      normalize(rollStatusLabel(instance)),
+      repeating && repeating.section || '',
+      instance && instance.row && instance.row.id || '',
+    ]);
   }
 
   function statusRollItems(data, includeEveryInstance) {
     var result = [];
     var counts = dictionary();
     var seen = dictionary();
+    var seenLabels = dictionary();
     if (!usableContractInspection(data.contractMatch)) return result;
     data.contractRolls.forEach(function (instance) {
       var key = normalize(instance.label);
@@ -4279,7 +4327,8 @@ var sheet_helper_setting = {
       var key = statusRollIdentity(instance);
       if (!key) return;
       var modeEntries = statusModeEntries(data.characterId, instance);
-      if (!includeEveryInstance && !instance.row && seen[key]) {
+      if (!includeEveryInstance && seen[key] &&
+          (!instance.row || seen[key].roll.key !== instance.roll.key)) {
         seen[key].modeEntries = seen[key].modeEntries.concat(modeEntries);
         return;
       }
@@ -4298,11 +4347,13 @@ var sheet_helper_setting = {
       if (rollStatusCategory(item) === 'combat')
         item.damage = contractRollDamageText(data.characterId, instance);
       if (!seen[key]) seen[key] = item;
+      var labelKey = statusRollLabelIdentity(instance);
+      if (labelKey && !seenLabels[labelKey]) seenLabels[labelKey] = item;
       result.push(item);
     });
     (data.contractAllRolls || []).forEach(function (instance) {
       if (!instance.hidden) return;
-      var item = seen[statusRollIdentity(instance)];
+      var item = seen[statusRollIdentity(instance)] || seenLabels[statusRollLabelIdentity(instance)];
       if (item) item.modeEntries = item.modeEntries.concat(statusModeEntries(data.characterId, instance));
     });
     return result.sort(function (left, right) { return left.label.localeCompare(right.label); });
@@ -4936,8 +4987,8 @@ var sheet_helper_setting = {
     }
   }
 
-  function applyDetectedRules(character, changedItem, before, current) {
-    var data = scan(character.id);
+  function applyDetectedRules(character, changedItem, before, current, scannedData) {
+    var data = scannedData || scan(character.id);
     var details = [];
     var beforeNumber = numericFieldValue(character.id, before);
     var currentNumber = numericFieldValue(character.id, current);
@@ -5043,7 +5094,7 @@ var sheet_helper_setting = {
     if (!saved.changed) return { ok: true, value: next, unchanged: true };
     item.attribute = saved.attribute;
     var details = amount.detail !== String(amount.value) ? [amount.detail] : [];
-    details = details.concat(applyDetectedRules(character, item, current, next));
+    details = details.concat(applyDetectedRules(character, item, current, next, data));
     sendTrackedChange(character, item, current, next, details.join(' / '));
     invalidate(character.id);
     scheduleManager();
@@ -5350,7 +5401,7 @@ var sheet_helper_setting = {
     return !!catalog.exact[wanted] || triePrefixes(catalog.prefixes, wanted).length > 0;
   }
 
-  function trackAttributeChange(attribute, previous) {
+  function trackAttributeChange(attribute, previous, scannedData) {
     if (!attribute || !previous) return;
     var characterId = attribute.get('_characterid');
     var name = trim(attribute.get('name'));
@@ -5366,13 +5417,13 @@ var sheet_helper_setting = {
       delete suppressedAttributeChanges[key];
     }
     if (!contractRelevant(name)) return;
-    var data = scan(characterId);
+    var data = scannedData || scan(characterId);
     var item = data.trackedFields && data.trackedFields[name];
     if (!item) return;
     item = data.resourcesByAttribute && data.resourcesByAttribute[name] || item;
     var character = getObj('character', characterId);
     if (!character) return;
-    var details = applyDetectedRules(character, item, before, current);
+    var details = applyDetectedRules(character, item, before, current, data);
     sendTrackedChange(character, item, before, current, details.join(' / '));
   }
 
@@ -5386,20 +5437,57 @@ var sheet_helper_setting = {
     });
   }
 
+  function flushAttributeChanges() {
+    attributeChangeTimer = null;
+    var changes = pendingAttributeOrder.map(function (key) { return pendingAttributeChanges[key]; });
+    pendingAttributeChanges = {};
+    pendingAttributeOrder = [];
+    if (!changes.length) return;
+
+    var allMembershipChanged = changes.some(function (change) { return change.membershipChanged; });
+    var affected = {};
+    changes.forEach(function (change) { affected[change.characterId] = true; });
+    if (allMembershipChanged) invalidate();
+    else Object.keys(affected).forEach(function (characterId) { invalidate(characterId); });
+
+    var scanned = {};
+    changes.forEach(function (change) {
+      if (!change.previous || change.presentationOnly ||
+        change.membershipChanged && change.previous.current === undefined) return;
+      var data = scanned[change.characterId];
+      if (!data) data = scanned[change.characterId] = scan(change.characterId);
+      if (!data.ok || cachedUntrackedToggle(change.characterId, change.name)) return;
+      trackAttributeChange(change.attribute, change.previous, data);
+    });
+    scheduleManager();
+  }
+
   function onAttributeChanged(attribute, previous, membershipChanged) {
     var name = trim(attribute && attribute.get('name'));
     var characterId = attribute && attribute.get('_characterid');
     membershipChanged = !!membershipChanged || !!(previous && own(previous, 'name') && trim(previous.name) !== name);
     if (!characterId || (!membershipChanged && !contractRelevant(name))) return;
+    var key = characterId + '|' + name;
+    var pending = pendingAttributeChanges[key];
     var presentationOnly = !membershipChanged && cachedUntrackedToggle(characterId, name);
-    var refreshBeforeTracking = !!(previous && !membershipChanged && !presentationOnly && cache[characterId] &&
-      !(cache[characterId].trackedFields && cache[characterId].trackedFields[name]) &&
-      numericFieldValue(characterId, attribute.get('current')) !== null);
-    if (previous && !presentationOnly && !refreshBeforeTracking) trackAttributeChange(attribute, previous);
-    if (membershipChanged) invalidate();
-    else invalidate(characterId);
-    if (refreshBeforeTracking) trackAttributeChange(attribute, previous);
-    scheduleManager();
+    if (!pending) {
+      pending = pendingAttributeChanges[key] = {
+        attribute: attribute,
+        previous: previous,
+        membershipChanged: membershipChanged,
+        presentationOnly: presentationOnly,
+        characterId: characterId,
+        name: name,
+      };
+      pendingAttributeOrder.push(key);
+    } else {
+      pending.attribute = attribute;
+      if (!pending.previous && previous) pending.previous = previous;
+      pending.membershipChanged = pending.membershipChanged || membershipChanged;
+      pending.presentationOnly = pending.presentationOnly && presentationOnly;
+    }
+    if (attributeChangeTimer) clearTimeout(attributeChangeTimer);
+    attributeChangeTimer = setTimeout(flushAttributeChanges, 25);
   }
 
   // ===== 외부 연결 =====

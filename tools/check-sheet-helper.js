@@ -301,6 +301,9 @@ const getAttrByNameOverrides = {};
 const attributeFindCalls = [];
 const characterFindCalls = [];
 let roomCharacterIds = null;
+let deferAttributeTimers = false;
+let nextTimerId = 1;
+const attributeTimers = [];
 const players = {
   gm: roll20Object('gm', { _displayname: '테스터 GM', speakingas: 'player|gm' }),
   'player-1': roll20Object('player-1', {
@@ -388,10 +391,22 @@ const runtime = {
   randomInteger(sides) {
     return Math.max(1, Math.min(3, sides));
   },
-  setTimeout() {
-    return 1;
+  setTimeout(callback, delay) {
+    const id = nextTimerId++;
+    if (delay === 25) {
+      const timer = { id, callback, cancelled: false, fired: false };
+      attributeTimers.push(timer);
+      if (!deferAttributeTimers) {
+        timer.fired = true;
+        callback();
+      }
+    }
+    return id;
   },
-  clearTimeout() {},
+  clearTimeout(id) {
+    const timer = attributeTimers.find((item) => item.id === id);
+    if (timer) timer.cancelled = true;
+  },
   Date,
 };
 
@@ -414,6 +429,16 @@ function useContracts(...contracts) {
   runtime.KIBSheetContracts = contracts.slice();
   if (contracts.length) helper.registerContract(contracts[0]);
   else helper.refresh();
+}
+
+function flushAttributeTimers() {
+  const pending = attributeTimers.splice(0);
+  pending.forEach((timer) => {
+    if (!timer.cancelled && !timer.fired) {
+      timer.fired = true;
+      timer.callback();
+    }
+  });
 }
 assert.strictEqual(runtime.state.KIBSheetHelper.trackGmOnly, false,
   '새 설치에서 플레이어 권한이 없는 GM 캐릭터를 기본 공개 대상에 포함하면 안 됩니다.');
@@ -1528,6 +1553,15 @@ function visibilityMentions(condition, name) {
   return ['all', 'any', 'not'].some((key) => visibilityMentions(condition[key], name));
 }
 
+function visibilityEquals(condition, name, value) {
+  if (!condition || typeof condition !== 'object') return false;
+  if (Array.isArray(condition))
+    return condition.some((entry) => visibilityEquals(entry, name, value));
+  if (condition.name === name && condition.op === 'eq' && String(condition.value) === String(value))
+    return true;
+  return ['all', 'any'].some((key) => visibilityEquals(condition[key], name, value));
+}
+
 // 저장된 선택값이 현재 원본 시트의 선택지에 없으면 원본 기본 화면을 사용하고,
 // 유효한 다른 선택값은 그대로 존중해야 합니다. 시트·변수명 없이 두 컨트롤 구조를 검증합니다.
 ['select', 'radio'].forEach((type) => {
@@ -1572,6 +1606,98 @@ function visibilityMentions(condition, name) {
   });
   assert(verified, `${type}: 원본 선택값 fallback을 검증할 공통 반례를 찾지 못했습니다.`);
 });
+
+// 접힌 기본 패널을 여는 단일 표시용 체크박스가 아직 저장되지 않은 경우에는
+// 원본 버튼을 숨기지 않습니다. 체크된 일반 상태값은 사용자가 끈 값을 보존합니다.
+const winterSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-42f7d7a429602033');
+assert(winterSheet, '접힌 기본 기능 패널 회귀를 검증할 원본 구조가 필요합니다.');
+const winterPanelField = (winterSheet.fields || []).find((field) => {
+  if (field.section || String(field.type).toLowerCase() !== 'checkbox' ||
+      String(field.default || '') !== '' || !String(field.onValue || '')) return false;
+  return winterSheet.rolls.filter((roll) =>
+    visibilityEquals(roll.visibility, field.name, field.onValue)).length * 2 > winterSheet.rolls.length;
+});
+assert(winterPanelField, '접힌 기본 기능 패널을 원본 표시 관계에서 찾지 못했습니다.');
+const winterRuntime = addSourceCharacter(winterSheet, 'winter-panel-character', '겨울 패널 시험');
+const winterPanelAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === winterRuntime.character.id && item.get('name') === winterPanelField.name);
+assert(winterPanelAttribute, '접힌 기본 기능 패널의 저장값을 만들지 못했습니다.');
+winterPanelAttribute.set('current', '');
+const winterScan = helper.scan(winterRuntime.character.id, true);
+assert(winterScan.contractRolls.some((instance) => /^감정(?:\s|\()/.test(instance.label)),
+  '저장 전 접힌 기본 패널에서도 원본 감정 굴림을 사용할 수 있어야 합니다.');
+const winterStatusMessage = runApi('!!상태', winterRuntime.character.get('name'))
+  .find((item) => item.who === '시트 헬퍼');
+assert(winterStatusMessage, '접힌 기본 패널 상태를 출력하지 못했습니다.');
+const winterTracker = winterSheet.rolls.find((roll) => /&\{tracker\}/i.test(String(roll.raw || '')));
+assert(winterTracker, '턴 순서 유틸리티 굴림을 원본에서 찾지 못했습니다.');
+const winterOtherAt = winterStatusMessage.content.indexOf('기타 주사위');
+const winterTrackerAt = winterStatusMessage.content.indexOf(winterTracker.label);
+assert(winterOtherAt >= 0 && winterTrackerAt > winterOtherAt,
+  '턴 순서 유틸리티를 특성치로 분류하지 말고 기타 주사위에 표시해야 합니다.');
+
+// 같은 name을 공유하는 여러 checkbox 선택지는 select/radio와 똑같이 현재값을
+// 검증합니다. 원본에 없는 0은 기본 화면으로, 유효한 다른 값은 그대로 유지합니다.
+const multiCheckboxSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-99888fc8321bfa35');
+assert(multiCheckboxSheet, '다중 checkbox 화면 선택 회귀를 검증할 원본 구조가 필요합니다.');
+const multiCheckboxSelector = Object.entries(multiCheckboxSheet.controls || {}).map(([name, control]) => {
+  const options = (control.options || control.values || []).map((option) =>
+    String(option && typeof option === 'object' ? option.value : option));
+  return {
+    name,
+    control,
+    options,
+    uses: multiCheckboxSheet.rolls.filter((roll) => visibilityMentions(roll.visibility, name)).length,
+  };
+}).filter((entry) => String(entry.control.type || '').toLowerCase() === 'checkbox' &&
+  entry.options.length > 1 && entry.options.includes(String(entry.control.default)) &&
+  !entry.options.includes('0') && entry.uses > 1)
+  .sort((left, right) => right.uses - left.uses)[0];
+assert(multiCheckboxSelector, '원본 다중 checkbox 화면 선택기를 찾지 못했습니다.');
+const multiCheckboxRuntime = addSourceCharacter(
+  multiCheckboxSheet, 'multi-checkbox-character', '다중 checkbox 시험');
+const multiCheckboxAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === multiCheckboxRuntime.character.id &&
+  item.get('name') === multiCheckboxSelector.name);
+assert(multiCheckboxAttribute, '다중 checkbox 선택값을 만들지 못했습니다.');
+const multiCheckboxRolls = (value) => {
+  multiCheckboxAttribute.set('current', value);
+  return helper.scan(multiCheckboxRuntime.character.id, true).contractRolls
+    .map((instance) => instance.roll.key).sort();
+};
+const multiCheckboxDefault = multiCheckboxRolls(String(multiCheckboxSelector.control.default));
+const multiCheckboxAlternate = multiCheckboxSelector.options
+  .map((value) => ({ value, rolls: multiCheckboxRolls(value) }))
+  .find((entry) => entry.value !== String(multiCheckboxSelector.control.default) &&
+    JSON.stringify(entry.rolls) !== JSON.stringify(multiCheckboxDefault));
+assert(multiCheckboxAlternate, '다중 checkbox의 유효한 다른 화면을 찾지 못했습니다.');
+assert.deepStrictEqual(multiCheckboxRolls('0'), multiCheckboxDefault,
+  '다중 checkbox의 원본 선택지에 없는 0은 원본 기본 화면으로 복구해야 합니다.');
+assert.deepStrictEqual(multiCheckboxRolls(multiCheckboxAlternate.value), multiCheckboxAlternate.rolls,
+  '다중 checkbox의 유효한 현재 화면을 원본 기본값으로 덮어쓰면 안 됩니다.');
+
+const singleCheckboxSheet = parseSheetContract([
+  '<input name="attr_single_marker_a"><input name="attr_single_marker_b"><input name="attr_single_marker_c">',
+  '<input type="checkbox" class="sheet-single-switch" name="attr_single_switch" value="1" checked>',
+  '<div class="sheet-single-panel"><button type="roll" value="&{template:single} {{subject=단일 체크 판정}} {{roll=[[1d100]]}}">단일 체크 판정</button></div>',
+].join('\n'), {
+  id: 'single-checkbox-off',
+  sourceHash: 'single-checkbox-off-v1',
+  css: '.sheet-single-panel{display:none}.sheet-single-switch[value="1"]:checked ~ .sheet-single-panel{display:block}',
+});
+const singleCheckboxRuntime = addSourceCharacter(
+  singleCheckboxSheet, 'single-checkbox-character', '단일 checkbox 시험');
+const singleCheckboxAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === singleCheckboxRuntime.character.id && item.get('name') === 'single_switch');
+assert(singleCheckboxAttribute, '단일 checkbox 저장값을 만들지 못했습니다.');
+assert(helper.scan(singleCheckboxRuntime.character.id, true).contractRolls
+  .some((instance) => instance.label === '단일 체크 판정'),
+  '원본에서 켜진 단일 checkbox 판정을 찾지 못했습니다.');
+singleCheckboxAttribute.set('current', '0');
+assert(!helper.scan(singleCheckboxRuntime.character.id, true).contractRolls
+  .some((instance) => instance.label === '단일 체크 판정'),
+  '사용자가 끈 단일 checkbox를 원본 기본값으로 되돌리면 안 됩니다.');
+
 const achtungSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-cf240692b20596fc');
 const nativeLimitSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-4ffca055eb552326');
 assert(achtungSheet, 'Achtung! Cthulhu 공개 시트 인식 정보가 필요합니다.');
@@ -2537,6 +2663,59 @@ function addSourceCharacter(sheet, id, name) {
   return { character, values };
 }
 
+// 같은 원본 계열이 함께 후보로 남고 숨은 표시명이 빈 Attribute로 저장된 경우에도
+// 단일 판정 버튼을 골라 완전한 원본 rolltemplate 식을 보내야 합니다.
+const singleRollSource = embeddedSheets.find((sheet) => sheet.id === 'sheet-897a7f3b9c6a8d78');
+assert(singleRollSource, '단일 판정 전송 회귀를 검증할 원본 구조가 필요합니다.');
+const singleRollRuntime = addSourceCharacter(
+  singleRollSource, 'single-roll-source-character', '단일 판정 전송 시험');
+sheetFieldDefaults[singleRollRuntime.character.id] = sourceDefaults(singleRollSource);
+['str', 'str_txt'].forEach((name) => {
+  let attribute = attributeObjects.find((item) =>
+    item.get('_characterid') === singleRollRuntime.character.id && item.get('name') === name);
+  if (!attribute) attribute = addAttribute(singleRollRuntime.character.id, name, '');
+  attribute.set('current', name === 'str' ? '51' : '');
+});
+useContracts(...embeddedSheets);
+useRoomCharacters(singleRollRuntime.character);
+const singleRollMessages = runApi('!!근력', singleRollRuntime.character.get('name'))
+  .filter((item) => item.content && item.content.includes('kib_sheet_result='));
+assert.strictEqual(singleRollMessages.length, 1,
+  '같은 원본 계열 후보가 있어도 근력 굴림은 선택 질문 없이 한 번만 보내야 합니다.');
+assert(singleRollMessages[0].content.includes('&{template:coc-1}') &&
+  singleRollMessages[0].content.includes('{{name=근력}}') &&
+  singleRollMessages[0].content.includes('{{success=[[51]]}}') &&
+  singleRollMessages[0].content.includes('{{roll1=[[1d100]]}}') &&
+  !singleRollMessages[0].content.includes('{{roll2='),
+  '빈 숨은 표시명과 유사 원본 후보가 판정 이름·수치·주사위 식을 비우거나 다른 버튼으로 바꾸면 안 됩니다.');
+
+// 시트 워커가 한 저장에서 같은 값을 여러 차례 보정해도 change 콜백 안에서
+// 캐릭터 전체 Attribute를 매번 다시 읽지 않고, 마지막 값으로 한 번만 처리해야 합니다.
+const burstAttribute = attributeObjects.find((item) =>
+  item.get('_characterid') === singleRollRuntime.character.id && item.get('name') === 'str');
+assert(burstAttribute, '연속 Attribute 변경 회귀를 검증할 근력 수치가 필요합니다.');
+helper.scan(singleRollRuntime.character.id, true);
+const burstFindStart = attributeFindCalls.length;
+const burstMessageStart = sent.length;
+deferAttributeTimers = true;
+for (let value = 52; value <= 101; value += 1) {
+  const before = burstAttribute.get('current');
+  burstAttribute.set('current', String(value));
+  events['change:attribute'](burstAttribute, { current: before });
+}
+assert.strictEqual(attributeFindCalls.length, burstFindStart,
+  '연속 change:attribute 콜백 안에서 캐릭터 전체 Attribute를 다시 읽으면 안 됩니다.');
+deferAttributeTimers = false;
+flushAttributeTimers();
+assert.strictEqual(attributeFindCalls.length - burstFindStart, 1,
+  '연속 Attribute 변경은 캐릭터별 전체 스캔 한 번으로 합쳐야 합니다.');
+const burstMessages = sent.slice(burstMessageStart).filter((item) => item.content &&
+  item.content.includes(singleRollRuntime.character.get('name') + ' / 근력'));
+assert.strictEqual(burstMessages.length, 1,
+  '연속 Attribute 변경은 최초 값에서 마지막 값까지 변화 알림 한 번만 남겨야 합니다.');
+assert(burstMessages[0].content.includes('51') && burstMessages[0].content.includes('101'),
+  '합쳐진 변화 알림은 최초 값과 마지막 값을 보존해야 합니다.');
+
 function verifyEditableTitleSlot(sheet, fieldName, id, currentName, nextName) {
   const sourceRolls = (sheet.rolls || []).filter((roll) => (roll.labelRefs || []).some((ref) =>
     sourceRefName(ref) === fieldName));
@@ -3160,5 +3339,59 @@ const largePairingMs = pairingScanMilliseconds(largePairing, 5);
 assert(largePairingMs <= smallPairingMs * 10 + 25,
   '반복행 8배 증가 시 스캔이 제곱으로 증가했습니다: ' +
   smallPairingMs.toFixed(2) + 'ms -> ' + largePairingMs.toFixed(2) + 'ms');
+
+// 같은 원본 실행을 여러 화면 위치에서 다른 이름으로 보여 주는 시트는 상태에서만
+// 하나로 합치되, 원본 식·선택 방식·반복 구역/행이 다른 항목은 그대로 보존합니다.
+const statusFingerprintRaw =
+  '&{template:status-fingerprint} {{subject=@{probe_name}}} {{success=[[@{probe_value}]]}} {{roll=[[1d100]]}}';
+const statusFingerprintSheet = parseSheetContract([
+  '<input name="attr_status_marker_a"><input name="attr_status_marker_b"><input name="attr_status_marker_c">',
+  '<input name="attr_probe_name"><input name="attr_probe_value">',
+  '<div><p>동일 실행 (설명)</p><button type="roll" value="' + statusFingerprintRaw + '"></button></div>',
+  '<div><strong>동일 실행</strong><button type="roll" value="' + statusFingerprintRaw + '"></button></div>',
+  '<div><p>다른 식</p><button type="roll" value="&{template:status-fingerprint} {{subject=다른 식}} {{roll=[[1d6]]}}"></button></div>',
+  '<div><strong>다른 식</strong><button type="roll" value="&{template:status-fingerprint} {{subject=다른 식}} {{roll=[[1d8]]}}"></button></div>',
+  '<div><p>한 기능</p><button type="roll" name="roll_same_action" value="&{template:status-fingerprint} {{subject=한 기능}} {{roll=[[1d100]]}}"></button><button type="roll" name="roll_same_action" value="&{template:status-fingerprint-compact} {{subject=한 기능}} {{roll=[[1d100]]}}"></button></div>',
+  '<fieldset class="repeating_named"><input name="attr_roll_title"><input name="attr_roll_value"><button type="roll" value="&{template:status-fingerprint} {{character_name=@{character_name}}} {{subject=@{roll_title}}} {{roll=[[@{roll_value}]]}}"></button></fieldset>',
+  '<div><p>다른 모드 A</p><button type="roll" value="&{template:status-fingerprint} {{subject=다른 모드}} {{roll=[[1d100]]}}"></button></div>',
+  '<div><strong>다른 모드 B</strong><button type="roll" value="&{template:status-fingerprint} {{subject=다른 모드}} {{roll=[[1d100]]}}"></button></div>',
+  '<fieldset class="repeating_probe_a"><input name="attr_probe_name"><input name="attr_probe_value"><button type="roll" value="' + statusFingerprintRaw + '"></button></fieldset>',
+  '<fieldset class="repeating_probe_b"><input name="attr_probe_name"><input name="attr_probe_value"><button type="roll" value="' + statusFingerprintRaw + '"></button></fieldset>',
+].join('\n'), { id: 'status-fingerprint', name: '상태 실행 식별 시험' });
+const statusModeRolls = statusFingerprintSheet.rolls.filter((roll) => /^다른 모드 [AB]$/.test(roll.label));
+assert.strictEqual(statusModeRolls.length, 2, '선택 방식 식별 반례를 만들지 못했습니다.');
+statusModeRolls[0].modes = [{ id: 'status-mode-a', labelPath: ['방식 A'], overrides: {} }];
+statusModeRolls[1].modes = [{ id: 'status-mode-b', labelPath: ['방식 B'], overrides: {} }];
+useContracts(statusFingerprintSheet);
+const statusFingerprintCharacter = addCharacter('status-fingerprint-character', '상태 실행 식별 시험', 'player-1', {
+  status_marker_a: '1', status_marker_b: '1', status_marker_c: '1',
+  character_name: '빈 행 대체 이름',
+  probe_name: '동일 실행', probe_value: '25',
+  repeating_named_blank_roll_value: '25',
+  repeating_named_filled_roll_title: '사용자 추가 기능', repeating_named_filled_roll_value: '30',
+  _reporder_repeating_named: 'blank,filled',
+  repeating_probe_a_shared_probe_name: '반복 A 공유', repeating_probe_a_shared_probe_value: '25',
+  repeating_probe_a_other_probe_name: '반복 A 별도', repeating_probe_a_other_probe_value: '25',
+  _reporder_repeating_probe_a: 'shared,other',
+  repeating_probe_b_shared_probe_name: '반복 B 공유', repeating_probe_b_shared_probe_value: '25',
+  _reporder_repeating_probe_b: 'shared',
+});
+useRoomCharacters(statusFingerprintCharacter);
+const statusFingerprint = runApi('!!상태', statusFingerprintCharacter.get('name'))
+  .find((item) => item.who === '시트 헬퍼').content;
+assert.strictEqual((statusFingerprint.match(/동일 실행/g) || []).length, 1,
+  '같은 실행과 선택 방식을 가진 다른 표시 라벨은 상태에서 하나로 합쳐야 합니다.');
+assert.strictEqual((statusFingerprint.match(/다른 식/g) || []).length, 2,
+  '표시 라벨이 같아도 원본 식이 다르면 상태 항목을 합치면 안 됩니다.');
+assert.strictEqual((statusFingerprint.match(/한 기능/g) || []).length, 1,
+  '같은 이름의 일반·간략 버튼은 상태에서 한 기능으로 합쳐야 합니다.');
+assert(statusFingerprint.includes('사용자 추가 기능') && !statusFingerprint.includes('빈 행 대체 이름'),
+  '이름 없는 반복행은 캐릭터 이름으로 대신 표시하지 말고, 이름을 입력한 행만 보여야 합니다.');
+assert(statusFingerprint.includes('다른 모드 A') && statusFingerprint.includes('다른 모드 B'),
+  '원본 식이 같아도 선택 방식이 다르면 상태 항목을 합치면 안 됩니다.');
+['반복 A 공유', '반복 A 별도', '반복 B 공유'].forEach((label) => {
+  assert(statusFingerprint.includes(label),
+    '원본 식이 같아도 반복 구역이나 행이 다르면 상태 항목을 합치면 안 됩니다: ' + label);
+});
 
 console.log('Sheet Helper check: PASS');
