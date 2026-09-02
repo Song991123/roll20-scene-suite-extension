@@ -2368,6 +2368,9 @@
       var controlNodes = Object.assign(dictionary(), controlScopes.nodes.global, rowControlNodes);
       var rawRefs = publicRefs(raw);
       var ownLabel = labelDetails(node, translations, node.tag === 'button' ? nodeText : function () { return ''; });
+      if (!htmlName && node.tag === 'button' && !nodeText(node) &&
+          ownLabel.label && ownLabel.label === normalizeText(node.attrs.title))
+        ownLabel = mergeLabelDetails(resourceRollLabelDetails(node), ownLabel);
       var adjacentLabel = ownLabel.label ? { label: '', aliases: [] } : adjacentLabelDetails(node, translations, 1);
       var rowLabel = tableRowLabelDetails(node, translations, rawRefs);
       var labelInfo = mergeLabelDetails(mergeLabelDetails(ownLabel, adjacentLabel), rowLabel);
@@ -2412,6 +2415,15 @@
         });
       });
       var templateMatch = raw.match(/&\{\s*template\s*:\s*([^}]+)\}/i);
+      if (!templateMatch) {
+        var referencedTemplates = uniqueTexts(rawRefs.map(function (ref) {
+          var control = !ref.max && controls[ref.name];
+          var found = control && control.type === 'hidden' &&
+            String(control.default || '').match(/&\{\s*template\s*:\s*([^}]+)\}/i);
+          return found ? normalizeText(found[1]) : '';
+        }).filter(Boolean));
+        if (referencedTemplates.length === 1) templateMatch = [null, referencedTemplates[0]];
+      }
       var result = {
         key: key,
         name: name,

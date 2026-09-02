@@ -6,6 +6,18 @@ const vm = require('vm');
 const { performance } = require('perf_hooks');
 const { parseSheetContract } = require('./sheet-contract-parser');
 
+const indirectTemplate = parseSheetContract([
+  '<input type="hidden" name="attr_result_style" value="&{template:indirect}">',
+  '<input type="hidden" name="attr_dice_fragment" value="{{roll1=[[1d100]]}}">',
+  '<button type="roll" title="일반 다이스" value="@{result_style} {{subject=외모}} @{dice_fragment}"></button>',
+].join('\n'));
+assert.strictEqual(indirectTemplate.rolls[0].template, 'indirect',
+  '숨은 필드에 있는 원본 템플릿 이름도 직접 굴림 인식에 연결해야 합니다.');
+assert.strictEqual(indirectTemplate.rolls[0].label, '외모',
+  '빈 버튼의 공통 툴팁보다 원본 판정 이름을 표시해야 합니다.');
+assert(indirectTemplate.rolls[0].aliases.includes('일반 다이스'),
+  '버튼 툴팁은 원본 별칭으로 보존해야 합니다.');
+
 const distributedSource = fs.readFileSync(
   path.resolve(__dirname, '../public/scripts/10_sheet_helper.js'),
   'utf8',
@@ -37,12 +49,12 @@ const expectedEmbeddedIds = [
   'sheet-982a8cbae9128aea', 'sheet-c236bcff42e9a873', 'sheet-e1376f830eba05c9',
   'sheet-c653c0852b277de6', 'sheet-3916f9196f8c21ed', 'sheet-2f86ba472bdc1c42',
   'sheet-f08a8b2d95ebc3cb', 'sheet-1b678812ac2dada9', 'sheet-8165ce77b3301b5d',
-  'sheet-cf240692b20596fc',
+  'sheet-cf240692b20596fc', 'sheet-f3665f982d39afe2',
 ];
 assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expectedEmbeddedIds,
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
 assert.strictEqual(
-  crypto.createHash('sha256').update(JSON.stringify(embeddedSheets)).digest('hex'),
+  crypto.createHash('sha256').update(JSON.stringify(embeddedSheets.slice(0, 34))).digest('hex'),
   '3d3ae7dab5b382c77b8b6e8d2159436120500589c257b5a61d0bfe988457e1bb',
   'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
 );
@@ -156,7 +168,8 @@ embeddedSheets.forEach((sheet) => {
   sheet.id + '의 시작 수치 입력은 내부 변수명이 아니라 원본 표시명으로 구분되어야 합니다.');
 });
 const distributedBytes = Buffer.byteLength(distributedSource.replace(/\r\n/g, '\n'), 'utf8');
-assert(distributedBytes <= 650000,
+// 35번째 원본 추가분을 포함한 상한. 기존 34종 데이터는 위 해시로 별도 보존합니다.
+assert(distributedBytes <= 675000,
   '10번 임베드 데이터가 다시 비대해졌습니다: ' + distributedBytes + ' bytes');
 
 // 생성된 인식 정보 안에는 원본 변수명이 있을 수 있지만 런타임은 이를
@@ -3617,6 +3630,44 @@ assert(statusFingerprint.includes('다른 모드 A') && statusFingerprint.includ
 ['반복 A 공유', '반복 A 별도', '반복 B 공유'].forEach((label) => {
   assert(statusFingerprint.includes(label),
     '원본 식이 같아도 반복 구역이나 행이 다르면 상태 항목을 합치면 안 됩니다: ' + label);
+});
+
+// 번역 파일이 없는 한글 원본도 그 원본의 표시명과 식으로 실행해야 합니다.
+// 지원 목록에서 원본을 뺀 반례는 공통 기본값 때문에 프랑스어 APP로 오인되던 경로입니다.
+const westernEuroSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-f3665f982d39afe2');
+assert(westernEuroSheet, '웨스턴유로 원본 인식 정보가 누락되었습니다.');
+const westernEuroRuntime = addSourceCharacter(
+  westernEuroSheet, 'western-euro-source-character', '한글 원본 인식 시험');
+sheetFieldDefaults[westernEuroRuntime.character.id] = sourceDefaults(westernEuroSheet);
+useContracts(...embeddedSheets.filter((sheet) => sheet.id !== westernEuroSheet.id));
+useRoomCharacters(westernEuroRuntime.character);
+const unsupportedWestern = helper.inspectContracts(westernEuroRuntime.character.id);
+assert.notStrictEqual(unsupportedWestern.status, 'matched',
+  '지원하지 않는 원본을 공통 기본값만으로 다른 시트로 확정하면 안 됩니다: ' +
+    (unsupportedWestern.contract && unsupportedWestern.contract.id));
+assert(!helper.contractRolls(westernEuroRuntime.character.id).some((roll) =>
+  roll.aliases.includes('APP')), '지원하지 않는 원본에서 다른 시트의 APP 굴림을 제공하면 안 됩니다.');
+
+useContracts(...embeddedSheets);
+useRoomCharacters(westernEuroRuntime.character);
+const westernEuroInspection = helper.inspectContracts(westernEuroRuntime.character.id);
+assert.strictEqual(westernEuroInspection.status, 'matched');
+assert.strictEqual(westernEuroInspection.contract.id, westernEuroSheet.id);
+[['외모', 'app', '63'], ['감정', 'appraise', '42'], ['근력', 'str', '71']].forEach(([label, name, value]) => {
+  addAttribute(westernEuroRuntime.character.id, name, value);
+  ['', ' 보너스1', ' 패널티1'].forEach((suffix) => {
+    const messages = runApi('!!' + label + suffix, westernEuroRuntime.character.get('name'));
+    const rolls = messages.filter((message) => (message.content || '').includes('kib_sheet_result='));
+    assert.strictEqual(rolls.length, 1, '한글 명령을 선택 질문 없이 한 번 실행해야 합니다: ' + label + suffix);
+    assert(rolls[0].content.includes('{{subject=' + label + '}}') &&
+      rolls[0].content.includes('{{success=[[0+' + value + ']]}}'),
+    '원본 한글 이름과 현재값을 전송해야 합니다: ' + label + suffix);
+    assert(rolls[0].content.includes(suffix ? '&{template:coc}' : '&{template:coc-short}'),
+      '일반/보너스·패널티에 해당하는 원본 템플릿을 전송해야 합니다: ' + label + suffix);
+    assert(rolls[0].content.includes('{{roll1=[[1d100]]}}') &&
+      (suffix ? rolls[0].content.includes('{{roll5=[[1d100]]}}') : !rolls[0].content.includes('{{roll2=')),
+    '원본 주사위 식을 빠짐없이 전송해야 합니다: ' + label + suffix);
+  });
 });
 
 console.log('Sheet Helper check: PASS');
