@@ -676,6 +676,8 @@ const avatarCharacter = roll20Object('character-1', avatarCharacterValues);
 const avatarEvents = [];
 let avatarCards = [];
 let avatarWhispers = 0;
+let avatarVdEnabled = true;
+let avatarRefreshSchedules = 0;
 const avatarRuntime = {
   state: {},
   KIBScene: {
@@ -690,6 +692,9 @@ const avatarRuntime = {
     broadcast(name, payload) {
       avatarEvents.push([name, payload]);
       return { ok: true };
+    },
+    isFeatureEnabled(name) {
+      return name !== 'vd' || avatarVdEnabled;
     },
   },
   on() {},
@@ -716,7 +721,8 @@ const avatarRuntime = {
     avatarWhispers += 1;
   },
   setTimeout() {
-    return 1;
+    avatarRefreshSchedules += 1;
+    return avatarRefreshSchedules;
   },
   clearTimeout() {},
 };
@@ -766,6 +772,109 @@ avatarResult = avatarRuntime.avSyncExternal({
 });
 assert.strictEqual(avatarResult.skipped, true);
 assert.strictEqual(avatarWhispers, whispersBeforeSync);
+
+avatarVdEnabled = false;
+const avatarValidationsBeforeDisable = avatarEvents.filter(
+  (event) => event[0] === 'validate',
+).length;
+avatarResult = avatarRuntime.avValidateChange({
+  characterId: avatarCharacter.id,
+  expression: '난감',
+  playerId: 'API',
+  targets: { avatar: false, token: false, vd: true },
+});
+assert.strictEqual(avatarResult.ok, true);
+assert.strictEqual(avatarResult.targets.vd, false);
+assert.strictEqual(
+  avatarEvents.filter((event) => event[0] === 'validate').length,
+  avatarValidationsBeforeDisable,
+  '전체 비주얼 노벨이 꺼지면 09가 standings 표정을 검사하지 않아야 합니다.',
+);
+assert(
+  !avatarRuntime
+    .avTargetButtons('기본', { avatar: true, token: false, vd: true })
+    .includes('비주얼 노벨'),
+  '전체 비주얼 노벨이 꺼지면 09 관리의 비주얼 노벨 버튼을 숨겨야 합니다.',
+);
+assert.strictEqual(
+  avatarRuntime.state.KIBSceneAvatar.defaults.vd,
+  true,
+  '전체 기능을 꺼도 기존 09 대상 저장값은 보존해야 합니다.',
+);
+const schedulesBeforeFeatureChange = avatarRefreshSchedules;
+avatarRuntime.avHandleFeatureChanged({ name: 'vd', enabled: false });
+assert.strictEqual(
+  avatarRefreshSchedules,
+  schedulesBeforeFeatureChange + 1,
+  '전체 비주얼 노벨 변경 시 09 관리 핸드아웃을 갱신해야 합니다.',
+);
+avatarVdEnabled = true;
+assert(
+  avatarRuntime
+    .avTargetButtons('기본', { avatar: true, token: false, vd: true })
+    .includes('비주얼 노벨'),
+  '전체 비주얼 노벨을 다시 켜면 저장된 09 대상 버튼을 복원해야 합니다.',
+);
+
+avatarRuntime.state.KIBSceneAvatar.characterTargets[avatarCharacter.id] = {
+  avatar: true,
+  token: false,
+  vd: true,
+};
+avatarRuntime.avHandleTargetCommand({
+  content: '!아바타 대상|기본|비주얼|끄기',
+  playerid: 'gm',
+});
+assert.strictEqual(avatarRuntime.state.KIBSceneAvatar.defaults.vd, false);
+assert.strictEqual(
+  avatarRuntime.avTargets(avatarCharacter).vd,
+  false,
+  '09 기본 비주얼 노벨이 꺼지면 캐릭터별 저장값이 켜져 있어도 실행 대상에서 제외해야 합니다.',
+);
+assert(
+  avatarRuntime
+    .avTargetButtons('기본', avatarRuntime.state.KIBSceneAvatar.defaults)
+    .includes('비주얼 노벨'),
+  '09 기본 비주얼 노벨 버튼은 다시 켤 수 있도록 남겨야 합니다.',
+);
+assert(
+  !avatarRuntime
+    .avTargetButtons(avatarCharacter.id, avatarRuntime.avTargets(avatarCharacter))
+    .includes('비주얼 노벨'),
+  '09 기본 비주얼 노벨이 꺼지면 캐릭터별 비주얼 노벨 버튼을 숨겨야 합니다.',
+);
+const avatarValidationsBeforeDefaultDisable = avatarEvents.filter(
+  (event) => event[0] === 'validate',
+).length;
+avatarResult = avatarRuntime.avValidateChange({
+  characterId: avatarCharacter.id,
+  expression: '난감',
+  playerId: 'API',
+  targets: { avatar: false, token: false, vd: true },
+});
+assert.strictEqual(avatarResult.ok, true);
+assert.strictEqual(avatarResult.targets.vd, false);
+assert.strictEqual(
+  avatarEvents.filter((event) => event[0] === 'validate').length,
+  avatarValidationsBeforeDefaultDisable,
+  '09 기본 비주얼 노벨이 꺼지면 standings 표정을 검사하지 않아야 합니다.',
+);
+avatarRuntime.avHandleTargetCommand({
+  content: '!아바타 대상|기본|비주얼|켜기',
+  playerid: 'gm',
+});
+assert.strictEqual(avatarRuntime.state.KIBSceneAvatar.defaults.vd, true);
+assert.strictEqual(
+  avatarRuntime.avTargets(avatarCharacter).vd,
+  true,
+  '09 기본 비주얼 노벨을 다시 켜면 캐릭터별 저장값을 복원해야 합니다.',
+);
+assert(
+  avatarRuntime
+    .avTargetButtons(avatarCharacter.id, avatarRuntime.avTargets(avatarCharacter))
+    .includes('비주얼 노벨'),
+  '09 기본 비주얼 노벨을 다시 켜면 캐릭터별 버튼을 복원해야 합니다.',
+);
 
 avatarCards = [
   roll20Object('avatar-base', { name: '인물A', avatar: 'base.png' }),
@@ -946,6 +1055,21 @@ assert(
       message.content.includes('journal.roll20.net/handout/help-handout')),
   '!도움은 설치된 기능의 세팅법과 명령어 핸드아웃을 갱신하고 열어야 합니다.',
 );
+let directorFeatureChanged = null;
+directorRuntime.KIBScene.adapters.avatar = {
+  events: {
+    'feature:changed'(payload) {
+      directorFeatureChanged = payload;
+      return { ok: true };
+    },
+  },
+};
+directorRuntime.KIBScene.routeCommand('feature|vd|off', { playerid: 'gm' });
+assert.deepStrictEqual(
+  JSON.parse(JSON.stringify(directorFeatureChanged)),
+  { name: 'vd', enabled: false },
+  '00 전체 기능 변경을 09 관리 화면에 알려야 합니다.',
+);
 assert(
   sceneDirectorText.includes("var helpAlias = content === '!도움';") &&
     sceneDirectorText.includes("helpAlias ? 'handout'") &&
@@ -955,6 +1079,24 @@ assert(
 assert(
   appText.includes('채팅에 !도움을 입력합니다.'),
   '설치 페이지는 통합 도움말 명령을 !도움으로 안내해야 합니다.',
+);
+assert(
+  appText.includes('토큰 이름은 업로드 파일명이 아니라 Roll20 보드에서 선택한 이미지 토큰의 이름입니다.') &&
+    appText.includes('토큰 이름을 각각 vd_area') &&
+    appText.includes('토큰 이름을 apng_area') &&
+    appText.includes('토큰 이름을 cutin_area') &&
+    appText.includes('토큰 이름을 cutin_overlay') &&
+    sceneDirectorText.includes('<b>토큰 이름 안내</b>') &&
+    sceneDirectorText.includes('업로드 파일명이 아니라 Roll20 보드에 놓은 이미지 토큰의 이름입니다.') &&
+    readmeText.includes('토큰 이름은 이미지 파일명이 아닙니다.'),
+  '설치 페이지, 통합 도움말, README에서 토큰 이름과 이미지 파일명을 구분해야 합니다.',
+);
+assert(
+  visualDialogueText.includes('맵 레이어에 배경 이미지 토큰을 놓고 토큰 이름을 <code>vd_background</code>') &&
+    scriptText.includes('토큰 이름은 업로드 파일명이 아닙니다.') &&
+    cutinText.includes('토큰 이름을 <code>cutin_area</code>') &&
+    cutinText.includes('업로드 파일명은 바꾸지 않아도 됩니다.'),
+  '단독 도움말에서도 보드 이미지 토큰과 업로드 파일명을 구분해야 합니다.',
 );
 assert(
   appText.includes('방에 적용된 시트를 인식해 명령어로 실행, 자동 트래킹 기능'),

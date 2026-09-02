@@ -1183,9 +1183,9 @@ KIBScene.adapters = KIBScene.adapters || {};
       return {
         ok: false,
         error:
-          '컷인 뒤 배경 이미지가 없습니다. GM 레이어에 <b>' +
+          '컷인 뒤 배경 이미지가 없습니다. GM 레이어에 배경 이미지 토큰을 놓고 토큰 이름을 <b>' +
           SETTING.overlayName +
-          '</b> 토큰을 하나 두거나 배경 이미지 주소를 설정하세요.',
+          '</b>로 지정하거나 배경 이미지 주소를 설정하세요. 업로드 파일명은 바꾸지 않아도 됩니다.',
       };
     return { ok: true, imgsrc: imgsrc, bounds: boundsFromFullPage(page) };
   }
@@ -2259,7 +2259,8 @@ KIBScene.adapters = KIBScene.adapters || {};
       '<code>!... 대사 @컷인 카드명|3초</code> 나레이터 줄과 동시에 표시<br>' +
       '<code>!... 대사 @컷인 카드명|줄=3</code> 현재 줄부터 나레이터 3줄 동안 표시<br>' +
       '핸드아웃 컷인과 함께 해당 줄의 스크립트를 표시합니다.<br>' +
-      '<code>cutin_overlay</code> GM 레이어 토큰: 전체 화면 배경 등록 후 자동 제거<br>' +
+      'GM 레이어에 영역용 이미지 토큰을 놓고 토큰 이름을 <code>cutin_area</code>로 지정하면 해당 위치와 크기에 표시합니다.<br>' +
+      'GM 레이어에 배경 이미지 토큰을 놓고 토큰 이름을 <code>cutin_overlay</code>로 지정하면 전체 화면 배경으로 등록한 뒤 안내 토큰을 자동 제거합니다. 업로드 파일명은 바꾸지 않아도 됩니다.<br>' +
       '컷인은 현재 페이지의 전원에게 표시됩니다.'
     );
   }

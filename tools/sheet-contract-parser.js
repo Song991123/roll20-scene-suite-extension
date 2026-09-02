@@ -898,6 +898,12 @@
   }
 
   function adjacentLabelDetails(node, translations, parentDepth) {
+    function siblingRollValue(button) {
+      return String(button.attrs.value || '')
+        .replace(/&\{template:[^}]+\}/gi, '&{template:*}')
+        .replace(/\{\{\s*roll(?:[2-9]\d*)\s*=\s*\[\[[\s\S]*?\]\]\s*\}\}/gi, '')
+        .replace(/\s+/g, ' ').trim();
+    }
     var current = node;
     for (var depth = 0; current && current.parent && depth <= parentDepth; depth += 1) {
       var values = [];
@@ -918,6 +924,11 @@
           if (ADJACENT_SKIP_TAGS[sibling.tag]) {
             if (sibling.tag === 'input' &&
               (hasAttr(sibling, 'hidden') || (sibling.attrs.type || '').toLowerCase() === 'hidden')) continue;
+            if (depth === 0 && current.tag === 'button' && sibling.tag === 'button' &&
+                normalizeText(current.attrs.name) && current.attrs.name === sibling.attrs.name &&
+                (current.attrs.type || '').toLowerCase() === 'roll' &&
+                (sibling.attrs.type || '').toLowerCase() === 'roll' &&
+                siblingRollValue(current) === siblingRollValue(sibling)) continue;
             if (depth === 0 && sibling.tag !== 'button') continue;
             break;
           }
@@ -1039,6 +1050,23 @@
     return /^attr_/i.test(name) ? name.slice(5) : name;
   }
 
+  function selectOptionContextAliases(option, label) {
+    if (!/^[+-]?\d+(?:\.\d+)?$/.test(normalizeText(label))) return [];
+    var select = option && option.parent;
+    while (select && select.tag !== 'select') select = select.parent;
+    var container = select && select.parent;
+    var children = container && elementChildren(container) || [];
+    if (!container || children.length !== 1 || children[0] !== select ||
+        !searchableLabelText(directLabelText(container))) return [];
+    // 선택 항목만 대입해 앞 문맥과 뒤 단위의 원본 순서를 보존한다.
+    var selected = { children: container.children.map(function (child) {
+      return child === select ? { tag: '#text', text: label } : child;
+    }) };
+    return uniqueTexts([directLabelText(selected)]).filter(function (alias) {
+      return alias !== normalizeText(label);
+    });
+  }
+
   function buildControls(groups, labelsByFor, translations) {
     var controls = dictionary();
     Object.keys(groups).sort().forEach(function (name) {
@@ -1055,7 +1083,8 @@
           var details = labelDetails(option, translations, nodeText);
           var label = details.label || option.attrs.label || option.attrs.value || '';
           var result = { label: label, value: hasAttr(option, 'value') ? option.attrs.value : label };
-          if (details.aliases.length) result.aliases = details.aliases;
+          var aliases = uniqueTexts(details.aliases.concat(selectOptionContextAliases(option, label)));
+          if (aliases.length) result.aliases = aliases;
           return result;
         }).filter(function (option) {
           var key = option.label + '\n' + option.value;
@@ -1275,7 +1304,8 @@
     function headingNode(candidate) {
       if (!candidate || candidate.tag === '#text') return false;
       var classes = normalizeText(candidate.attrs && candidate.attrs['class']).toLowerCase();
-      return !!headingTags[candidate.tag] || /(?:^|\s)(?:sheet-)?[^\s]*(?:head|header|title|tit)(?:\s|$)/.test(classes);
+      return (candidate.tag === 'img' && !!normalizeText(candidate.attrs.alt)) ||
+        !!headingTags[candidate.tag] || /(?:^|\s)(?:sheet-)?[^\s]*(?:head|header|title|tit|label)(?:\s|$)/.test(classes);
     }
     function usable(details) {
       var values = uniqueTexts([details && details.label].concat(details && details.aliases || [])).filter(function (label) {
@@ -1286,7 +1316,8 @@
     }
     function read(candidate) {
       if (!headingNode(candidate)) return { label: '', aliases: [] };
-      var details = usable(labelDetails(candidate, translations, directLabelText));
+      var details = usable(labelDetails(candidate, translations, candidate.tag === 'img'
+        ? function (image) { return image.attrs.alt; } : directLabelText));
       return details.label ? details : usable(labelDetails(candidate, translations, labelText));
     }
     var direct = read(node);
@@ -1325,6 +1356,14 @@
     return weak.length === 1 ? { label: weak[0], aliases: [], strong: false } : { label: '', aliases: [] };
   }
 
+  function resourceHeadingBranch(node) {
+    var control = false;
+    if (node) walk(node, function (child) {
+      if (/^(?:input|select|textarea)$/.test(child.tag) && /^attr_/i.test(child.attrs.name || '')) control = true;
+    });
+    return !!node && !control;
+  }
+
   function resourceGroupLabelDetails(container, translations) {
     var fallback = null;
     var branch = container;
@@ -1334,6 +1373,12 @@
       details = resourceRollLabelDetails(branch);
       if (details.label && details.strong) return details;
       if (!fallback && details.label) fallback = details;
+      var siblings = branch.parent ? elementChildren(branch.parent) : [];
+      var preceding = siblings[siblings.indexOf(branch) - 1];
+      if (resourceHeadingBranch(preceding)) {
+        details = resourceHeadingDetails(preceding, translations);
+        if (details.label) return details;
+      }
       branch = branch.parent;
     }
     return fallback || { label: '', aliases: [] };
@@ -1457,8 +1502,8 @@
     function headingNode(candidate) {
       if (!candidate || candidate.tag === '#text') return false;
       var classes = normalizeText(candidate.attrs && candidate.attrs['class']).toLowerCase();
-      return !!headingTags[candidate.tag] ||
-        /(?:^|\s)(?:sheet-)?[^\s]*(?:head|header|title|tit)(?:\s|$)/.test(classes);
+      return (candidate.tag === 'img' && !!normalizeText(candidate.attrs.alt)) || !!headingTags[candidate.tag] ||
+        /(?:^|\s)(?:sheet-)?[^\s]*(?:head|header|title|tit|label)(?:\s|$)/.test(classes);
     }
 
     function collectHeadingCandidates(node, distance, nestedDepth, found) {
@@ -1533,6 +1578,12 @@
         var rightIndex = children.indexOf(rightBranch);
         if (leftIndex < 0 || rightIndex < 0) continue;
         var cutoff = Math.min(leftIndex, rightIndex);
+        // 입력란 없는 바로 앞 제목 묶음은 먼 이웃 자원의 제목보다 우선한다.
+        // 병렬 제목이 여럿이면 기존 소스 토큰 판별을 그대로 적용한다.
+        var adjacent = [];
+        if (cutoff > 0 && resourceHeadingBranch(children[cutoff - 1]))
+          collectHeadingCandidates(children[cutoff - 1], depth * 10 + 1, 0, adjacent);
+        if (adjacent.length) return selectHeadingCandidate(adjacent, uniqueTexts(pairTokens));
         for (var index = 0; index < cutoff; index += 1) {
           collectHeadingCandidates(children[index], depth * 10 + cutoff - index, 0, candidates);
         }

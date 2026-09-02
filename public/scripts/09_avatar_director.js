@@ -155,7 +155,20 @@ function avIsExcluded(character) {
   );
 }
 
-function avTargets(character) {
+function avVisualDialogueAvailable() {
+  var vd = KIBScene.adapters && KIBScene.adapters.vd;
+  if (!vd) return false;
+  return (
+    typeof KIBScene.isFeatureEnabled !== 'function' ||
+    KIBScene.isFeatureEnabled('vd')
+  );
+}
+
+function avVisualDialogueEnabled() {
+  return avVisualDialogueAvailable() && avInitState().defaults.vd === true;
+}
+
+function avTargets(character, includeUnavailable) {
   var data = avInitState();
   var saved = character && data.characterTargets[character.id];
   var result = {
@@ -163,6 +176,7 @@ function avTargets(character) {
     token: saved ? saved.token === true : data.defaults.token === true,
     vd: saved ? saved.vd === true : data.defaults.vd === true,
   };
+  if (includeUnavailable !== true && !avVisualDialogueEnabled()) result.vd = false;
   if (avIsExcluded(character)) {
     result.avatar = false;
     result.token = false;
@@ -204,6 +218,7 @@ function avValidateChange(request) {
   if (!avCanControl(character, request.playerId || 'API'))
     return { ok: false, error: '이 캐릭터의 표정을 변경할 권한이 없습니다.' };
   var targets = Object.assign({}, request.targets || avTargets(character));
+  if (!avVisualDialogueEnabled()) targets.vd = false;
   var card = null;
   if (targets.avatar || targets.token) {
     var decks =
@@ -604,7 +619,7 @@ function avHandleTargetCommand(msg) {
       if (value === null)
         return avWhisperGm('대상 설정은 켜기 또는 끄기를 입력하세요.');
       data.characterTargets[character.id] =
-        data.characterTargets[character.id] || avTargets(character);
+        data.characterTargets[character.id] || avTargets(character, true);
       data.characterTargets[character.id][key] = value;
       savedMessage =
         '<b>' +
@@ -651,6 +666,11 @@ function avHandleExcludeCommand(msg) {
       '</b> 자동 변경: ' +
       (action == '추가' ? '제외' : '사용'),
   );
+}
+
+function avHandleFeatureChanged(payload) {
+  if (payload && payload.name == 'vd') avScheduleRefresh();
+  return { ok: true };
 }
 
 function avScheduleRefresh() {
@@ -830,7 +850,7 @@ function avRefreshManagementHandout(characters, deckCards, active) {
     archived: false,
     notes:
       '<div style="font-family:Arial,sans-serif;color:#111;background:#fff"><div style="padding:12px;background:#111;color:#fff"><b style="font-size:18px">🎭 캐릭터 이미지 관리</b></div>' +
-      '<div style="margin-top:10px;padding:8px 9px;background:#f3f3f3;border-left:4px solid #111"><b>avatars 덱:</b> <code>캐릭터명</code>, <code>캐릭터명-표정명</code> 카드</div>' +
+      '<div style="margin-top:10px;padding:8px 9px;background:#f3f3f3;border-left:4px solid #111"><b>avatars 덱:</b> <code>캐릭터명</code>, <code>캐릭터명-표정명</code> 카드<br><b>맵 토큰:</b> 토큰 설정의 대표 캐릭터로 연결된 토큰을 변경하며 토큰 이름은 사용하지 않음</div>' +
       '<div style="margin-top:10px;background:#fff;border:1px solid #111"><div style="padding:6px 9px;background:#111;color:#fff;font-weight:bold">기본 변경 대상</div><div style="padding:8px">' +
       defaults +
       '</div></div>' +
@@ -841,13 +861,18 @@ function avRefreshManagementHandout(characters, deckCards, active) {
 }
 
 function avTargetButtons(reference, targets) {
-  return (
+  var buttons =
     avToggleButton('캐릭터', reference, '시트', targets.avatar) +
     ' ' +
-    avToggleButton('맵 토큰', reference, '토큰', targets.token) +
-    ' ' +
-    avToggleButton('비주얼 노벨', reference, '비주얼', targets.vd)
-  );
+    avToggleButton('맵 토큰', reference, '토큰', targets.token);
+  if (
+    reference == '기본'
+      ? avVisualDialogueAvailable()
+      : avVisualDialogueEnabled()
+  )
+    buttons +=
+      ' ' + avToggleButton('비주얼 노벨', reference, '비주얼', targets.vd);
+  return buttons;
 }
 
 function avToggleButton(label, reference, key, enabled) {
@@ -952,7 +977,10 @@ on('ready', function () {
     handleInline: avHandleInline,
     handleHiddenChat: avHandleHiddenChat,
     applyExpression: avApplyChange,
-    events: { 'expression:changed': avSyncExternal },
+    events: {
+      'expression:changed': avSyncExternal,
+      'feature:changed': avHandleFeatureChanged,
+    },
     status: function () {
       return {
         deck: avatar_setting.deck_name,

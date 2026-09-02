@@ -55,7 +55,7 @@ assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expected
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
 assert.strictEqual(
   crypto.createHash('sha256').update(JSON.stringify(embeddedSheets.slice(0, 34))).digest('hex'),
-  '3d3ae7dab5b382c77b8b6e8d2159436120500589c257b5a61d0bfe988457e1bb',
+  'dc1d90dff68ce9e2a7b4e83b321e4815d84ccb11c6f65f225c4079d6c79493e0',
   'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
 );
 assert(!/\brequire\s*\(/.test(recognitionBlock) &&
@@ -611,12 +611,18 @@ const secondFixtureCharacter = addCharacter(
 );
 useRoomCharacters(fixtureCharacter, secondFixtureCharacter);
 addAttribute(fixtureCharacter.id, 'cutin_catalog_probe', '');
+const cutinCatalogCharacter = [fixtureCharacter, secondFixtureCharacter]
+  .sort((left, right) => left.get('name').localeCompare(right.get('name')))[0];
+helper.scan(cutinCatalogCharacter.id);
 const cutinLiveReadStart = getAttrByNameCalls.length;
 const fixtureCutinItems = helper.cutinItems();
 assert.strictEqual(fixtureCutinItems.filter((item) => item.label === '사용자 항목').length, 1,
   '한 방의 같은 시트 굴림을 캐릭터 수만큼 중복 스캔하면 안 됩니다.');
 assert.strictEqual(getAttrByNameCalls.length, cutinLiveReadStart,
-  '컷인 항목 이름만 만들 때 존재하지 않는 실시간 시트 값을 조회하면 안 됩니다.');
+  '컷인 항목 이름은 현재 스캔 캐시를 재사용하고 실시간 시트 값을 추가 조회하면 안 됩니다.');
+assert.deepStrictEqual(Array.from(fixtureCutinItems.filter((item) => item.label === '지능'), (item) => item.displayLabel),
+  [1, 2].map((index) => '지능 (' + cutinCatalogCharacter.get('name') + ' ' + index + ')'),
+  '원본에 구분 표시명이 없으면 주사위 식으로 모드 이름을 지어내지 말고 기존 동명 번호를 유지해야 합니다.');
 useRoomCharacters(fixtureCharacter);
 
 // 새 설치는 안전한 비공개로 시작하고, 명시적으로 저장된 기존 설정은 그대로 보존해야 합니다.
@@ -1376,6 +1382,19 @@ assert.strictEqual(fixtureAttribute('temporary_madness').get('current'), '0',
 resetFixture({ mind_current: 45, temporary_madness: 0 });
 assert.strictEqual(changeFixture('mind_current', 45).length, 0,
   '같은 이성 값의 중복 이벤트로 자동 판정을 실행하면 안 됩니다.');
+
+[['', '0'], ['off', '0'], ['false', '']].forEach(([before, after]) => {
+  resetFixture({ long_madness: before });
+  assert.strictEqual(changeFixture('long_madness', after).length, 0,
+    '체크 해제의 원시 표현만 바뀌었으면 해제→해제 알림을 보내면 안 됩니다.');
+});
+resetFixture({ long_madness: '0' });
+assert.strictEqual(changeFixture('long_madness', 'active').filter((item) =>
+  item.content && item.content.includes('→ <b>활성화</b>')).length, 1,
+  '원본 체크값으로 실제 활성화되면 알림을 한 번 보내야 합니다.');
+assert.strictEqual(changeFixture('long_madness', '0').filter((item) =>
+  item.content && item.content.includes('→ <b>해제</b>')).length, 1,
+  '활성화된 체크를 실제 해제하면 알림을 한 번 보내야 합니다.');
 
 const missingLong = addMinimalInsanityFixture('missing_long', { longCount: 0, temporary: true });
 let missingFieldMessages = missingLong.change('current', 40);
@@ -2898,6 +2917,343 @@ function addSourceCharacter(sheet, id, name) {
   return { character, values };
 }
 
+// 역할 별칭은 정확한 원본 이름보다 우선하거나 모호한 자원을 임의 선택하면 안 됩니다.
+const resourceGuardSheet = parseSheetContract([
+  '<input name="attr_resource_guard_a"><input name="attr_resource_guard_b"><input name="attr_resource_guard_c">',
+  '<label>체력<input type="number" name="attr_health_a"></label>',
+  '<label>체력<input type="number" name="attr_health_b"></label>',
+  '<label>보관 수량<input type="number" name="attr_mana"></label>',
+  '<label>마력<input type="number" name="attr_magic_pool"></label>',
+  '<label>SAN<input type="number" name="attr_mind_a"></label>',
+  '<label>Sanity<input type="number" name="attr_mind_b"></label>',
+  '<button type="roll" value="&{template:resource-guard} {{subject=원본 판정}} {{roll=[[1d100]]}}"></button>',
+].join('\n'), { id: 'resource-resolution-guards', sourceHash: 'resource-resolution-guards-v1' });
+const resourceGuardAttributeStart = attributeObjects.length;
+const resourceGuardCharacter = addCharacter('resource-guard-character', '자원 이름 보호 시험', 'player-1', {
+  resource_guard_a: '1', resource_guard_b: '1', resource_guard_c: '1',
+  health_a: '10', health_b: '20', mana: '7', magic_pool: '10', mind_a: '50', mind_b: '40',
+});
+useContracts(resourceGuardSheet);
+useRoomCharacters(resourceGuardCharacter);
+const resourceGuardValue = (name) => attributeObjects.find((item) =>
+  item.get('_characterid') === resourceGuardCharacter.id && item.get('name') === name).get('current');
+const duplicateHealthChanges = runGeneral(':체력-1', resourceGuardCharacter.get('name'));
+assert(duplicateHealthChanges.some((item) => item.content && item.content.includes('같은 이름의 수치가 여러 개')),
+  '동명 체력 자원 둘은 역할 별칭으로 우회하지 않고 정확 이름 단계에서 거부해야 합니다.');
+assert.deepStrictEqual(['health_a', 'health_b'].map(resourceGuardValue), ['10', '20'],
+  '동명 체력 중 어느 값도 임의로 변경하면 안 됩니다.');
+runGeneral(':mana-1', resourceGuardCharacter.get('name'));
+assert.deepStrictEqual(['mana', 'magic_pool'].map(resourceGuardValue), ['6', '10'],
+  '명시적인 사용자 필드 이름 mana는 마력 역할 별칭보다 우선해야 합니다.');
+assert(!helper.scan(resourceGuardCharacter.id, true).resourceAliases['이성'],
+  '역할 모호성 시험에는 이성의 정확 이름 일치가 없어야 합니다.');
+const ambiguousSanityChanges = runGeneral(':이성-1', resourceGuardCharacter.get('name'));
+assert(ambiguousSanityChanges.some((item) => item.content &&
+  /찾지 못|여러 개/.test(item.content)),
+  '이성 역할 자원이 둘이면 하나를 임의 선택하지 말고 명령 실패를 알려야 합니다.');
+assert.deepStrictEqual(['mind_a', 'mind_b'].map(resourceGuardValue), ['50', '40'],
+  '역할 별칭이 모호할 때 SAN과 Sanity 중 어느 값도 변경하면 안 됩니다.');
+characters.splice(characters.indexOf(resourceGuardCharacter), 1);
+attributeObjects.splice(resourceGuardAttributeStart);
+
+// 실제 6번 원본의 이미지 제목이 HP/MP에 각각 연결되어야 합니다. 전체 배포
+// 인식 정보를 유지하고, 라이브처럼 현재값 둘을 저장해야 별칭 충돌이 드러납니다.
+const lampResourceAttributeStart = attributeObjects.length;
+const lampResourceRuntime = addSourceCharacter(
+  multiCheckboxSheet, 'lamp-resource-character', '람피온 자원 분리 시험');
+const lampResourceCharacter = lampResourceRuntime.character;
+sheetFieldDefaults[lampResourceCharacter.id] = sourceDefaults(multiCheckboxSheet);
+useContracts(...embeddedSheets);
+useRoomCharacters(lampResourceCharacter);
+const lampResourceAttributes = {};
+Object.entries({
+  con: '80', siz: '50', pow: '60', hp: '10', mp: '10', san: '50', san_start: '50',
+  showpulp: '0', pulp_hp: '0', 'major-wound-toggle': '0', temp_insane: '0', indef_insane: '0',
+}).forEach(([name, value]) => {
+  const attribute = attributeObjects.find((item) =>
+    item.get('_characterid') === lampResourceCharacter.id && item.get('name') === name) ||
+    addAttribute(lampResourceCharacter.id, name, value);
+  attribute.set('current', value);
+  lampResourceAttributes[name] = attribute;
+});
+// Roll20 워커가 저장한 실제 current/max 슬롯 형태이며 별도 *_max Attribute가 아닙니다.
+lampResourceAttributes.hp.set('max', 13);
+lampResourceAttributes.mp.set('max', 12);
+const lampResourceData = helper.scan(lampResourceCharacter.id, true);
+[['체력', 'hp', 13], ['마력', 'mp', 12]].forEach(([label, name, maximum]) => {
+  const item = lampResourceData.resourcesByAttribute[name];
+  assert(item && item.label === label && item.value === 10 && item.max === maximum,
+    `람피온 ${name}은 다른 자원 제목을 물려받지 않고 ${label} 현재·최대로 표시되어야 합니다.`);
+  assert.deepStrictEqual(Array.from(lampResourceData.resourceAliases[label] || [], (item) => item.name), [name],
+    `람피온 ${label} 명령은 같은 이름으로 오인된 HP/MP 중 하나를 임의 선택하면 안 됩니다.`);
+});
+const lampInitialStatus = runApi('!!상태', lampResourceCharacter.get('name'));
+assert(lampInitialStatus.some((item) => item.content &&
+  item.content.includes('체력 <b>10 / 13 (77%)') && item.content.includes('마력 <b>10 / 12 (83%)')),
+  '람피온 상태는 체력과 마력의 서로 다른 이름·현재·최대값을 함께 표시해야 합니다.');
+const lampPreviousTrackingMode = runtime.state.KIBSheetHelper.trackingMode;
+runtime.state.KIBSheetHelper.trackingMode = 'public';
+const lampMagicChanges = runGeneral(':마력-1', lampResourceCharacter.get('name'));
+assert.strictEqual(lampResourceAttributes.mp.get('current'), '9', '마력 명령은 MP만 감소시켜야 합니다.');
+assert.strictEqual(lampResourceAttributes.hp.get('current'), '10', '마력 명령이 HP를 바꾸면 안 됩니다.');
+assert.strictEqual(lampResourceAttributes['major-wound-toggle'].get('current'), '0',
+  '마력 감소를 체력 피해로 오인해 중상을 활성화하면 안 됩니다.');
+assert(lampMagicChanges.some((item) => item.content &&
+  ['마력', '10 / 12 (83%)', '9 / 12 (75%)'].every((text) => item.content.includes(text))),
+  '마력 변경 로그는 MP의 현재·최대값과 비율만 표시해야 합니다.');
+const lampHealthChanges = runGeneral(':체력-7', lampResourceCharacter.get('name'));
+assert.strictEqual(lampResourceAttributes.hp.get('current'), '3', '체력 명령은 HP만 감소시켜야 합니다.');
+assert.strictEqual(lampResourceAttributes.mp.get('current'), '9', '체력 명령이 MP를 바꾸면 안 됩니다.');
+assert.strictEqual(lampResourceAttributes.san.get('current'), '50', 'HP/MP 명령이 이성을 바꾸면 안 됩니다.');
+assert.strictEqual(lampResourceAttributes['major-wound-toggle'].get('current'), '1',
+  '실제 원본의 최대 체력 절반 이상 피해는 중상을 활성화해야 합니다.');
+assert(lampHealthChanges.some((item) => item.content &&
+  ['체력', '10 / 13 (77%)', '3 / 13 (23%)', '중상 활성화'].every((text) => item.content.includes(text))),
+  '체력 변경 로그는 HP의 현재·최대값과 중상 처리를 표시해야 합니다.');
+runGeneral(':이성-1', lampResourceCharacter.get('name'));
+assert.strictEqual(lampResourceAttributes.san.get('current'), '49',
+  '짧은 이성 명령은 원본 이성치의 현재값만 감소시켜야 합니다.');
+assert.strictEqual(lampResourceAttributes.san_start.get('current'), '50',
+  '짧은 이성 명령이 같은 원본 제목을 공유하는 시작 이성을 바꾸면 안 됩니다.');
+assert(runApi('!!상태', lampResourceCharacter.get('name')).some((item) => item.content &&
+  item.content.includes('체력 <b>3 / 13 (23%)') && item.content.includes('마력 <b>9 / 12 (75%)')),
+  '변경 후 상태에서도 체력과 마력의 최신값을 서로 구분해야 합니다.');
+runtime.state.KIBSheetHelper.trackingMode = lampPreviousTrackingMode;
+characters.splice(characters.indexOf(lampResourceCharacter), 1);
+attributeObjects.splice(lampResourceAttributeStart);
+delete sheetFieldDefaults[lampResourceCharacter.id];
+
+// 실제 8번 원본은 기본/good/bad 버튼이 따로 있고 각 버튼의 1/2 선택지가
+// 같은 숫자로 보입니다. 명령은 방향까지 구분하되 시트의 저장 선택값은 유지합니다.
+const islandModeSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-9b09d7edc1403192');
+assert(islandModeSheet, '섬툴루 원본의 분리된 일반/보너스/패널티 버튼이 필요합니다.');
+const islandModeAttributeStart = attributeObjects.length;
+const islandModeRuntime = addSourceCharacter(islandModeSheet, 'island-mode-character', '섬툴루 선택 방식 시험');
+const islandModeCharacter = islandModeRuntime.character;
+sheetFieldDefaults[islandModeCharacter.id] = sourceDefaults(islandModeSheet);
+const islandModeAttributes = {};
+Object.entries({
+  str: '50', con: '50', siz: '50', pow: '50', dex: '50', app: '50', int: '50', edu: '50',
+  san: '50', san_start: '50', temp_insane: '0', indef_insane: '0',
+  dice_type: '1', bonus_dice: '1', penalty_dice: '-1',
+}).forEach(([name, value]) => {
+  const attribute = attributeObjects.find((item) =>
+    item.get('_characterid') === islandModeCharacter.id && item.get('name') === name) ||
+    addAttribute(islandModeCharacter.id, name, value);
+  attribute.set('current', value);
+  islandModeAttributes[name] = attribute;
+});
+useContracts(...embeddedSheets);
+useRoomCharacters(islandModeCharacter);
+const islandStatusHtml = runApi('!!상태', islandModeCharacter.get('name'))
+  .map((item) => item.content || '').join('\n').split('현재 수치')[0];
+const islandStatusInstances = helper.contractRolls(islandModeCharacter.id);
+[['근력', '50'], ['감정', '5'], ['이성', '50']].forEach(([subject, value]) => {
+  const instance = islandStatusInstances.find((item) => item.roll.raw.includes('{{subject=' + subject + '}}') &&
+    item.roll.raw.includes('{{roll=[[1d100]]}}'));
+  assert(instance && islandStatusHtml.includes(instance.label + ' <b>' + value + '</b>'),
+    '섬툴루 상태의 ' + subject + ' 판정 수치 ' + value + '는 광기 상태값 0과 섞여 사라지면 안 됩니다.');
+});
+assert(['광기 2개', '실시간', '요약'].every((text) => islandStatusHtml.includes(text)),
+  '섬툴루의 빈 버튼 표시명과 별개로 원본 광기 2개 및 실시간/요약 선택 방식을 상태에 표시해야 합니다.');
+assert(islandStatusHtml.includes('명중부위'),
+  '목표 수치가 없는 섬툴루 원본 명중부위 굴림도 상태 목록에 남아 있어야 합니다.');
+assert(!islandStatusHtml.includes('명중부위 <b>0</b>'),
+  '명중부위의 1d20 굴림에 부가 광기 상태값 0을 판정 수치로 표시하면 안 됩니다.');
+[
+  ['', '', ''], ['보너스1', 'bonus_dice', '1'], ['보너스2', 'bonus_dice', '2'],
+  ['패널티1', 'penalty_dice', '-1'], ['패널티2', 'penalty_dice', '-2'],
+].forEach(([suffix, control, value]) => {
+  const sourceRoll = islandModeSheet.rolls.find((roll) => roll.raw.includes('{{subject=근력}}') &&
+    roll.raw.includes(control ? '{{dice_type=[[@{' + control + '}]]}}' : '{{roll=[[1d100]]}}'));
+  assert(sourceRoll, '섬툴루 원본 근력 버튼을 찾지 못했습니다: ' + suffix);
+  const sourceMode = control && sourceRoll.modes.find((mode) => mode.overrides[control] === value);
+  assert(!control || sourceMode, '섬툴루 원본 선택값이 없습니다: ' + suffix);
+  const exact = helper.exactContractInstance(islandModeCharacter.id, islandModeSheet.id, sourceRoll.key, '', true);
+  assert(exact.ok, '섬툴루 실제 원본 굴림 인스턴스를 찾지 못했습니다: ' + suffix);
+  const expected = helper.qualifyContractMacro(islandModeCharacter.id, exact.instance, sourceMode || null);
+  assert(expected.ok, '섬툴루 원본 굴림 식을 확장하지 못했습니다: ' + suffix);
+  const messages = runApi('!!근력' + (suffix ? ' ' + suffix : ''), islandModeCharacter.get('name'));
+  const rolls = messages.filter((item) => item.content && item.content.includes('kib_sheet_result='));
+  assert.strictEqual(rolls.length, 1,
+    '섬툴루 근력 ' + (suffix || '일반') + '은 선택 질문 없이 원본 버튼을 한 번 실행해야 합니다: ' +
+      JSON.stringify(messages.map((item) => item.content)));
+  assert(!messages.some((item) => item.content && item.content.includes('!시트 굴림선택|')),
+    '숫자가 같은 good/bad 선택지를 사용자에게 다시 물으면 안 됩니다: ' + suffix);
+  assert.strictEqual(rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, ''), expected.content,
+    '섬툴루 명령은 해당 원본 good/bad 식과 선택값을 그대로 사용해야 합니다: ' + suffix);
+  assert.strictEqual(inlineRollFieldCount(rolls[0].content), control ? 3 : 1,
+    '섬툴루 일반은 단일 roll, 보너스/패널티는 원본 3개 roll이어야 합니다: ' + suffix);
+  if (control) assert(rolls[0].content.includes('{{dice_type=[[' + value + ']]}}'),
+    '섬툴루 dice_type은 요청한 +/-1 또는 +/-2여야 합니다: ' + suffix);
+  assert.deepStrictEqual(['dice_type', 'bonus_dice', 'penalty_dice'].map((name) =>
+    islandModeAttributes[name].get('current')), ['1', '1', '-1'],
+  '일회성 명령은 시트에 저장된 일반/보너스/패널티 선택값을 바꾸면 안 됩니다: ' + suffix);
+});
+characters.splice(characters.indexOf(islandModeCharacter), 1);
+attributeObjects.splice(islandModeAttributeStart);
+delete sheetFieldDefaults[islandModeCharacter.id];
+
+// 실제 10번 원본 기본값만 사용합니다. 표현식 필드에 임의 주사위를 저장하거나
+// 반복 행을 만들어 정상/보너스 선택 및 비무장 중복을 가리지 않습니다.
+const stagfieldSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-cb64ac50518f0b60');
+assert(stagfieldSheet, '스태그필드 실제 임베드 원본이 필요합니다.');
+const stagfieldAttributeStart = attributeObjects.length;
+const stagfieldCharacter = addCharacter('stagfield-normal-character', '스태그필드 일반 판정 시험',
+  'player-1', { san: '50', language_own: '50', credit_rating: '0', dodge: '25' });
+sheetFieldDefaults[stagfieldCharacter.id] = sourceDefaults(stagfieldSheet);
+useContracts(...embeddedSheets);
+useRoomCharacters(stagfieldCharacter);
+const stagfieldInspection = helper.inspectContracts(stagfieldCharacter.id);
+assert(stagfieldInspection.contract && stagfieldInspection.contract.id === stagfieldSheet.id ||
+  (stagfieldInspection.matches || []).some((item) => item.id === stagfieldSheet.id),
+  '원본 기본값과 실제 입력만 있는 캐릭터의 후보에 스태그필드가 있어야 합니다.');
+const stagfieldNormalMacros = {};
+const stagfieldChecks = [
+  ['근력', 'str_check'], ['감정', 'appraise_check'], ['이성', 'san_check'], ['현재이성치', 'san_check'],
+  ['비무장', 'unarmed_check', 'coc-attack-1'],
+].map(([label, buttonName, template = 'coc-1']) => {
+  const sourceRoll = stagfieldSheet.rolls.find((roll) => roll.name === buttonName &&
+    roll.raw.includes('&{template:' + template + '}'));
+  assert(sourceRoll, '스태그필드 원본 정상 버튼이 없습니다: ' + label);
+  const exact = helper.exactContractInstance(stagfieldCharacter.id, stagfieldSheet.id, sourceRoll.key, '', true);
+  assert(exact.ok, '스태그필드 원본 정상 인스턴스가 없습니다: ' + label);
+  const expected = helper.qualifyContractMacro(stagfieldCharacter.id, exact.instance, null);
+  assert(expected.ok, '원본 기본값으로 정상 판정을 확장해야 합니다: ' + label);
+  stagfieldNormalMacros[label] = expected.content;
+  const messages = runApi('!!' + label, stagfieldCharacter.get('name'));
+  const rolls = messages.filter((item) => item.content && item.content.includes('kib_sheet_result='));
+  return {
+    command: '!!' + label,
+    pass: rolls.length === 1 && inlineRollFieldCount(rolls[0].content) === 1 &&
+      rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content &&
+      !messages.some((item) => item.content && item.content.includes('!시트 굴림선택|')),
+    templates: rolls.map((item) => (item.content.match(/&\{template:([^}]+)\}/) || [])[1]),
+    diceCounts: rolls.map((item) => inlineRollFieldCount(item.content)),
+  };
+});
+const stagfieldWeapons = westernEuroStatusGroups(stagfieldCharacter)['무기'];
+stagfieldChecks.push({
+  command: '!!상태 / 무기',
+  pass: Array.isArray(stagfieldWeapons) && stagfieldWeapons.length === 1 && stagfieldWeapons[0] === '비무장',
+  labels: stagfieldWeapons,
+});
+const stagfieldSanityResource = helper.scan(stagfieldCharacter.id).resourcesByAttribute.san;
+stagfieldChecks.push({
+  command: '현재 이성치 자원 이름',
+  pass: !!stagfieldSanityResource && stagfieldSanityResource.label === '현재 이성치',
+  label: stagfieldSanityResource && stagfieldSanityResource.label,
+});
+const stagfieldSearchHtml = runApi('!!검색 비무장', stagfieldCharacter.get('name'))
+  .map((item) => item.content || '').join('\n');
+const stagfieldSearchRows = Array.from(stagfieldSearchHtml.matchAll(/<tr>[\s\S]*?<\/tr>/g), (match) => match[0])
+  .filter((row) => row.includes('<b>비무장</b>'));
+function stagfieldActionButtons(html) {
+  return Array.from(html.matchAll(/href="(!시트 굴림(?:목록|선택)\|[^"]*)"/g),
+    (match) => match[1].replace(/&amp;/g, '&'));
+}
+const stagfieldSearchButtons = stagfieldActionButtons(stagfieldSearchRows.join('\n'));
+stagfieldChecks.push({
+  command: '!!검색 비무장', pass: stagfieldSearchRows.length === 1 && stagfieldSearchButtons.length === 1,
+  rows: stagfieldSearchRows.length, buttons: stagfieldSearchButtons,
+});
+const stagfieldSearchExecution = stagfieldSearchButtons.length === 1
+  ? runApi(stagfieldSearchButtons[0], stagfieldCharacter.get('name')) : [];
+const stagfieldSearchRolls = stagfieldSearchExecution.filter((item) => (item.content || '').includes('kib_sheet_result='));
+stagfieldChecks.push({
+  command: '실제 비무장 검색 버튼 실행',
+  pass: stagfieldSearchRolls.length === 1 && inlineRollFieldCount(stagfieldSearchRolls[0].content) === 1 &&
+    stagfieldSearchRolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === stagfieldNormalMacros['비무장'] &&
+    !stagfieldSearchExecution.some((item) => (item.content || '').includes('!시트 굴림선택|')),
+  diceCounts: stagfieldSearchRolls.map((item) => inlineRollFieldCount(item.content)),
+});
+// 두 실제 후보의 보너스 결과 규칙은 서로 다릅니다. 일반 UI 정리 때문에
+// 원본 보너스 후보까지 하나로 만들거나 정상 버튼으로 치환하면 안 됩니다.
+const stagfieldBonusPeer = embeddedSheets.find((sheet) => sheet.id === 'sheet-985cd27c28db2ec5');
+assert(stagfieldBonusPeer && JSON.stringify(stagfieldSheet.resultTemplates['coc-attack']) !==
+  JSON.stringify(stagfieldBonusPeer.resultTemplates['coc-attack']), '실제 후보의 서로 다른 보너스 결과 규칙이 필요합니다.');
+const stagfieldBonusMessages = runApi('!!비무장보너스1', stagfieldCharacter.get('name'));
+const stagfieldBonusButtons = stagfieldActionButtons(stagfieldBonusMessages.map((item) => item.content || '').join('\n'));
+const stagfieldBonusChoices = stagfieldBonusButtons.map((command) => ({ command, parts: command.split('|').map(decodeURIComponent) }));
+const stagfieldBonusChoice = stagfieldBonusChoices.find((choice) =>
+  choice.parts[2] === stagfieldSheet.id && choice.parts[3] === 'unarmed_check');
+stagfieldChecks.push({
+  command: '!!비무장보너스1 원본 후보 보존',
+  pass: !stagfieldBonusMessages.some((item) => (item.content || '').includes('kib_sheet_result=')) &&
+    !!stagfieldBonusChoice && stagfieldBonusChoices.some((choice) =>
+      choice.parts[2] === stagfieldBonusPeer.id && choice.parts[3] === 'unarmed_check'),
+  choices: stagfieldBonusChoices.map((choice) => choice.parts.slice(2, 4)),
+});
+const stagfieldBonusExecution = stagfieldBonusChoice
+  ? runApi(stagfieldBonusChoice.command, stagfieldCharacter.get('name')) : [];
+const stagfieldBonusRolls = stagfieldBonusExecution.filter((item) => (item.content || '').includes('kib_sheet_result='));
+const stagfieldBonusExact = helper.exactContractInstance(stagfieldCharacter.id, stagfieldSheet.id, 'unarmed_check', '', true);
+assert(stagfieldBonusExact.ok, '스태그필드 원본 비무장 보너스 후보가 남아 있어야 합니다.');
+const stagfieldBonusExpected = helper.qualifyContractMacro(stagfieldCharacter.id, stagfieldBonusExact.instance, null);
+stagfieldChecks.push({
+  command: '실제 비무장 보너스 선택 버튼 실행',
+  pass: stagfieldBonusExpected.ok && stagfieldBonusRolls.length === 1 &&
+    inlineRollFieldCount(stagfieldBonusRolls[0].content) === 3 &&
+    stagfieldBonusRolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === stagfieldBonusExpected.content,
+  diceCounts: stagfieldBonusRolls.map((item) => inlineRollFieldCount(item.content)),
+});
+// 실제 고정 사용자 기능의 정상/보너스 버튼은 같은 필드를 쓰지만 name이 다릅니다.
+// 원본 이름을 고치지 않고 실제 저장값과 변경 이벤트로 정상 선택을 검증합니다.
+const stagfieldCustomName = addAttribute(stagfieldCharacter.id, 'otherskill4_da_name', '스태그실검기능');
+const stagfieldCustomValue = addAttribute(stagfieldCharacter.id, 'otherskill4_da', '47');
+const stagfieldCustomSource = stagfieldSheet.rolls.find((roll) =>
+  roll.raw.includes('&{template:coc-1}') && roll.raw.includes('@{otherskill4_da_name}'));
+assert(stagfieldCustomSource, '실제 사용자 기능 이름 필드의 원본 정상 버튼이 필요합니다.');
+[['스태그실검기능', '47'], ['스태그변경기능', '63']].forEach(([name, value]) => {
+  [[stagfieldCustomName, name], [stagfieldCustomValue, value]].forEach(([attribute, current]) => {
+    const previous = attribute.get('current');
+    if (previous === current) return;
+    attribute.set('current', current);
+    events['change:attribute'](attribute, { current: previous });
+  });
+  const exact = helper.exactContractInstance(stagfieldCharacter.id, stagfieldSheet.id, stagfieldCustomSource.key, '', true);
+  assert(exact.ok, '현재 사용자 기능의 원본 정상 버튼에 접근해야 합니다.');
+  const expected = helper.qualifyContractMacro(stagfieldCharacter.id, exact.instance, null);
+  assert(expected.ok && expected.content.includes('{{success=[[' + value + ']]}}'),
+    '사용자 기능 원본을 실제 저장값으로 확장해야 합니다: ' + value);
+  const messages = runApi('!!' + name, stagfieldCharacter.get('name'));
+  const rolls = messages.filter((item) => (item.content || '').includes('kib_sheet_result='));
+  const choices = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'));
+  stagfieldChecks.push({
+    command: '!!' + name + ' / ' + value,
+    pass: rolls.length === 1 && inlineRollFieldCount(rolls[0].content) === 1 && choices.length === 0 &&
+      rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content,
+    diceCounts: rolls.map((item) => inlineRollFieldCount(item.content)),
+    choices: choices.map((command) => command.split('|').slice(2, 4)),
+  });
+});
+const stagfieldOldCustomMessages = runApi('!!스태그실검기능', stagfieldCharacter.get('name'));
+stagfieldChecks.push({
+  command: '변경 전 스태그실검기능 이름 제거',
+  pass: stagfieldOldCustomMessages.some((item) => (item.content || '').includes('스태그실검기능 굴림을 찾지 못했습니다')) &&
+    !stagfieldOldCustomMessages.some((item) => /kib_sheet_result=|!시트 굴림선택\|/.test(item.content || '')),
+});
+assert(stagfieldChecks.every((item) => item.pass),
+  '스태그필드 정상 명령은 원본 단일 판정이고 비무장은 상태에 한 번만 있어야 합니다: ' +
+    JSON.stringify(stagfieldChecks));
+characters.splice(characters.indexOf(stagfieldCharacter), 1);
+attributeObjects.splice(stagfieldAttributeStart);
+delete sheetFieldDefaults[stagfieldCharacter.id];
+
+// 실제 7번의 장식용 기본 라벨은 한국어 자원 묶음 이름을 덮으면 안 됩니다.
+const rottenSanitySheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-db283d90e7ce3ebf');
+assert(rottenSanitySheet, '로튼 레이크 실제 임베드 원본이 필요합니다.');
+const rottenSanityAttributeStart = attributeObjects.length;
+const rottenSanityCharacter = addCharacter('rotten-sanity-label-character', '로튼 이성 이름 시험', 'player-1', { san: '50' });
+sheetFieldDefaults[rottenSanityCharacter.id] = sourceDefaults(rottenSanitySheet);
+useContracts(...embeddedSheets);
+useRoomCharacters(rottenSanityCharacter);
+assert.strictEqual(helper.scan(rottenSanityCharacter.id).resourcesByAttribute.san.label, '이성',
+  '로튼 원본의 장식 라벨 │ 대신 이성 묶음 이름을 보존해야 합니다.');
+characters.splice(characters.indexOf(rottenSanityCharacter), 1);
+attributeObjects.splice(rottenSanityAttributeStart);
+delete sheetFieldDefaults[rottenSanityCharacter.id];
+
 // 같은 원본 계열이 함께 후보로 남고 숨은 표시명이 빈 Attribute로 저장된 경우에도
 // 단일 판정 버튼을 골라 완전한 원본 rolltemplate 식을 보내야 합니다.
 const singleRollSource = embeddedSheets.find((sheet) => sheet.id === 'sheet-897a7f3b9c6a8d78');
@@ -3451,6 +3807,28 @@ assert(publicCombinedLabel,
   '공개 시트의 통합 ' + mode + ' 굴림을 실행하지 못했습니다.');
 });
 
+// Roll20는 attr_name_max 입력을 별도 Attribute가 아니라 name.max 숫자로 저장합니다.
+const nativeSlotSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-f3665f982d39afe2');
+const nativeSlotValues = {};
+nativeSlotSheet.signature.forEach((entry) => {
+  nativeSlotValues[typeof entry === 'string' ? entry : entry.name] = '1';
+});
+Object.assign(nativeSlotValues, { hp: '11', mp: '12', san: '50', san_start: '50', luck: '0' });
+['hp_max', 'mp_max', 'san_max'].forEach((name) => { delete nativeSlotValues[name]; });
+const nativeSlotCharacter = addCharacter('native-max-slots', '원본 최대값 저장 슬롯 시험', 'player-1', nativeSlotValues);
+useContracts(nativeSlotSheet);
+useRoomCharacters(nativeSlotCharacter);
+[['hp', 11], ['mp', 12], ['san', 99]].forEach(([name, maximum]) => {
+  const attribute = attributeObjects.find((item) =>
+    item.get('_characterid') === nativeSlotCharacter.id && item.get('name') === name);
+  attribute.set('max', maximum);
+});
+const nativeSlotResources = helper.scan(nativeSlotCharacter.id, true).resourcesByAttribute;
+[['hp', 11], ['mp', 12], ['san', 99]].forEach(([name, maximum]) => {
+  assert.strictEqual(nativeSlotResources[name].max, maximum,
+    '별도 _max 속성이 없어도 실제 Attribute.max 숫자를 현재 자원 최대값으로 읽어야 합니다: ' + name);
+});
+
 const nativeLimitRuntime = addSourceCharacter(
   nativeLimitSheet,
   'source-native-limit',
@@ -3653,9 +4031,74 @@ useRoomCharacters(westernEuroRuntime.character);
 const westernEuroInspection = helper.inspectContracts(westernEuroRuntime.character.id);
 assert.strictEqual(westernEuroInspection.status, 'matched');
 assert.strictEqual(westernEuroInspection.contract.id, westernEuroSheet.id);
-[['외모', 'app', '63'], ['감정', 'appraise', '42'], ['근력', 'str', '71']].forEach(([label, name, value]) => {
+
+// 실제 시트 기본값만 있는 새 캐릭터도 상태에서는 일반/보너스 버튼을
+// 같은 항목으로 보여야 합니다. 명령 실행 성공만으로 상태 분류를 대신 검증하지 않습니다.
+const westernEuroBlank = addCharacter('western-euro-blank-status', '웨스턴유로 빈 상태 시험', 'player-1', {});
+sheetFieldDefaults[westernEuroBlank.id] = sourceDefaults(westernEuroSheet);
+useRoomCharacters(westernEuroBlank);
+function westernEuroStatusGroups(character) {
+  const content = runApi('!!상태', character.get('name'))
+    .find((item) => item.who === '시트 헬퍼').content;
+  const headings = Array.from(content.matchAll(/font-weight:bold">([^<]+)<\/div>/g));
+  return Object.fromEntries(headings.map((heading, index) => [
+    heading[1].replace(/ \d+개$/, ''),
+    Array.from(content.slice(heading.index, headings[index + 1] ? headings[index + 1].index : content.length)
+      .matchAll(/<span style="display:inline-block;margin:0 8px 3px 0">([^<]*)/g), (match) => match[1].trim()),
+  ]));
+}
+const westernBlankGroups = westernEuroStatusGroups(westernEuroBlank);
+const westernCharacteristics = ['근력', '건강', '크기', '민첩성', '외모', '교육', '지능', '정신력'];
+assert.deepStrictEqual(westernBlankGroups['특성치'].slice().sort(), westernCharacteristics.slice().sort(),
+  '웨스턴유로의 일반/보너스 특성치 버튼은 상태에서 각각 한 번만 보여야 합니다.');
+const westernFixedNames = Array.from(new Set(westernEuroSheet.rolls.flatMap((roll) =>
+  (roll.staticLabels || []).filter((label) => label.field === 'subject').map((label) => label.value))));
+assert.strictEqual(westernFixedNames.length, 63, '실제 웨스턴유로의 고유 고정 판정명 수가 달라졌습니다.');
+assert.deepStrictEqual(westernBlankGroups['기능 / 판정'].slice().sort(),
+  westernFixedNames.filter((label) => !westernCharacteristics.includes(label)).sort(),
+  '간접 다이스 필드의 1d100과 결과 규칙을 읽어 모든 기능을 한 번씩 기능 / 판정에 보여야 합니다.');
+assert.deepStrictEqual(westernBlankGroups['무기'], ['비무장'],
+  '읽기 전용 원본 무기 이름을 툴팁보다 우선하고 일반/보너스 버튼을 하나로 보여야 합니다.');
+assert.strictEqual(westernBlankGroups['광기'].length, 2,
+  '실시간/요약 광기는 서로 다른 원본 판정으로 보존해야 합니다.');
+assert(!westernBlankGroups['기타 주사위'], '웨스턴유로 기능을 기타 주사위에 섞으면 안 됩니다.');
+
+const westernCutinReadStart = getAttrByNameCalls.length;
+const westernCutinCatalog = helper.cutinItems();
+assert.strictEqual(getAttrByNameCalls.length, westernCutinReadStart,
+  '웨스턴유로 컷인 목록도 현재 상태 스캔을 재사용해야 합니다.');
+assert.strictEqual(westernCutinCatalog.length, 129,
+  '표시 이름을 고치면서 원본 일반/보너스 컷인 연결 항목을 합치거나 삭제하면 안 됩니다.');
+assert.strictEqual(crypto.createHash('sha256').update(JSON.stringify(
+  Array.from(westernCutinCatalog, (item) => item.key).sort())).digest('hex'),
+'bc0b6b3c0cddad8c55af6c1fcaf7b4ebc0cc6a93a61fe64b27c6fc16608155dc',
+'수정 전 웨스턴유로의 컷인 키 129개를 모두 그대로 보존해야 합니다.');
+westernFixedNames.filter((label) => label !== '이성').concat('비무장').forEach((label) => {
+  const items = westernCutinCatalog.filter((item) => item.label === label);
+  assert.strictEqual(items.length, 2, '원본 이름과 두 개별 실행 키를 보존해야 합니다: ' + label);
+  helper.scan(westernEuroBlank.id).contractRolls.filter((instance) => instance.label === label).forEach((instance) => {
+    const sourceLabel = instance.roll.aliases[0] || instance.roll.label;
+    assert.notStrictEqual(sourceLabel, label, '실제 원본 버튼의 구분 표시명이 누락되었습니다: ' + label);
+    assert(items.some((item) => item.displayLabel && item.displayLabel.includes(sourceLabel)),
+      '동명 컷인 옵션은 원본 버튼의 실제 표시명으로 구분해야 합니다: ' + label + ' / ' + sourceLabel);
+  });
+});
+
+// 같은 표시명이라도 다른 반복행은 각각 남겨야 하고, 각 행의 두 버튼만 묶습니다.
+['first', 'second'].forEach((row, index) => {
+  addAttribute(westernEuroBlank.id, 'repeating_other_weapon_' + row + '_other_weapon_title', '사용자 무기 기능');
+  addAttribute(westernEuroBlank.id, 'repeating_other_weapon_' + row + '_other_weapon', String(41 + index));
+});
+addAttribute(westernEuroBlank.id, '_reporder_repeating_other_weapon', 'first,second');
+const westernRepeatedGroups = westernEuroStatusGroups(westernEuroBlank);
+assert.strictEqual(Object.values(westernRepeatedGroups).flat().filter((label) => label === '사용자 무기 기능').length, 2,
+  '동명이인 반복행을 합치거나 각 행의 일반/보너스 버튼을 중복 표시하면 안 됩니다.');
+
+useRoomCharacters(westernEuroRuntime.character);
+[['외모', 'app', '63'], ['감정', 'appraise', '42'], ['근력', 'str', '71'], ['비무장', 'fighting_brawl', '58']]
+  .forEach(([label, name, value]) => {
   addAttribute(westernEuroRuntime.character.id, name, value);
-  ['', ' 보너스1', ' 패널티1'].forEach((suffix) => {
+  ['', ' 보너스1', ' 보너스2', ' 패널티1', ' 패널티2'].forEach((suffix) => {
     const messages = runApi('!!' + label + suffix, westernEuroRuntime.character.get('name'));
     const rolls = messages.filter((message) => (message.content || '').includes('kib_sheet_result='));
     assert.strictEqual(rolls.length, 1, '한글 명령을 선택 질문 없이 한 번 실행해야 합니다: ' + label + suffix);
@@ -3669,5 +4112,48 @@ assert.strictEqual(westernEuroInspection.contract.id, westernEuroSheet.id);
     '원본 주사위 식을 빠짐없이 전송해야 합니다: ' + label + suffix);
   });
 });
+
+// 상태/수동 명령과 자동 지능은 같은 원본 일반 버튼을 골라야 합니다.
+// 실제 웨스턴유로의 간접 템플릿과 roll1 결과를 끝까지 사용합니다.
+const westernAutoCharacter = addCharacter('western-euro-auto-sanity', '웨스턴유로 자동 광기 시험', 'player-1', {
+  san: '50', san_start: '50', int: '60', temp_insane: '0', indef_insane: '0',
+});
+sheetFieldDefaults[westernAutoCharacter.id] = sourceDefaults(westernEuroSheet);
+useContracts(...embeddedSheets);
+useRoomCharacters(westernAutoCharacter);
+function westernAutoAttribute(name) {
+  return attributeObjects.find((item) => item.get('_characterid') === westernAutoCharacter.id && item.get('name') === name);
+}
+[40, 80].forEach((total) => {
+  westernAutoAttribute('san').set('current', '50');
+  westernAutoAttribute('temp_insane').set('current', '0');
+  helper.scan(westernAutoCharacter.id, true);
+  const messages = runGeneral(':이성-5', westernAutoCharacter.get('name'));
+  const automaticRolls = intelligenceRolls(messages);
+  assert.strictEqual(automaticRolls.length, 1,
+    '웨스턴유로 이성 5 감소의 자동 지능은 두 버튼 충돌 없이 한 번 실행해야 합니다.');
+  assert.strictEqual(westernAutoAttribute('san').get('current'), '45');
+  assert.strictEqual(westernAutoAttribute('temp_insane').get('current'), '0',
+    '원본 지능 결과가 도착하기 전에는 일시적 광기를 체크하면 안 됩니다.');
+  const content = automaticRolls[0].content;
+  assert(content.includes('&{template:coc-short}') && content.includes('{{success=[[0+60]]}}') &&
+    content.includes('{{roll1=[[1d100]]}}') && !content.includes('{{roll2='),
+  '자동 지능도 현재 지능값을 쓰는 원본 단일 일반 버튼을 실행해야 합니다.');
+  const token = content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  const fields = Object.entries({ success: 60, hard: 30, extreme: 12, hardStart: 13, successStart: 31, failStart: 61, roll1: total });
+  events['chat:message']({
+    type: 'general', rolltemplate: 'coc-short',
+    content: '{{subject=지능}} ' + fields.map(([field], index) => '{{' + field + '=$[[' + index + ']]}}').join(' ') +
+      ' {{kib_sheet_result=' + token + '}}',
+    inlinerolls: fields.map(([, value]) => ({ results: { total: value } })),
+    who: westernAutoCharacter.get('name'), playerid: 'player-1',
+  });
+  assert.strictEqual(westernAutoAttribute('temp_insane').get('current'), total === 40 ? '1' : '0',
+    '실제 웨스턴유로 지능 성공 결과만 원본 일시적 광기 체크값 1로 저장해야 합니다.');
+});
+const westernRoleAlias = runApi('!!sanity', westernAutoCharacter.get('name'));
+assert.strictEqual(westernRoleAlias.filter((item) => item.content &&
+  item.content.includes('{{subject=이성}}') && item.content.includes('kib_sheet_result=')).length, 1,
+  '기존 의미역 별칭 호출자는 원본 이성 버튼을 그대로 실행해야 합니다.');
 
 console.log('Sheet Helper check: PASS');

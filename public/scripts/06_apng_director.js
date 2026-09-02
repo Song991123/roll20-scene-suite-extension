@@ -59,7 +59,9 @@ KIBScene.adapters = KIBScene.adapters || {};
           '<code>@APNG 카드 이름|1회|3초|전체</code> 한 번 재생',
           '<code>@APNG 카드 이름|반복|영역</code> 중지할 때까지 반복',
           '<code>전체</code> 적용 페이지 전체',
-          '<code>영역</code> ' + escapeHtml(SETTING.AREA_NAME) + ' 위치',
+          '<code>영역</code> GM 레이어의 <code>' +
+            escapeHtml(SETTING.AREA_NAME) +
+            '</code> 영역 이미지 토큰 위치',
           '<code>@APNG 중지</code>',
           '<code>@APNG 카드 이름|중지</code>',
         ],
@@ -175,7 +177,9 @@ KIBScene.adapters = KIBScene.adapters || {};
           '</b> 덱에 앞면 이미지가 있는 카드가 없습니다.',
       );
     whisper(
-      '사용법: <code>!APNG 재생|카드 이름|1회|3초|전체</code><br><code>!APNG 재생|카드 이름|반복|영역</code><br><code>!APNG 중지</code>',
+      '사용법: <code>!APNG 재생|카드 이름|1회|3초|전체</code><br><code>!APNG 재생|카드 이름|반복|영역</code><br><code>!APNG 중지</code><br>영역 재생은 GM 레이어에 이미지 토큰을 놓고 토큰 이름을 <code>' +
+        escapeHtml(SETTING.AREA_NAME) +
+        '</code>로 지정합니다. 토큰 이름은 업로드 파일명이 아닙니다.',
     );
   }
 
@@ -485,9 +489,9 @@ KIBScene.adapters = KIBScene.adapters || {};
         error:
           '지정 영역에 재생하려면 <b>' +
           escapeHtml(page.get('name')) +
-          '</b> 페이지 GM 레이어에 <b>' +
+          '</b> 페이지 GM 레이어에 이미지 토큰을 놓고 토큰 이름을 <b>' +
           escapeHtml(SETTING.AREA_NAME) +
-          '</b> 토큰을 하나 놓아 주세요.',
+          '</b>로 지정해 주세요.',
       };
     return { ok: true, area: areas[0] };
   }
