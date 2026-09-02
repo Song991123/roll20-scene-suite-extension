@@ -4885,6 +4885,16 @@ function pairResourceMaximums(label, hpMax, mpMax) {
       resources.san && resources.san.max === 99 });
 }
 pairResourceMaximums('source-formulas-13-12', 13, 12);
+const pairStatusData = helper.scan(pairSourceCharacter.id);
+const pairStatusNames = pairStatusData.resources.filter((item) => item.statusResource).map((item) => item.name).sort();
+const pairStatusText = runApi('!!상태', pairSourceCharacter.get('name')).map((item) => item.content || '').join(' ')
+  .replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+const pairStatusSection = (pairStatusText.match(/현재 수치 (\d+)개 (.*?) 항목을 좁혀/s) || []);
+pairSourceChecks.push({ label: 'status-current-three-not-start-or-maximum', actual: pairStatusNames,
+  pass: JSON.stringify(pairStatusNames) === JSON.stringify(['hp', 'mp', 'san']) && pairStatusSection[1] === '3' });
+pairSourceChecks.push({ label: 'status-current-sanity-with-start-and-maximum', actual: pairStatusSection[2],
+  pass: /이성 50 \/ 시작 50 \(100%\) \/ 최대 99/.test(pairStatusSection[2] || '') &&
+    !/시작 이성|san_max/.test(pairStatusSection[2] || '') });
 [['90', '70', 14, 14], ['80', '60', 13, 12]].forEach(([con, pow, hpMax, mpMax]) => {
   [['con', con], ['pow', pow]].forEach(([name, value]) => {
     const attribute = pairSourceAttribute(name), previous = attribute.get('current');
@@ -4912,6 +4922,9 @@ pairSourceChecks.push({ label: 'health-major-current-maximum',
     .forEach(([name, value]) => pairSourceAttribute(name).set('current', String(value)));
   helper.scan(pairSourceCharacter.id, true);
   const messages = runGeneral(':이성-' + branch.loss, pairSourceCharacter.get('name'));
+  const changeText = messages.map((item) => item.content || '').join(' ').replace(/<[^>]*>/g, ' ');
+  pairSourceChecks.push({ label: 'SAN-change-log-hides-maximum-' + branch.loss + '-INT-' + branch.int,
+    pass: changeText.includes('시작 50') && !/최대\s*99|san_max/.test(changeText) });
   const automatic = messages.filter((item) => (item.content || '').includes('{{name=지능}}') &&
     item.content.includes('kib_sheet_result='));
   pairSourceChecks.push({ label: 'SAN-' + branch.loss + '-INT-' + branch.int + '-before-result',
@@ -4947,5 +4960,46 @@ useContracts(...embeddedSheets);
 useRoomCharacters(westernAutoCharacter);
 assert(pairSourceChecks.every((item) => item.pass),
   '실제 20번 UI 별칭/원본 굴림/자원 공식/광기 분기를 보존해야 합니다: ' + JSON.stringify(pairSourceChecks));
+
+// 표시명으로 연결되지 않아도 유일한 명시 최대 필드만 상태 자원으로 보완합니다.
+// 일반 HTML max, 의미가 다른 이름, 중복 최대, 숨은 값과 반복행은 확대하지 않습니다.
+const statusPairDefinitions = [
+  ['meter', '잔량', 5, ''], ['meter_max', '최대', 10, 'disabled'],
+  ['doubled', '분리량', 5, ''], ['doubled_max', '최대', 20, 'disabled'], ['max_doubled', '최대', 30, 'disabled'],
+  ['named_wrong', '무관값', 5, ''], ['named_wrong_max', '작성번호', 10, 'disabled'],
+  ['hidden_pair', '숨은 한도값', 5, ''], ['hidden_pair_max', '최대', 10, 'hidden disabled'],
+  ['hidden_current', '감춘 값', 5, 'hidden'], ['hidden_current_max', '최대', 10, 'disabled'],
+  ['starting_meter', '시작 측정값', 5, ''], ['starting_meter_max', '최대', 10, 'disabled'],
+  ['disabled_meter', '읽기전용 값', 5, 'disabled'], ['disabled_meter_max', '최대', 10, 'disabled'],
+  ['ordinary_skill', '독립 기능', 5, 'max="99"'], ['inline_hp', '체력', 5, 'max="20"'],
+];
+const statusPairSheet = parseSheetContract(statusPairDefinitions.map(([name, label, value, attrs]) =>
+  `<label>${label}<input type="number" name="attr_${name}" value="${value}" ${attrs}></label>`).concat([
+  '<div><strong>독립 자원</strong><input title="현재" type="number" name="attr_label_current" value="5">',
+  '<input title="최대" type="number" name="attr_label_limit" value="10" disabled></div>',
+  '<fieldset class="repeating_samples"><label>행 값<input type="number" name="attr_row_meter" value="5"></label>',
+  '<label>최대<input type="number" name="attr_row_meter_max" value="10" disabled></label></fieldset>',
+  '<button type="roll" name="roll_status_pair" value="&{template:status_pair} {{subject=독립 판정}} {{success=[[@{meter}]]}} {{roll=[[1d100]]}}">독립 판정</button>',
+]).join('\n'), { id: 'status-resource-name-pair', sourceHash: 'status-resource-name-pair-v1' });
+const statusPairAttributeStart = attributeObjects.length;
+const statusPairCharacter = addCharacter('status-resource-name-pair', '현재 수치 표시 경계', 'player-1', {
+  ...Object.fromEntries(statusPairDefinitions.map(([name, , value]) => [name, String(value)])),
+  label_current: '5', label_limit: '10', repeating_samples_row1_row_meter: '5', repeating_samples_row1_row_meter_max: '10',
+});
+useContracts(statusPairSheet);
+useRoomCharacters(statusPairCharacter);
+const statusPairData = helper.scan(statusPairCharacter.id, true);
+const statusPairNames = statusPairData.resources.filter((item) => item.statusResource).map((item) => item.name).sort();
+assert.deepStrictEqual(Array.from(statusPairNames), ['inline_hp', 'label_current', 'meter'],
+  '유일한 명시 최대/기존 label·HTML 자원만 표시하고 무관·중복·숨김·반복·시작값은 제외해야 합니다.');
+assert.strictEqual(statusPairData.resourcesByAttribute.doubled.max, null,
+  '같은 원본 이름으로 연결되는 최대가 둘이면 표시와 최대값 모두 임의 선택하면 안 됩니다.');
+assert(statusPairData.resourcesByAttribute.starting_meter &&
+  statusPairData.resourcesByAttribute.repeating_samples_row1_row_meter,
+  '시작값과 실제 반복행은 상태에서만 제외하고 일반 수치 접근은 보존해야 합니다.');
+characters.splice(characters.indexOf(statusPairCharacter), 1);
+attributeObjects.splice(statusPairAttributeStart);
+useContracts(...embeddedSheets);
+useRoomCharacters(westernAutoCharacter);
 
 console.log('Sheet Helper check: PASS');
