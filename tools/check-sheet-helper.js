@@ -684,13 +684,15 @@ function intelligenceRolls(messages) {
 function finishIntelligence(messages, total) {
   const pending = intelligenceRolls(messages);
   assert.strictEqual(pending.length, 1, '자동 지능 판정은 정확히 한 번만 실행해야 합니다.');
-  const token = pending[0].content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  assert(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/.test(pending[0].content),
+    '자동 지능 판정도 템플릿 필드를 추가하지 않는 주석 표식으로 결과를 연결해야 합니다.');
+  const token = pending[0].content.match(/kib_sheet_result=([A-Za-z0-9_-]+)(?:-->|\}\})/)[1];
   setPlayerSpeakingAs(fixtureCharacter.get('name'), 'player-1');
   const start = sent.length;
   events['chat:message']({
     type: 'general',
     content: '&{template:fixture} {{subject=지능}} {{success=$[[0]]}} {{hard=$[[1]]}} ' +
-      '{{extreme=$[[2]]}} {{roll=$[[3]]}} {{kib_sheet_result=' + token + '}}',
+      '{{extreme=$[[2]]}} {{roll=$[[3]]}} <!--kib_sheet_result=' + token + '-->',
     inlinerolls: [60, 30, 12, total].map((value) => ({ results: { total: value } })),
     who: fixtureCharacter.get('name'),
     playerid: 'player-1',
@@ -1450,7 +1452,7 @@ assert(pending.result.ok);
 const pendingMessage = sent.slice(rollBefore).find((item) =>
   item.content && item.content.includes('kib_sheet_result='));
 assert(pendingMessage, '원본 굴림에 결과 추적 토큰이 없습니다.');
-const token = pendingMessage.content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+const token = pendingMessage.content.match(/kib_sheet_result=([A-Za-z0-9_-]+)(?:-->|\}\})/)[1];
 const resultBefore = sent.length;
 events['chat:message']({
   type: 'general',
@@ -1491,6 +1493,108 @@ assert(directResult && directResult.payload.outcome === 'hard',
   '시트 화면의 원본 버튼으로 굴린 결과도 성공 수준으로 인식해야 합니다.');
 assert.strictEqual(directResult.payload.cutinKey, resultEvent.payload.cutinKey,
   '명령어 굴림과 시트 버튼 굴림은 같은 컷인 판정 연결 키를 사용해야 합니다.');
+
+// 결과 표식은 allprops에 보이는 원본 필드가 아니며, 결과 도착 순서와 공개 범위를 보존합니다.
+{
+  const instance = helper.contractRolls(fixtureCharacter.id).find((item) => item.roll.name === 'precision');
+  const mode = instance.modes.find((item) => String(item.overrides.bonus_mode) === '0');
+  assert(mode, '주석 표식 검사에 원본의 명시적 기본 선택 방식이 필요합니다.');
+  const originalRandomInteger = runtime.randomInteger;
+  let markerRandom = 100;
+  runtime.randomInteger = () => ++markerRandom;
+  function startMarkerRoll(secret, selectedMode) {
+    const expected = helper.qualifyContractMacro(fixtureCharacter.id, instance, selectedMode);
+    assert(expected.ok);
+    const before = sent.length;
+    const result = helper.executeContract(fixtureCharacter.id, fixture.id, instance.roll.key, '',
+      selectedMode ? selectedMode.id : '', secret, '');
+    assert(result.ok);
+    const messages = sent.slice(before).filter((item) => (item.content || '').includes('kib_sheet_result='));
+    assert.strictEqual(messages.length, 1);
+    const content = messages[0].content;
+    const match = content.match(/ <!--kib_sheet_result=([A-Za-z0-9_-]+)-->$/);
+    assert(match, '새 결과 표식은 템플릿 property가 아닌 마지막 HTML 주석이어야 합니다.');
+    const original = (secret ? '/w gm ' : '') + expected.content;
+    assert.strictEqual(content.slice(0, match.index), original,
+      '주석 앞의 공개/비밀 원본 굴림을 바꾸면 안 됩니다.');
+    assert.deepStrictEqual(content.match(/\{\{\s*[^={}]+\s*=/g), original.match(/\{\{\s*[^={}]+\s*=/g),
+      'allprops가 열거하는 원본 템플릿 필드를 추적 목적으로 늘리면 안 됩니다.');
+    assert.deepStrictEqual(content.match(/\[\[[\s\S]*?\]\]/g), original.match(/\[\[[\s\S]*?\]\]/g),
+      '결과 추적이 원본 inline 개수·식·순서를 바꾸면 안 됩니다.');
+    return { token: match[1], result };
+  }
+  function finishMarkerRoll(value, total, legacy) {
+    const before = sent.length;
+    events['chat:message']({
+      type: value.result && value.result.payload.secret ? 'whisper' : 'general',
+      rolltemplate: 'fixture',
+      content: '{{subject=정밀 관찰}} {{success=$[[0]]}} {{hard=$[[1]]}} ' +
+        '{{extreme=$[[2]]}} {{roll=$[[3]]}} ' + (legacy
+          ? '{{kib_sheet_result=' + value.token + '}}'
+          : '<!--kib_sheet_result=' + value.token + '-->'),
+      inlinerolls: [60, 30, 12, total].map((number) => ({ results: { total: number } })),
+      who: fixtureCharacter.get('name'), playerid: 'player-1',
+    });
+    return sent.slice(before).filter((item) => item.event === 'sheet:result');
+  }
+  try {
+    const publicRoll = startMarkerRoll(false, null);
+    const privateRoll = startMarkerRoll(true, mode);
+    assert.notStrictEqual(publicRoll.token, privateRoll.token,
+      '같은 원본 굴림을 연속 실행해도 서로 다른 결과 대기 항목이어야 합니다.');
+    const privateEvents = finishMarkerRoll(privateRoll, 20, false);
+    const publicEvents = finishMarkerRoll(publicRoll, 80, false);
+    assert.strictEqual(privateEvents.length, 1);
+    assert.strictEqual(publicEvents.length, 1);
+    const privatePayload = privateEvents[0].payload;
+    const publicPayload = publicEvents[0].payload;
+    assert.strictEqual(privatePayload, privateRoll.result.payload);
+    assert.strictEqual(publicPayload, publicRoll.result.payload);
+    assert.strictEqual(privatePayload.result.total, 20);
+    assert.strictEqual(publicPayload.result.total, 80);
+    assert.strictEqual(privatePayload.secret, true);
+    assert.strictEqual(publicPayload.secret, false);
+    assert.strictEqual(privatePayload.mode, mode.id);
+    assert.strictEqual(privatePayload.modeLabel, '기본');
+    assert.strictEqual(privatePayload.cutinKey, resultEvent.payload.cutinKey,
+      '08에 전달하는 비밀·모드 payload도 원본 판정의 컷인 연결 키를 유지해야 합니다.');
+    assert.strictEqual(publicPayload.cutinKey, resultEvent.payload.cutinKey);
+    [publicRoll, privateRoll].forEach((value) => {
+      assert.strictEqual(finishMarkerRoll(value, 20, false).length, 0,
+        '소비된 주석 표식은 원본 굴림으로 재분류하여 중복 broadcast하면 안 됩니다.');
+      assert.strictEqual(finishMarkerRoll(value, 20, true).length, 0,
+        '소비된 구형 property 표식도 원본 굴림으로 재분류하면 안 됩니다.');
+    });
+    ['unknown_result_token', 'constructor', '__proto__'].forEach((unknown) => {
+      [false, true].forEach((legacy) => assert.strictEqual(
+        finishMarkerRoll({ token: unknown }, 20, legacy).length, 0,
+        '알 수 없는 결과 표식은 원본 굴림으로 재분류하면 안 됩니다: ' + unknown));
+    });
+    const legacyRoll = startMarkerRoll(false, null);
+    assert.strictEqual(finishMarkerRoll(legacyRoll, 20, true).length, 1,
+      '이전 property 표식으로 도착하는 대기 결과의 호환성은 유지해야 합니다.');
+    const freeValue = fixtureAttribute('free_expression');
+    const previous = freeValue.get('current');
+    try {
+      ['<!--kib_sheet_result=reserved-->', '{{kib_sheet_result=reserved}}'].forEach((marker) => {
+        const rawInstance = { ...instance, roll: { ...instance.roll, raw: instance.roll.raw + ' ' + marker } };
+        const rawRejected = helper.qualifyContractMacro(fixtureCharacter.id, rawInstance, null);
+        assert(!rawRejected.ok && rawRejected.error.includes('예약 필드'),
+          '원본 raw가 소유한 예약 결과 표식은 실행을 거부해야 합니다.');
+        freeValue.set('current', marker);
+        const expandedInstance = { ...instance, roll: { ...instance.roll,
+          raw: '&{template:fixture} {{subject=정밀 관찰}} @{free_expression}' } };
+        const expandedRejected = helper.qualifyContractMacro(fixtureCharacter.id, expandedInstance, null);
+        assert(!expandedRejected.ok && expandedRejected.error.includes('예약 필드'),
+          '속성 확장으로 들어온 예약 결과 표식도 실행을 거부해야 합니다.');
+      });
+    } finally {
+      freeValue.set('current', previous);
+    }
+  } finally {
+    runtime.randomInteger = originalRandomInteger;
+  }
+}
 
 const unidentifiedDirectResultBefore = sent.length;
 events['chat:message']({
@@ -1534,7 +1638,7 @@ function captureSourceBoundary(total, target) {
   assert(started.handled && started.result.ok);
   const message = sent.slice(beforeRoll).find((item) =>
     item.content && item.content.includes('kib_sheet_result='));
-  const sourceToken = message.content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  const sourceToken = message.content.match(/kib_sheet_result=([A-Za-z0-9_-]+)(?:-->|\}\})/)[1];
   const beforeResult = sent.length;
   events['chat:message']({
     type: 'general',
@@ -2169,7 +2273,7 @@ assert.strictEqual(blue29SanLossMessages.filter((item) =>
   '공통 이성이 한 번에 5 감소하면 공통 지능 판정을 정확히 한 번 실행해야 합니다.');
 const blue29IntelligenceToken = blue29SanLossMessages.find((item) =>
   String(item.content || '').includes('kib_sheet_result=') && String(item.content || '').includes('지능'))
-  .content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  .content.match(/kib_sheet_result=([A-Za-z0-9_-]+)(?:-->|\}\})/)[1];
 setPlayerSpeakingAs(blue29AfterBloody.get('name'), 'player-1');
 events['chat:message']({
   type: 'general',
@@ -2809,7 +2913,7 @@ const newsIntelligenceRolls = newsTemporaryMessages.filter((item) => item.conten
 assert.strictEqual(newsIntelligenceRolls.length, 1,
   '장기 기준 미만인 5 이성 손실은 원본 지능 판정을 한 번 실행해야 합니다.');
 const newsIntelligenceToken = newsIntelligenceRolls[0].content
-  .match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  .match(/kib_sheet_result=([A-Za-z0-9_-]+)(?:-->|\}\})/)[1];
 setPlayerSpeakingAs(newsCharacter.get('name'), 'player-1');
 events['chat:message']({
   type: 'general',
@@ -3082,7 +3186,7 @@ assert(!islandStatusHtml.includes('명중부위 <b>0</b>'),
       JSON.stringify(messages.map((item) => item.content)));
   assert(!messages.some((item) => item.content && item.content.includes('!시트 굴림선택|')),
     '숫자가 같은 good/bad 선택지를 사용자에게 다시 물으면 안 됩니다: ' + suffix);
-  assert.strictEqual(rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, ''), expected.content,
+  assert.strictEqual(rolls[0].content.replace(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/, ''), expected.content,
     '섬툴루 명령은 해당 원본 good/bad 식과 선택값을 그대로 사용해야 합니다: ' + suffix);
   assert.strictEqual(inlineRollFieldCount(rolls[0].content), control ? 3 : 1,
     '섬툴루 일반은 단일 roll, 보너스/패널티는 원본 3개 roll이어야 합니다: ' + suffix);
@@ -3128,7 +3232,7 @@ const stagfieldChecks = [
   return {
     command: '!!' + label,
     pass: rolls.length === 1 && inlineRollFieldCount(rolls[0].content) === 1 &&
-      rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content &&
+      rolls[0].content.replace(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/, '') === expected.content &&
       !messages.some((item) => item.content && item.content.includes('!시트 굴림선택|')),
     templates: rolls.map((item) => (item.content.match(/&\{template:([^}]+)\}/) || [])[1]),
     diceCounts: rolls.map((item) => inlineRollFieldCount(item.content)),
@@ -3165,7 +3269,7 @@ const stagfieldSearchRolls = stagfieldSearchExecution.filter((item) => (item.con
 stagfieldChecks.push({
   command: '실제 비무장 검색 버튼 실행',
   pass: stagfieldSearchRolls.length === 1 && inlineRollFieldCount(stagfieldSearchRolls[0].content) === 1 &&
-    stagfieldSearchRolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === stagfieldNormalMacros['비무장'] &&
+    stagfieldSearchRolls[0].content.replace(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/, '') === stagfieldNormalMacros['비무장'] &&
     !stagfieldSearchExecution.some((item) => (item.content || '').includes('!시트 굴림선택|')),
   diceCounts: stagfieldSearchRolls.map((item) => inlineRollFieldCount(item.content)),
 });
@@ -3196,7 +3300,7 @@ stagfieldChecks.push({
   command: '실제 비무장 보너스 선택 버튼 실행',
   pass: stagfieldBonusExpected.ok && stagfieldBonusRolls.length === 1 &&
     inlineRollFieldCount(stagfieldBonusRolls[0].content) === 3 &&
-    stagfieldBonusRolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === stagfieldBonusExpected.content,
+    stagfieldBonusRolls[0].content.replace(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/, '') === stagfieldBonusExpected.content,
   diceCounts: stagfieldBonusRolls.map((item) => inlineRollFieldCount(item.content)),
 });
 // 실제 고정 사용자 기능의 정상/보너스 버튼은 같은 필드를 쓰지만 name이 다릅니다.
@@ -3224,7 +3328,7 @@ assert(stagfieldCustomSource, '실제 사용자 기능 이름 필드의 원본 �
   stagfieldChecks.push({
     command: '!!' + name + ' / ' + value,
     pass: rolls.length === 1 && inlineRollFieldCount(rolls[0].content) === 1 && choices.length === 0 &&
-      rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content,
+      rolls[0].content.replace(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/, '') === expected.content,
     diceCounts: rolls.map((item) => inlineRollFieldCount(item.content)),
     choices: choices.map((command) => command.split('|').slice(2, 4)),
   });
@@ -3300,7 +3404,7 @@ function cheonthulhuRollEvidence(command, sourceRoll, mode) {
   const rolls = messages.filter((item) => (item.content || '').includes('kib_sheet_result='));
   const choices = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'));
   return { command, choices, pass: choices.length === 0 && rolls.length === 1 &&
-    rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content,
+    rolls[0].content.replace(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/, '') === expected.content,
     diceCounts: rolls.map((item) => inlineRollFieldCount(item.content)) };
 }
 ['0', '1'].forEach((tab) => {
@@ -3599,7 +3703,7 @@ function captureActualSheetResult(mode, fields) {
   assert(started.ok);
   const message = sent.slice(beforeRoll).find((item) =>
     item.content && item.content.includes('kib_sheet_result='));
-  const sourceToken = message.content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  const sourceToken = message.content.match(/kib_sheet_result=([A-Za-z0-9_-]+)(?:-->|\}\})/)[1];
   const entries = Object.entries(fields);
   const beforeResult = sent.length;
   events['chat:message']({
@@ -3836,7 +3940,7 @@ function capturePublicOldResult(fields) {
   assert(started.ok);
   const message = sent.slice(beforeRoll).find((item) =>
     item.content && item.content.includes('kib_sheet_result='));
-  const sourceToken = message.content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  const sourceToken = message.content.match(/kib_sheet_result=([A-Za-z0-9_-]+)(?:-->|\}\})/)[1];
   const entries = Object.entries(fields);
   const beforeResult = sent.length;
   events['chat:message']({
@@ -4518,7 +4622,7 @@ function westernAutoAttribute(name) {
   assert(content.includes('&{template:coc-short}') && content.includes('{{success=[[0+60]]}}') &&
     content.includes('{{roll1=[[1d100]]}}') && !content.includes('{{roll2='),
   '자동 지능도 현재 지능값을 쓰는 원본 단일 일반 버튼을 실행해야 합니다.');
-  const token = content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  const token = content.match(/kib_sheet_result=([A-Za-z0-9_-]+)(?:-->|\}\})/)[1];
   const fields = Object.entries({ success: 60, hard: 30, extreme: 12, hardStart: 13, successStart: 31, failStart: 61, roll1: total });
   events['chat:message']({
     type: 'general', rolltemplate: 'coc-short',
@@ -4720,7 +4824,7 @@ assert(tatekCloneBonus, '실제 16번 보너스 1개 원본 모드가 필요합�
     const choices = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'));
     tatekCloneChecks.push({ tabs, label: command, choices: choices.length, rolls: rolls.length,
       pass: choices.length === 0 && rolls.length === 1 &&
-        rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content });
+        rolls[0].content.replace(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/, '') === expected.content });
   });
   const search = runApi('!!검색 회피', tatekCloneCharacter.get('name')).map((item) => item.content || '').join('\n');
   const searchRows = Array.from(search.matchAll(/<tr>[\s\S]*?<\/tr>/g), (match) => match[0])
@@ -4792,7 +4896,7 @@ function bloodNativeCommand(command, roll, mode, label) {
   const choices = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'));
   bloodLabelChecks.push({ label, command, key: roll.key, choices: choices.length, rolls: rolls.length,
     pass: choices.length === 0 && rolls.length === 1 &&
-      rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content });
+      rolls[0].content.replace(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/, '') === expected.content });
 }
 const bloodPrimaryNormalKeys = [];
 [
@@ -4924,7 +5028,7 @@ assert(outputAliasExact.ok);
   const rolls = messages.filter((item) => (item.content || '').includes('kib_sheet_result='));
   bloodLabelChecks.push({ label: 'preserve-output-alias', command,
     pass: rolls.length === 1 && !stagfieldActionButtons(messages.map((item) => item.content || '').join('\n')).length &&
-      rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content });
+      rolls[0].content.replace(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/, '') === expected.content });
 });
 characters.splice(characters.indexOf(outputAliasCharacter), 1);
 attributeObjects.splice(outputAliasAttributeStart);
@@ -4960,7 +5064,7 @@ function seasonNativeCommand(command, roll, mode, label) {
   const choices = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'));
   seasonPriorityChecks.push({ label, view: seasonView.get('current'), command, choices: choices.length, rolls: rolls.length,
     pass: choices.length === 0 && rolls.length === 1 &&
-      rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content });
+      rolls[0].content.replace(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/, '') === expected.content });
 }
 const seasonPrioritySubjects = [
   ['근접전(격투)', 'fighting_brawl_mdr'], ['사격(권총)', 'firearms_handgun_mdr'],
@@ -5104,7 +5208,7 @@ const pairDiceBefore = runtime.getAttrByName(pairSourceCharacter.id, 'dice_corr'
     const choices = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'));
     pairSourceChecks.push({ label: command, choices: choices.length, rolls: rolls.length,
       pass: choices.length === 0 && rolls.length === 1 &&
-        rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') ===
+        rolls[0].content.replace(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/, '') ===
           (secret ? '/w gm ' : '') + expected.content });
   });
 });
@@ -5169,7 +5273,7 @@ pairSourceChecks.push({ label: 'health-major-current-maximum',
     pairSourceChecks.push({ label: 'SAN-original-single-INT-' + branch.int,
       pass: content.includes('&{template:coc}') && content.includes('{{success=[[' + branch.int + ']]}}') &&
         content.includes('{{roll1=[[1d100]]}}') && !content.includes('{{roll2=') });
-    const token = content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+    const token = content.match(/kib_sheet_result=([A-Za-z0-9_-]+)(?:-->|\}\})/)[1];
     const fields = { success: branch.int, hard: Math.floor(branch.int / 2), extreme: Math.floor(branch.int / 5), roll1: branch.die };
     events['chat:message']({
       type: 'general', rolltemplate: 'coc',
