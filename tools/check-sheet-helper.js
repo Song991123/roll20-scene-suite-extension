@@ -55,7 +55,7 @@ assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expected
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
 assert.strictEqual(
   crypto.createHash('sha256').update(JSON.stringify(embeddedSheets.slice(0, 34))).digest('hex'),
-  '5f195ffbefc54f5f29cdbb0ed87346a79550af3b1b6aa6476de1973126be0666',
+  'bf3320762ac280e960a19a2f89171cb30348a7150fbc0f03f63e91e4f2aa7bfa',
   'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
 );
 assert(!/\brequire\s*\(/.test(recognitionBlock) &&
@@ -4708,7 +4708,7 @@ const seasonPriorityAttributeStart = attributeObjects.length;
 const seasonPriorityCharacter = addCharacter('season-primary-mode', '계절 기능과 모드 경계', 'player-1', {
   showskills: '7', fighting_brawl_mdr: '25', firearms_handgun_mdr: '20', firearms_rifle_mdr: '25', throw_mdr: '20',
   luck: '50', luck_txt: '운', fighting_brawl_txt: '근접전(격투)', firearms_hg_txt: '사격(권총)',
-  firearms_rs_txt: '사격(라/산)', throw_txt: '투척',
+  firearms_rs_txt: '사격(라/산)', throw_txt: '투척', damage_bonus: '0',
 });
 sheetFieldDefaults[seasonPriorityCharacter.id] = sourceDefaults(seasonPrioritySheet);
 useContracts(...embeddedSheets);
@@ -4750,10 +4750,30 @@ seasonPriorityChecks.push({ label: 'source-luck-visible-ui-label',
     seasonNativeCommand('!!' + label, normal[0], null, 'primary-action-not-bare-weapon-mode');
   });
   seasonNativeCommand('!!행운', seasonLuckNormal, null, 'visible-luck-label-keeps-original-output');
+  const unarmed = seasonPrioritySheet.rolls.find((roll) => roll.template === 'coc-attack-1' &&
+    roll.name === 'unarmed_mdr_check' && visibilityEquals(roll.visibility, 'showskills', view));
+  assert(unarmed, '현재 계절의 원본 비무장 버튼이 있어야 합니다.');
+  seasonNativeCommand('!!비무장', unarmed, null, 'unreachable-panel-excluded-from-normal');
+  seasonPriorityChecks.push({ label: 'unreachable-panel-excluded-from-status', view,
+    pass: runApi('!!상태', seasonPriorityCharacter.get('name')).map((item) => item.content || '').join('\n')
+      .includes('무기 1개') });
 });
 seasonView.set('current', '7');
 helper.scan(seasonPriorityCharacter.id, true);
 seasonNativeCommand('!!운', seasonLuckNormal, null, 'preserve-original-luck-output-alias');
+const seasonUnarmedBonus = seasonPrioritySheet.rolls.find((roll) => roll.template === 'coc-attack' &&
+  roll.name === 'unarmed_mdr_check' && visibilityEquals(roll.visibility, 'showskills', '7'));
+seasonNativeCommand('!!비무장 보너스1', seasonUnarmedBonus, null, 'reachable-hidden-bonus-kept');
+const seasonUnreachable = seasonPrioritySheet.rolls.find((roll) => roll.key === 'unarmed_et_check-97a5fc7922f3');
+seasonPriorityChecks.push({ label: 'unreachable-panel-retains-source-but-cannot-execute',
+  pass: seasonUnreachable.raw.includes('@{fighting_brawl_et}') &&
+    !helper.exactContractInstance(seasonPriorityCharacter.id, seasonPrioritySheet.id,
+      seasonUnreachable.key, '', true).ok });
+addAttribute(seasonPriorityCharacter.id, 'fighting_brawl_et', '88');
+helper.scan(seasonPriorityCharacter.id, true);
+seasonNativeCommand('!!비무장', seasonPrioritySheet.rolls.find((roll) =>
+  roll.name === 'unarmed_mdr_check' && roll.template === 'coc-attack-1' &&
+  visibilityEquals(roll.visibility, 'showskills', '7')), null, 'stale-value-cannot-open-unreachable-panel');
 seasonPrioritySubjects.forEach(([label, field]) => {
   const multiple = seasonPrioritySheet.rolls.find((roll) => roll.template === 'coc' &&
     roll.raw.includes('{{success=[[@{' + field + '}]]}}') && visibilityEquals(roll.visibility, 'showskills', '7'));
