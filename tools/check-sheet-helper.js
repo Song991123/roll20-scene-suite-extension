@@ -4303,4 +4303,136 @@ assert.strictEqual(westernRoleAlias.filter((item) => item.content &&
   item.content.includes('{{subject=이성}}') && item.content.includes('kib_sheet_result=')).length, 1,
   '기존 의미역 별칭 호출자는 원본 이성 버튼을 그대로 실행해야 합니다.');
 
+// 실제 16번에서 워커의 최신 저장값이 도착했더라도 25ms 추적 묶음이 아직
+// 실행되지 않은 동안 상태·검색은 이전 scan의 최대값을 다시 쓰면 안 됩니다.
+// 전체 35종을 그대로 등록하고 원본 기본값과 실제로 저장한 속성을 분리합니다.
+const tatekMaximumSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-333b740f1e467d01');
+assert(tatekMaximumSheet, '최대값 갱신 회귀에 실제 타텍 임베드 원본이 필요합니다.');
+const tatekMaximumAttributeStart = attributeObjects.length;
+const tatekMaximumCharacter = addCharacter('tatek-live-maximums', '타텍 최대값 갱신 회귀', 'player-1', {
+  con: '80', siz: '50', pow: '60', hp: '10', hp_max: '13', mp: '10', mp_max: '12',
+  san: '50', san_start: '50', san_max: '99', int: '100', language_own: '50', credit_rating: '0',
+  temp_insane: '0', indef_insane: '0', dying: '0', 'major-wound-toggle': '0',
+  dice_type: '{{roll=[[1d100]]}}', edit_mode: '0', view_tabs_default: '1',
+});
+sheetFieldDefaults[tatekMaximumCharacter.id] = sourceDefaults(tatekMaximumSheet);
+useContracts(...embeddedSheets);
+useRoomCharacters(tatekMaximumCharacter);
+const tatekMaximumInspection = helper.inspectContracts(tatekMaximumCharacter.id);
+assert(tatekMaximumInspection.contract && tatekMaximumInspection.contract.id === tatekMaximumSheet.id ||
+  (tatekMaximumInspection.matches || []).some((item) => item.id === tatekMaximumSheet.id),
+  '전체 배포 원본을 유지한 최대값 시험에서 타텍 원본이 후보에 포함되어야 합니다.');
+const tatekMaximumChecks = [];
+const tatekMaximumAttribute = (name) => attributeObjects.find((item) =>
+  item.get('_characterid') === tatekMaximumCharacter.id && item.get('name') === name);
+function changeTatekMaximum(name, current) {
+  const attribute = tatekMaximumAttribute(name);
+  const previous = attribute.get('current');
+  attribute.set('current', current);
+  events['change:attribute'](attribute, { current: previous });
+}
+function tatekMaximumStatus(label, hpMax, mpMax, sanStart) {
+  const html = runApi('!!상태', tatekMaximumCharacter.get('name'))
+    .map((item) => item.content || '').join('\n');
+  const resourceHtml = html.slice(html.indexOf('현재 수치 '));
+  const resources = helper.scan(tatekMaximumCharacter.id).resourcesByAttribute;
+  const actual = {};
+  const pass = [['hp', hpMax], ['mp', mpMax]].map(([name, maximum]) => {
+    const item = resources[name];
+    actual[name] = item && (resourceHtml.split(item.label + ' <b>')[1] || '').split('</b>')[0];
+    const current = Number(tatekMaximumAttribute(name).get('current'));
+    return actual[name] === current + ' / ' + maximum + ' (' + Math.round(current / maximum * 100) + '%)';
+  }).every(Boolean);
+  const san = resources.san;
+  actual.san = san && (resourceHtml.split(san.label + ' <b>')[1] || '').split('</b>')[0];
+  tatekMaximumChecks.push({ label, pass: pass && actual.san.includes(' / 시작 ' + sanStart + ' '), actual });
+}
+helper.scan(tatekMaximumCharacter.id, true);
+tatekMaximumStatus('baseline', 13, 12, 50);
+[
+  { label: 'increase-before-flush', con: '90', pow: '70', hp_max: '14', mp_max: '14', san_start: '60' },
+  { label: 'decrease-before-flush', con: '80', pow: '60', hp_max: '13', mp_max: '12', san_start: '50' },
+].forEach(({ label, ...values }) => {
+  deferAttributeTimers = true;
+  const findStart = attributeFindCalls.length;
+  Object.entries(values).forEach(([name, current]) => changeTatekMaximum(name, current));
+  tatekMaximumChecks.push({ label: label + '-no-event-scan', pass: attributeFindCalls.length === findStart });
+  tatekMaximumChecks.push({ label: label + '-timer-pending',
+    pass: attributeTimers.some((timer) => !timer.cancelled && !timer.fired) });
+  tatekMaximumStatus(label, Number(values.hp_max), Number(values.mp_max), Number(values.san_start));
+  const search = runApi('!!검색 체력', tatekMaximumCharacter.get('name'))
+    .map((item) => item.content || '').join('\n');
+  tatekMaximumChecks.push({ label: label + '-search',
+    pass: search.includes('10 / ' + values.hp_max + ' (' + Math.round(10 / Number(values.hp_max) * 100) + '%)') });
+  // 실검에서 !!점검 직후 정상화된 경로도 별도로 보존합니다.
+  runApi('!!점검', tatekMaximumCharacter.get('name'), 'gm', 'character|' + tatekMaximumCharacter.id);
+  tatekMaximumStatus(label + '-forced-inspection', Number(values.hp_max), Number(values.mp_max), Number(values.san_start));
+  deferAttributeTimers = false;
+  flushAttributeTimers();
+  tatekMaximumStatus(label + '-after-flush', Number(values.hp_max), Number(values.mp_max), Number(values.san_start));
+});
+// 10→14와 14→10은 피해 6의 중상 판정 결과가 달라집니다. 현재값 변경
+// 명령과 변화 로그도 추적 타이머 전에 받은 최신 최대값을 사용해야 합니다.
+const tatekPreviousTrackingMode = runtime.state.KIBSheetHelper.trackingMode;
+runtime.state.KIBSheetHelper.trackingMode = 'public';
+[
+  { oldCon: '50', oldMax: '10', con: '90', maximum: '14', major: '0' },
+  { oldCon: '90', oldMax: '14', con: '50', maximum: '10', major: '1' },
+].forEach(({ oldCon, oldMax, con, maximum, major }) => {
+  Object.entries({ con: oldCon, hp_max: oldMax, hp: '10', 'major-wound-toggle': '0' })
+    .forEach(([name, value]) => tatekMaximumAttribute(name).set('current', value));
+  helper.scan(tatekMaximumCharacter.id, true);
+  deferAttributeTimers = true;
+  changeTatekMaximum('con', con);
+  changeTatekMaximum('hp_max', maximum);
+  const html = runGeneral(':체력-6', tatekMaximumCharacter.get('name'))
+    .map((item) => item.content || '').join('\n');
+  const actual = { hp: tatekMaximumAttribute('hp').get('current'),
+    major: tatekMaximumAttribute('major-wound-toggle').get('current') };
+  tatekMaximumChecks.push({ label: 'major-current-maximum-' + maximum,
+    pass: actual.hp === '4' && actual.major === major, actual });
+  tatekMaximumChecks.push({ label: 'change-log-current-maximum-' + maximum,
+    pass: html.includes('10 / ' + maximum + ' (' + Math.round(10 / Number(maximum) * 100) + '%)') &&
+      html.includes('4 / ' + maximum + ' (' + Math.round(4 / Number(maximum) * 100) + '%)') });
+  deferAttributeTimers = false;
+  flushAttributeTimers();
+});
+runtime.state.KIBSheetHelper.trackingMode = tatekPreviousTrackingMode;
+delete sheetFieldDefaults[tatekMaximumCharacter.id];
+characters.splice(characters.indexOf(tatekMaximumCharacter), 1);
+attributeObjects.splice(tatekMaximumAttributeStart);
+
+// 저장 최대값을 무조건 원본 default로 덮는 수정은 허용하지 않습니다.
+// 편집 가능한 식, 계산식 없는 워커 전용 칸, 숫자 기본값은 저장값을 보존합니다.
+const maximumAuthoritySheet = parseSheetContract([
+  '<input name="attr_max_guard_a"><input name="attr_max_guard_b"><input name="attr_max_guard_c">',
+  '<label>기준<input type="number" name="attr_basis" value="70"></label>',
+  '<div><h3>편집 자원</h3><label>현재<input type="number" name="attr_editable" value="10"></label>',
+  '<label>최대<input type="number" name="attr_editable_max" value="floor(@{basis}/5)"></label></div>',
+  '<div><h3>워커 자원</h3><label>현재<input type="number" name="attr_worker" value="10"></label>',
+  '<label>최대<input type="number" name="attr_worker_max" value="" disabled></label></div>',
+  '<div><h3>상수 자원</h3><label>현재<input type="number" name="attr_literal" value="10"></label>',
+  '<label>최대<input type="number" name="attr_literal_max" value="99" disabled></label></div>',
+  '<button type="roll" value="&{template:max-guard} {{subject=기준}} {{roll=[[1d100]]}}"></button>',
+].join('\n'), { id: 'maximum-authority-guards', sourceHash: 'maximum-authority-guards-v1' });
+const maximumAuthorityAttributeStart = attributeObjects.length;
+const maximumAuthorityCharacter = addCharacter('maximum-authority-guards', '최대값 저장 권한 보호', 'player-1', {
+  max_guard_a: '1', max_guard_b: '1', max_guard_c: '1', basis: '70',
+  editable: '10', editable_max: '18', worker: '10', worker_max: '27', literal: '10', literal_max: '42',
+});
+useContracts(maximumAuthoritySheet);
+useRoomCharacters(maximumAuthorityCharacter);
+const maximumAuthorityResources = helper.scan(maximumAuthorityCharacter.id, true).resourcesByAttribute;
+[['editable', 18], ['worker', 27], ['literal', 42]].forEach(([name, maximum]) => {
+  const item = maximumAuthorityResources[name];
+  tatekMaximumChecks.push({ label: 'preserve-stored-maximum-' + name,
+    pass: !!item && item.max === maximum, actual: item && item.max });
+});
+characters.splice(characters.indexOf(maximumAuthorityCharacter), 1);
+attributeObjects.splice(maximumAuthorityAttributeStart);
+useContracts(...embeddedSheets);
+useRoomCharacters(westernAutoCharacter);
+assert(tatekMaximumChecks.every((item) => item.pass),
+  '실제 16번 최신 저장 최대값은 추적 타이머 전에도 즉시 읽어야 합니다: ' + JSON.stringify(tatekMaximumChecks));
+
 console.log('Sheet Helper check: PASS');
