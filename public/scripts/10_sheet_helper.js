@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.34
+ * Scene Suite 10 - Sheet Helper 0.6.35
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -335,7 +335,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.34';
+  var VERSION = '0.6.35';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -2128,11 +2128,17 @@ var sheet_helper_setting = {
   function liveResourceFields(fields) {
     var result = dictionary();
     var maximums = dictionary();
+    var maximumsByName = dictionary();
     (fields || []).filter(function (field) {
       return !field.section && !field.hidden &&
         /^(?:text|number|range)$/.test(trim(field.type).toLowerCase()) &&
         maximumFieldLabel(sourceFieldLabels(field, fieldLabel(field, ''), ''));
     }).forEach(function (field) {
+      var nameKey = fieldPairNameKey(field.name);
+      if (nameKey) {
+        if (!maximumsByName[nameKey]) maximumsByName[nameKey] = [];
+        maximumsByName[nameKey].push(field);
+      }
       fieldPairKeys(fieldPairLabels(field, localFieldLabel(field), '')).forEach(function (key) {
         if (!maximums[key]) maximums[key] = [];
         maximums[key].push(field);
@@ -2147,6 +2153,11 @@ var sheet_helper_setting = {
         return matchesDetectedRole(labels, role);
       })) result[field.name] = true;
       var keys = fieldPairKeys(pairLabels);
+      var namedMaximums = maximumsByName[fieldPairNameKey(field.name)] || [];
+      if (namedMaximums.length === 1 && namedMaximums[0] !== field) {
+        result[field.name] = true;
+        result[namedMaximums[0].name] = true;
+      }
       keys.forEach(function (key) {
         var matches = (maximums[key] || []).filter(function (maximum) { return maximum !== field; });
         if (matches.length !== 1) return;
