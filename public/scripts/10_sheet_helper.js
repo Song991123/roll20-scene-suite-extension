@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.36
+ * Scene Suite 10 - Sheet Helper 0.6.37
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -335,7 +335,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.36';
+  var VERSION = '0.6.37';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -532,7 +532,7 @@ var sheet_helper_setting = {
         if (name.substring(name.length - suffix.length) !== suffix) continue;
         var rowId = name.substring(prefix.length, name.length - suffix.length);
         if (!rows[rowId]) {
-          rows[rowId] = { id: rowId, values: dictionary(), names: dictionary(), refs: dictionary() };
+          rows[rowId] = { id: rowId, prefix: prefix, values: dictionary(), names: dictionary(), refs: dictionary() };
         }
         rows[rowId].values[field] = attribute.get('current');
         rows[rowId].names[field] = name;
@@ -920,7 +920,7 @@ var sheet_helper_setting = {
         post(name, { record: record, type: signature.total ? 'dependency' : 'source', key: name });
       });
       runtime.prefixes.forEach(function (prefix) {
-        var section = prefix.substring(10, prefix.length - 1);
+        var section = runtime.prefixSections[prefix];
         trieAdd(catalog.prefixes, prefix, {
           record: record,
           prefix: prefix,
@@ -1047,8 +1047,9 @@ var sheet_helper_setting = {
         repeatingStat.repeatingHits += 1;
         repeatingStat.repeatingSections[match.section] = true;
         markSupport(repeatingStat, name);
-        matchedByContract[ordinal] = match.prefix + field;
-        if (!match.record.signature.total) repeatingStat.sourceSeen[match.prefix + field] = true;
+        var sourceKey = 'repeating_' + match.section + '_' + field;
+        matchedByContract[ordinal] = sourceKey;
+        if (!match.record.signature.total) repeatingStat.sourceSeen[sourceKey] = true;
       }
       var repeatingOrdinals = Object.keys(matchedByContract);
       repeatingOrdinals.forEach(function (ordinal) { exactContracts[ordinal] = true; });
@@ -1509,6 +1510,7 @@ var sheet_helper_setting = {
       controls: dictionary(),
       exact: dictionary(),
       prefixes: [],
+      prefixSections: dictionary(),
       sections: dictionary(),
       rollFields: dictionary(),
       rollControls: dictionary(),
@@ -1709,8 +1711,25 @@ var sheet_helper_setting = {
       if (index.prefixes.indexOf(prefix) < 0) index.prefixes.push(prefix);
       index.exact['_reporder_repeating_' + section] = true;
     });
+    var sectionCounts = dictionary();
     Object.keys(index.sections).forEach(function (section) {
       index.sections[section].sort(function (left, right) { return right.length - left.length; });
+      index.prefixSections['repeating_' + section + '_'] = section;
+      var folded = section.toLowerCase();
+      sectionCounts[folded] = (sectionCounts[folded] || 0) + 1;
+    });
+    Object.keys(index.sections).forEach(function (section) {
+      var folded = section.toLowerCase();
+      var prefix = 'repeating_' + folded + '_';
+      if (section === folded || sectionCounts[folded] !== 1 || own(index.prefixSections, prefix)) return;
+      index.prefixSections[prefix] = section;
+      index.prefixes.push(prefix);
+      index.exact['_reporder_repeating_' + folded] = true;
+      if (index.fieldSections[section]) trieAdd(index.fieldPrefixes, prefix, {
+        prefix: prefix,
+        section: section,
+        fields: fieldSuffixTrie(Object.keys(index.fieldSections[section])),
+      });
     });
     index.prefixes.sort(function (left, right) { return right.length - left.length; });
     contractIndexCache[key] = index;
@@ -1756,7 +1775,23 @@ var sheet_helper_setting = {
     }
     var rowsBySection = dictionary();
     Object.keys(index.sections).forEach(function (sectionName) {
-      rowsBySection[sectionName] = collectRows(characterId, sectionName, index.sections[sectionName], attributes, index.prefixes);
+      var sourcePrefix = 'repeating_' + sectionName + '_';
+      var prefixes = [sourcePrefix].concat(index.prefixes.filter(function (prefix) {
+        return prefix !== sourcePrefix && index.prefixSections[prefix] === sectionName;
+      }));
+      var rows = [];
+      prefixes.forEach(function (prefix) {
+        var physicalSection = prefix.substring(10, prefix.length - 1);
+        rows = rows.concat(collectRows(characterId, physicalSection, index.sections[sectionName], attributes, index.prefixes));
+      });
+      var rowPrefixes = dictionary();
+      var conflicts = dictionary();
+      rows.forEach(function (row) {
+        if (own(rowPrefixes, row.id) && rowPrefixes[row.id] !== row.prefix) conflicts[row.id] = true;
+        rowPrefixes[row.id] = row.prefix;
+      });
+      // 실행 주소에는 prefix가 없으므로 서로 다른 물리 그룹의 같은 ID는 선택하지 않습니다.
+      rowsBySection[sectionName] = rows.filter(function (row) { return !conflicts[row.id]; });
     });
     var character = getObj('character', characterId);
     var characterName = normalize(character && character.get('name'));
@@ -1930,6 +1965,7 @@ var sheet_helper_setting = {
         name: name,
         rowId: rowId,
         section: match.section,
+        prefix: match.prefix,
       };
     }
     return null;
@@ -2204,7 +2240,7 @@ var sheet_helper_setting = {
       var repeating = instance.roll && contractRepeating(instance.roll);
       if (!instance.row || !repeating) return;
       var section = trim(repeating.section);
-      var key = section + '|' + instance.row.id;
+      var key = (instance.row.prefix || 'repeating_' + section + '_') + '|' + instance.row.id;
       if (!rowLabels[key] && trim(instance.label)) rowLabels[key] = trim(instance.label);
     });
     function fieldVisibility(match) {
@@ -2214,7 +2250,7 @@ var sheet_helper_setting = {
         var scope = trim(atom && atom.scope).toLowerCase();
         var fullName = name;
         if (scope !== 'global' && match.section && match.rowId)
-          fullName = 'repeating_' + match.section + '_' + match.rowId + '_' + name;
+          fullName = match.prefix + match.rowId + '_' + name;
         if (attributeByName[fullName])
           return { known: true, value: attributeByName[fullName].get('current') };
         var live = readLive(fullName, 'current');
@@ -2234,7 +2270,7 @@ var sheet_helper_setting = {
     function fieldRowContext(match) {
       if (!match.section || !match.rowId) return null;
       var fields = index.fieldSections[match.section] || dictionary();
-      var prefix = 'repeating_' + match.section + '_' + match.rowId + '_';
+      var prefix = match.prefix + match.rowId + '_';
       var values = dictionary();
       Object.keys(fields).forEach(function (name) {
         var field = fields[name];
@@ -2274,7 +2310,7 @@ var sheet_helper_setting = {
       if (visible === false) return;
       var fullName = match.name;
       var raw = attribute ? attribute.get('current') : fallback;
-      var rowLabel = match.section ? rowLabels[match.section + '|' + match.rowId] || '' : '';
+      var rowLabel = match.section ? rowLabels[match.prefix + '|' + match.rowId] || '' : '';
       var label = fieldLabel(field, rowLabel);
       var aliases = fieldAliases(field, label, rowLabel, fullName);
       var type = trim(field.type).toLowerCase();
