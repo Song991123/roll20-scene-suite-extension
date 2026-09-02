@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.30
+ * Scene Suite 10 - Sheet Helper 0.6.31
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -335,7 +335,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.30';
+  var VERSION = '0.6.31';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -3695,10 +3695,12 @@ var sheet_helper_setting = {
     return executeContractInstance(character, exact.instance, modeId, secret, expression);
   }
 
-  function contractInstanceAliases(instance, compatible) {
+  function contractInstanceAliases(instance, compatible, primaryOnly) {
     var found = dictionary();
     var result = [];
-    (instance.aliases || []).forEach(function (value) {
+    var labels = primaryOnly ? [instance.label,
+      trim(instance.label).replace(/\s*[（(][^()（）]*\d[^()（）]*[)）]\s*$/, '')] : instance.aliases || [];
+    labels.forEach(function (value) {
       contractLookupKeys(value, compatible).forEach(function (key) {
         if (!found[key]) {
           found[key] = true;
@@ -3720,8 +3722,8 @@ var sheet_helper_setting = {
     return canonical === key || !canonical ? [key] : [key, canonical];
   }
 
-  function contractModeCandidates(instance, compatible) {
-    var actionAliases = contractInstanceAliases(instance, compatible);
+  function contractModeCandidates(instance, compatible, primaryOnly) {
+    var actionAliases = contractInstanceAliases(instance, compatible, primaryOnly);
     var result = [];
     (instance.modes || []).forEach(function (mode) {
       var modeAliases = [];
@@ -3760,17 +3762,18 @@ var sheet_helper_setting = {
 
   function closestContractActions(instances, query, includeHidden) {
     var wanted = contractLookupKeys(query, true);
-    var best = 3;
+    var best = 12;
     var found = [];
     instances.forEach(function (instance) {
       if (instance.hidden && !includeHidden) return;
-      var rank = contractMatchRank(contractInstanceAliases(instance, true), wanted);
+      var rank = contractMatchRank(contractInstanceAliases(instance, true), wanted) * 4 +
+        contractMatchRank(contractInstanceAliases(instance, true, true), wanted);
       if (rank < best) {
         best = rank;
         found = [instance];
       } else if (rank === best) found.push(instance);
     });
-    return best < 3 ? found : [];
+    return best < 12 ? found : [];
   }
 
   function uniqueContractCandidates(candidates) {
@@ -4117,12 +4120,19 @@ var sheet_helper_setting = {
     });
     function exactCandidates(compatible) {
       var wanted = contractLookupKeys(query, compatible);
+      var primary = instances.filter(function (instance) {
+        return !instance.hidden && contractKeysMatch(contractInstanceAliases(instance, compatible, true), wanted, false) ||
+          contractModeCandidates(instance, compatible, true).some(function (candidate) {
+            return contractKeysMatch(candidate.exactValues, wanted, false);
+          });
+      });
+      var matching = primary.length ? primary : instances;
       var modes = [];
-      instances.forEach(function (instance) { modes = modes.concat(contractModeCandidates(instance, compatible)); });
+      matching.forEach(function (instance) { modes = modes.concat(contractModeCandidates(instance, compatible)); });
       var exactModes = preferLeastOverrideModes(uniqueContractCandidates(modes.filter(function (candidate) {
         return contractKeysMatch(candidate.exactValues, wanted, false);
       })));
-      var exactActions = preferDirectContractActions(instances.filter(function (instance) {
+      var exactActions = preferDirectContractActions(matching.filter(function (instance) {
         return !instance.hidden && contractKeysMatch(contractInstanceAliases(instance, compatible), wanted, false);
       }), compatible);
       return preferCurrentModeContext(character.id,
@@ -4481,6 +4491,10 @@ var sheet_helper_setting = {
       var labels = contractUserModeLabels(candidate.mode).map(contractDisplayLabel).filter(Boolean);
       labels.filter(function (label) {
         var key = normalize(label);
+        if (labels.some(function (other) {
+          return /(?:보너스|패널티|페널티|bonus|penalty)/i.test(normalize(other));
+        }) && /^\d+\s*개(?:\s|$)/.test(label) &&
+            !contractDisplayLabel(label.replace(/^\d+\s*개\s*/, ''))) return false;
         return !/(?:보너스|패널티|페널티|bonus|penalty)/i.test(key) || !labels.some(function (other) {
           var otherKey = normalize(other);
           return otherKey.indexOf(key) === 0 && /^\+?\d+(?:개)?$/.test(otherKey.slice(key.length));
