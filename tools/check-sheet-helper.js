@@ -4024,6 +4024,213 @@ const nativeDerivedMissing = [
 assert.strictEqual(nativeDerivedMissing.length, 0,
   '원본 중첩 inline 산술 기준은 상태에 계산된 수치로 표시해야 합니다: ' + JSON.stringify(nativeDerivedMissing));
 
+// 실제 23번의 원본 섹션/굴림은 그대로 두고 Roll20의 소문자 저장 접두사만 읽습니다.
+const sectionCaseSourceBefore = JSON.stringify(nativeLimitSheet);
+const sectionCaseAttributeStart = attributeObjects.length;
+const sectionCaseRuntime = addSourceCharacter(nativeLimitSheet, 'source-section-case', '반복 접두사 시험');
+const sectionCaseCharacter = sectionCaseRuntime.character;
+const sectionCaseRows = [
+  { section: 'Skills', physical: 'skills', id: '-LowerA', name: 'Skillname', label: '접두사 기능', score: '47' },
+  { section: 'Hand-to-Hand', physical: 'hand-to-hand', id: '-Melee', name: 'Attack-Weapon', label: '접두사 근접', score: '41', damage: '1d6' },
+  { section: 'Firearms', physical: 'firearms', id: '-Ranged', name: 'Firearm', label: '접두사 원거리', score: '52', damage: '1d8' },
+  { section: 'Skills', physical: 'skills', id: '-LowerB', name: 'Skillname', label: '정렬 두번째', score: '39' },
+  { section: 'Skills', physical: 'Skills', id: '-Canonical', name: 'Skillname', label: '원본 접두사', score: '31' },
+  { section: 'Skills', physical: 'skills', id: '-CaseID', name: 'Skillname', label: '큰 행 ID', score: '13' },
+  { section: 'Skills', physical: 'skills', id: '-caseid', name: 'Skillname', label: '작은 행 ID', score: '27' },
+  { section: 'Skills', physical: 'Skills', id: '-Shared', name: 'Skillname', label: '원본 충돌 행', score: '33' },
+  { section: 'Skills', physical: 'skills', id: '-Shared', name: 'Skillname', label: '소문자 충돌 행', score: '99' },
+  { section: 'Skills', physical: 'skills', id: '-Suffix', name: 'Skillname', label: '접미사 보호', score: '' },
+  { section: 'Skills', physical: 'SKILLS', id: '-Unlisted', name: 'Skillname', label: '임의 대문자 접두사', score: '88' },
+];
+function sectionCaseAttribute(name) {
+  return attributeObjects.find((item) =>
+    item.get('_characterid') === sectionCaseCharacter.id && item.get('name') === name);
+}
+helper.scan(sectionCaseCharacter.id);
+sectionCaseRows.forEach((row) => {
+  const prefix = 'repeating_' + row.physical + '_' + row.id + '_';
+  nativeLimitSheet.sections['repeating_' + row.section].forEach((name) => {
+    addAttribute(sectionCaseCharacter.id, prefix + name,
+      name === row.name ? row.label : name === 'Score' ? row.score : name === 'Damage' ? row.damage || '0' : '');
+  });
+});
+addAttribute(sectionCaseCharacter.id, 'repeating_skills_-Suffix_score', '99');
+addAttribute(sectionCaseCharacter.id, 'Score', '88');
+addAttribute(sectionCaseCharacter.id, '_reporder_repeating_skills',
+  '-LowerB,-LowerA,-LowerB,-CaseID,-caseid,-Shared,-Suffix,missing');
+sectionCaseAttribute('_reporder_repeating_Skills').set('current', '-Canonical,-Canonical,-Shared,missing');
+events['change:attribute'](sectionCaseAttribute('_reporder_repeating_Skills'), { current: 'sourceRow' });
+const sectionCaseSkillRoll = nativeLimitSheet.rolls.find((roll) =>
+  roll.repeating && roll.repeating.section === 'repeating_Skills');
+const sectionCaseInstances = helper.contractRolls(sectionCaseCharacter.id);
+sectionCaseRows.slice(0, 3).forEach((row) => {
+  const name = 'repeating_' + row.physical + '_' + row.id + '_Score';
+  const scanned = helper.scan(sectionCaseCharacter.id).contractRolls.find((item) =>
+    item.row && item.row.id === row.id && item.label === row.label);
+  assert(scanned && scanned.row.values.Score === row.score && scanned.row.refs.Score === name,
+    '소문자 저장 행도 원본 필드의 실제 수치로 읽어야 합니다: ' + row.section);
+  const before = sent.length;
+  const result = helper.resolveContractAction(sectionCaseCharacter, row.label, false);
+  assert(result.handled && result.result.ok, '원본 대문자 계약으로 소문자 행을 실행해야 합니다: ' + row.section);
+  assert(sent.slice(before).some((item) => item.content &&
+    item.content.includes('{{header=' + row.label + '}}') && item.content.includes('{{stat=[[' + row.score + ']]}}')),
+  '실제 행의 표시명/판정값을 원본 stats 식에 넣어야 합니다: ' + row.section);
+  if (row.damage) {
+    const damageRoll = nativeLimitSheet.rolls.find((roll) => roll.repeating &&
+      roll.repeating.section === 'repeating_' + row.section && roll.raw.includes('{{damage='));
+    const damageStart = sent.length;
+    assert(helper.executeContract(sectionCaseCharacter.id, nativeLimitSheet.id, damageRoll.key, row.id, '', false, '').ok);
+    assert(sent.slice(damageStart).some((item) => item.content && item.content.includes('{{damage=[[' + row.damage + ']]}}')),
+      '공격과 별도인 원본 피해 굴림도 같은 실제 행을 읽어야 합니다: ' + row.section);
+  }
+});
+const sectionCaseSkillRows = sectionCaseInstances.filter((item) => item.roll.key === sectionCaseSkillRoll.key);
+assert.deepStrictEqual(Array.from(sectionCaseSkillRows.filter((item) =>
+  ['-LowerA', '-LowerB', '-CaseID', '-caseid'].includes(item.row.id)), (item) => item.row.id),
+['-LowerB', '-LowerA', '-LowerB', '-CaseID', '-caseid'],
+'소문자 reporder 순서·중복은 보존하고 대소문자가 다른 행 ID는 별개여야 합니다.');
+assert.strictEqual(sectionCaseSkillRows.filter((item) => item.row.id === '-Canonical').length, 2,
+  '원본 접두사의 별도 reporder 중복도 유지해야 합니다.');
+['-CaseID', '-caseid'].forEach((rowId) => {
+  const exact = helper.exactContractInstance(sectionCaseCharacter.id, nativeLimitSheet.id, sectionCaseSkillRoll.key, rowId, false);
+  assert(exact.ok && exact.instance.row.id === rowId, '정확 행 ID의 대소문자를 바꾸면 안 됩니다: ' + rowId);
+});
+assert(!sectionCaseInstances.some((item) => item.row && ['-Shared', '-Unlisted'].includes(item.row.id)),
+  '물리 접두사가 충돌한 동일 행 ID와 허용하지 않은 대문자 별칭은 실행 후보에서 제외해야 합니다.');
+assert(!helper.executeContract(sectionCaseCharacter.id, nativeLimitSheet.id, sectionCaseSkillRoll.key, '-Shared', '', false, '').ok,
+  '서로 다른 접두사의 동일 ID는 저장된 직접 실행 링크로도 임의 선택하면 안 됩니다.');
+['Skills', 'skills'].forEach((physical) => {
+  [['Skillname', '동일 충돌 행'], ['Score', '33']].forEach(([name, value]) => {
+    const attribute = sectionCaseAttribute('repeating_' + physical + '_-Shared_' + name);
+    const previous = attribute.get('current');
+    attribute.set('current', value);
+    events['change:attribute'](attribute, { current: previous });
+  });
+});
+assert(!helper.contractRolls(sectionCaseCharacter.id).some((item) => item.row && item.row.id === '-Shared') &&
+  !helper.executeContract(sectionCaseCharacter.id, nativeLimitSheet.id, sectionCaseSkillRoll.key, '-Shared', '', false, '').ok,
+'이름과 값이 같아져도 물리 접두사 두 개의 동일 ID는 하나로 합치거나 임의 선택하면 안 됩니다.');
+const suffixStart = sent.length;
+const suffixResult = helper.resolveContractAction(sectionCaseCharacter, '접미사 보호', false);
+assert(suffixResult.handled && !suffixResult.result.ok &&
+  !sent.slice(suffixStart).some((item) => item.content && item.content.includes('kib_sheet_result=')),
+'소문자 score나 전역 Score를 원본 행의 Score 대신 쓰면 안 됩니다.');
+const sectionCaseCached = helper.scan(sectionCaseCharacter.id);
+const sectionCaseScore = sectionCaseAttribute('repeating_skills_-LowerA_Score');
+sectionCaseScore.set('current', '63');
+events['change:attribute'](sectionCaseScore, { current: '47' });
+const sectionCaseChanged = helper.scan(sectionCaseCharacter.id);
+assert.notStrictEqual(sectionCaseChanged, sectionCaseCached,
+  '소문자 행 필드 변경 이벤트가 기존 캐시를 무효화해야 합니다.');
+assert.strictEqual(sectionCaseChanged.contractRolls.find((item) => item.row && item.row.id === '-LowerA').row.values.Score, '63');
+const sectionCaseTitle = sectionCaseAttribute('repeating_skills_-LowerA_Skillname');
+sectionCaseTitle.set('current', '변경된 조사');
+events['change:attribute'](sectionCaseTitle, { current: '접두사 기능' });
+assert(!helper.contractRolls(sectionCaseCharacter.id).some((item) => item.label === '접두사 기능'));
+const sectionCaseChangedStart = sent.length;
+assert(helper.resolveContractAction(sectionCaseCharacter, '변경된 조사', false).result.ok);
+assert(sent.slice(sectionCaseChangedStart).some((item) => item.content && item.content.includes('{{stat=[[63]]}}')));
+const sectionCaseOrder = sectionCaseAttribute('_reporder_repeating_skills');
+sectionCaseOrder.set('current', '-LowerA,-LowerB,-CaseID,-caseid');
+events['change:attribute'](sectionCaseOrder, { current: '-LowerB,-LowerA,-LowerB,-CaseID,-caseid,-Shared,-Suffix,missing' });
+assert.deepStrictEqual(Array.from(helper.contractRolls(sectionCaseCharacter.id).filter((item) =>
+  item.roll.key === sectionCaseSkillRoll.key && ['-LowerA', '-LowerB'].includes(item.row.id)), (item) => item.row.id),
+['-LowerA', '-LowerB'], '소문자 reporder 변경 이벤트도 원본 행 정렬에 반영해야 합니다.');
+attributeObjects.filter((item) => item.get('_characterid') === sectionCaseCharacter.id &&
+  item.get('name').startsWith('repeating_skills_-LowerA_')).forEach((attribute) => {
+  attributeObjects.splice(attributeObjects.indexOf(attribute), 1);
+  events['destroy:attribute'](attribute);
+});
+assert(!helper.contractRolls(sectionCaseCharacter.id).some((item) => item.row && item.row.id === '-LowerA'),
+  '소문자 행 삭제 뒤 정렬에 남은 유령 ID를 다시 만들면 안 됩니다.');
+getAttrByNameOverrides[sectionCaseCharacter.id + '|repeating_skills_$0_Score|current'] = '47';
+addAttribute(sectionCaseCharacter.id, 'repeating_skills_-Sparse_Skillname', '소문자 기본값 행');
+sectionCaseOrder.set('current', '-Sparse');
+events['change:attribute'](sectionCaseOrder, { current: '-LowerA,-LowerB,-CaseID,-caseid' });
+const sectionCaseSparse = helper.contractRolls(sectionCaseCharacter.id).find((item) => item.row && item.row.id === '-Sparse');
+assert(sectionCaseSparse && sectionCaseSparse.row.refs.Score === 'repeating_skills_$0_Score' &&
+  sectionCaseSparse.row.values.Score === '47', '저장되지 않은 형제 필드는 실제 소문자 접두사의 $순번 기본값을 읽어야 합니다.');
+const sectionCaseSparseMacro = helper.qualifyContractMacro(sectionCaseCharacter.id, sectionCaseSparse, null);
+assert(sectionCaseSparseMacro.ok && sectionCaseSparseMacro.content.includes('{{stat=[[47]]}}'),
+  '소문자 행의 기본값은 전역 Score나 원본 대문자 접두사로 새면 안 됩니다.');
+delete getAttrByNameOverrides[sectionCaseCharacter.id + '|repeating_skills_$0_Score|current'];
+assert.strictEqual(JSON.stringify(nativeLimitSheet), sectionCaseSourceBefore,
+  '행 인식을 위해 실제 임베드 계약의 섹션·원식·키를 소문자로 바꾸면 안 됩니다.');
+characters.splice(characters.indexOf(sectionCaseCharacter), 1);
+attributeObjects.splice(sectionCaseAttributeStart);
+
+// 원본에 대소문자만 다른 두 섹션이 있으면 별칭을 만들지 않고 정확한 이름만 사용합니다.
+['skills', 'SKILLS'].forEach((otherSection) => {
+  const sourceSections = ['Skills', otherSection];
+  const contract = parseSheetContract(sourceSections.map((section) =>
+    '<fieldset class="repeating_' + section + '"><input name="attr_Title"><input name="attr_Score">' +
+    '<button type="roll" value="&{template:section_case} {{subject=@{Title}}} {{success=[[@{Score}]]}} {{roll=[[1d100]]}}"></button></fieldset>'
+  ).join('\n'), { id: 'case-section-collision-' + otherSection, sourceHash: 'case-section-collision-' + otherSection });
+  const start = attributeObjects.length;
+  const values = {};
+  sourceSections.forEach((section, index) => {
+    values['repeating_' + section + '_-Exact_Title'] = '정확 섹션 ' + index;
+    values['repeating_' + section + '_-Exact_Score'] = String(41 + index);
+  });
+  if (otherSection === 'SKILLS') {
+    values['repeating_skills_-Alias_Title'] = '모호한 소문자';
+    values['repeating_skills_-Alias_Score'] = '99';
+  }
+  const character = addCharacter('section-collision-' + otherSection, '섹션 소유권 ' + otherSection, 'player-1', values);
+  useContracts(contract);
+  useRoomCharacters(character);
+  const instances = helper.contractRolls(character.id);
+  assert.deepStrictEqual(Array.from(instances, (item) => item.label).sort(), ['정확 섹션 0', '정확 섹션 1'],
+    'case-only 원본 섹션 둘은 같은 ID여도 독립이며 모호한 lowercase 별칭은 만들면 안 됩니다.');
+  instances.forEach((instance) => {
+    const qualified = helper.qualifyContractMacro(character.id, instance, null);
+    const score = instance.label === '정확 섹션 0' ? 41 : 42;
+    assert(qualified.ok && qualified.content.includes('{{success=[[' + score + ']]}}'),
+      '원본 exact 섹션별 값은 서로 섞이면 안 됩니다.');
+  });
+  characters.splice(characters.indexOf(character), 1);
+  attributeObjects.splice(start);
+});
+
+// 원본 행 조건/수식은 별칭의 실제 접두사와 원본 기본값을 함께 사용해야 합니다.
+const sectionScopeSheet = parseSheetContract([
+  '<fieldset class="repeating_CaseRow"><input name="attr_Title">',
+  '<input class="case-visible" type="checkbox" name="attr_Show" value="1">',
+  '<label>원시 값<input type="number" name="attr_Score" value="1"></label>',
+  '<label>보정<input type="number" name="attr_Bonus" value="3"></label>',
+  '<div class="case-values"><label>합계<input type="text" name="attr_Total" value="@{Score}+@{Bonus}"></label></div>',
+  '<button type="roll" value="&{template:section_scope} {{subject=@{Title}}} {{success=[[@{Total}]]}} {{roll=[[1d100]]}}"></button></fieldset>',
+].join('\n'), { id: 'section-row-context', sourceHash: 'section-row-context-v1',
+  css: '.case-values{display:none}.case-visible[value="1"]:checked ~ .case-values{display:block}' });
+const sectionScopeStart = attributeObjects.length;
+assert(sectionScopeSheet.fields.find((field) => field.name === 'Total').visibility,
+  '행별 조건 검사는 원본 CSS에서 읽은 실제 visibility 조건이 있어야 합니다.');
+const sectionScopeCharacter = addCharacter('section-row-context', '행별 수식·표시 조건', 'player-1', {
+  Score: '88', Bonus: '90', Show: '1',
+  'repeating_caserow_-Context_Title': '별칭 수식', 'repeating_caserow_-Context_Show': '1',
+  'repeating_caserow_-Context_Score': '47', 'repeating_caserow_-Context_Total': '@{Score}+@{Bonus}',
+});
+useContracts(sectionScopeSheet);
+useRoomCharacters(sectionScopeCharacter);
+const sectionScopeName = 'repeating_caserow_-Context_Total';
+const sectionScopeVisible = helper.scan(sectionScopeCharacter.id).resourcesByAttribute[sectionScopeName];
+assert(sectionScopeVisible && sectionScopeVisible.value === 50,
+  '별칭 행 수식은 실제 행 Score47과 원본 미저장 Bonus3을 쓰고 전역88/90을 읽으면 안 됩니다.');
+const sectionScopeToggle = attributeObjects.find((item) => item.get('_characterid') === sectionScopeCharacter.id &&
+  item.get('name') === 'repeating_caserow_-Context_Show');
+sectionScopeToggle.set('current', '0');
+events['change:attribute'](sectionScopeToggle, { current: '1' });
+assert(!helper.scan(sectionScopeCharacter.id).resourcesByAttribute[sectionScopeName],
+  '행 Show0은 전역 Show1이나 원본 대문자 접두사 대신 실제 별칭 행에서 읽어야 합니다.');
+sectionScopeToggle.set('current', '1');
+events['change:attribute'](sectionScopeToggle, { current: '0' });
+assert.strictEqual(helper.scan(sectionScopeCharacter.id).resourcesByAttribute[sectionScopeName].value, 50,
+  '별칭 행 표시 복구 이벤트 후에도 동일한 행 수식을 다시 읽어야 합니다.');
+characters.splice(characters.indexOf(sectionScopeCharacter), 1);
+attributeObjects.splice(sectionScopeStart);
+useContracts(nativeLimitSheet);
+useRoomCharacters(nativeLimitRuntime.character);
+
 // 배포본에 들어간 모든 실제 시트도 시트 화면에서 직접 누른 rolltemplate 결과를
 // 명령 굴림과 같은 판정 컷인 키로 전달해야 합니다.
 embeddedSheets.forEach((sheet, index) => {
