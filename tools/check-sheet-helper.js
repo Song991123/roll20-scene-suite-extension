@@ -4530,4 +4530,175 @@ useRoomCharacters(westernAutoCharacter);
 assert(tatekCloneChecks.every((item) => item.pass),
   '실제 16번 활성 회피 복제와 원본 선택 경계를 보존해야 합니다: ' + JSON.stringify(tatekCloneChecks));
 
+// 실제 18번의 네 근접전 기능은 서로 다른 표시명/필드를 쓰지만 출력 제목은
+// 모두 도끼로 복사되어 있습니다. 원본 오타를 고치지 않고 표시명 우선순위만 검증합니다.
+const bloodLabelSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-0a09356ad817043a');
+const bloodLabelAttributeStart = attributeObjects.length;
+const bloodLabelCharacter = addCharacter('blood-primary-labels', '블메캐 표시명 회귀', 'player-1', {
+  fighting_ax: '15', fighting_mace: '10', fighting_lance: '20', fighting_whip: '5',
+  fighting_brawl: '25', damage_bonus: '0',
+  chk_dicetype: '1', edit_mode: '0', family: '0', current_mental_condition: '',
+  temp_insane: '0', indef_insane: '0',
+});
+sheetFieldDefaults[bloodLabelCharacter.id] = sourceDefaults(bloodLabelSheet);
+useContracts(...embeddedSheets);
+useRoomCharacters(bloodLabelCharacter);
+const bloodLabelInspection = helper.inspectContracts(bloodLabelCharacter.id);
+assert(bloodLabelInspection.contract && bloodLabelInspection.contract.id === bloodLabelSheet.id ||
+  (bloodLabelInspection.matches || []).some((item) => item.id === bloodLabelSheet.id),
+  '전체 35종을 유지한 표시명 시험에 실제 18번 원본이 포함되어야 합니다.');
+const bloodLabelChecks = [];
+const bloodLabelAttribute = (name) => attributeObjects.find((item) =>
+  item.get('_characterid') === bloodLabelCharacter.id && item.get('name') === name);
+function bloodNativeCommand(command, roll, mode, label) {
+  const exact = helper.exactContractInstance(bloodLabelCharacter.id, bloodLabelSheet.id, roll.key, '', true);
+  assert(exact.ok, '실제 18번 원본 키를 읽지 못했습니다: ' + roll.key);
+  const expected = helper.qualifyContractMacro(bloodLabelCharacter.id, exact.instance, mode || null);
+  assert(expected.ok, '실제 18번 원본 식의 확장에 실패했습니다: ' + command + ' / ' + JSON.stringify(expected));
+  const messages = runApi(command, bloodLabelCharacter.get('name'));
+  const rolls = messages.filter((item) => (item.content || '').includes('kib_sheet_result='));
+  const choices = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'));
+  bloodLabelChecks.push({ label, command, key: roll.key, choices: choices.length, rolls: rolls.length,
+    pass: choices.length === 0 && rolls.length === 1 &&
+      rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content });
+}
+const bloodPrimaryNormalKeys = [];
+[
+  ['근접전(도끼)', 'fighting_ax'], ['근접전(도리깨)', 'fighting_mace'],
+  ['근접전(창)', 'fighting_lance'], ['근접전(채찍)', 'fighting_whip'],
+].forEach(([label, field]) => {
+  const rolls = bloodLabelSheet.rolls.filter((roll) => roll.label.startsWith(label + ' ') &&
+    roll.raw.includes('{{success=[[@{' + field + '}]]}}'));
+  assert.strictEqual(rolls.length, 3, '각 실제 표시명은 일반/보너스/패널티 원본 세 개를 가져야 합니다.');
+  assert(rolls.every((roll) => roll.raw.includes('{{subject=근접전(도끼)}}')),
+    '잘못 복사된 원본 출력 제목을 테스트 자료에서 고치면 안 됩니다.');
+  const normal = rolls.find((roll) => roll.raw.includes('{{roll=[[1d100]]}}'));
+  bloodPrimaryNormalKeys.push(normal.key);
+  [['1', normal], ['2', rolls.find((roll) => roll.raw.includes('?{보너스 주사위|'))],
+    ['3', rolls.find((roll) => roll.raw.includes('?{패널티 주사위|'))]].forEach(([selected, roll]) => {
+    bloodLabelAttribute('chk_dicetype').set('current', selected);
+    helper.scan(bloodLabelCharacter.id, true);
+    if (selected === '1') bloodNativeCommand('!!' + label, roll, null, 'primary-current-variant-' + selected);
+    else {
+      const messages = runApi('!!' + label, bloodLabelCharacter.get('name'));
+      const choices = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'))
+        .map((command) => command.split('|').map(decodeURIComponent));
+      const modeIds = roll.modes.filter((mode) => Object.keys(mode.queries || {}).length > 0 &&
+        (!Object.prototype.hasOwnProperty.call(mode.overrides, 'family') || String(mode.overrides.family) === '0'))
+        .map((mode) => mode.id).sort();
+      bloodLabelChecks.push({ label: 'primary-current-query-variant-' + selected, command: '!!' + label,
+        choices: choices.length, pass: choices.every((parts) => parts[3] === roll.key) &&
+          choices.map((parts) => parts[5]).sort().join('|') === modeIds.join('|') &&
+          !messages.some((item) => (item.content || '').includes('kib_sheet_result=')) });
+    }
+  });
+  bloodLabelAttribute('chk_dicetype').set('current', '1');
+  helper.scan(bloodLabelCharacter.id, true);
+  ['보너스', '패널티'].forEach((direction) => [1, 2].forEach((count) => {
+    const roll = rolls.find((item) => item.raw.includes('?{' + direction + ' 주사위|'));
+    const value = String(direction === '보너스' ? count : -count);
+    const mode = roll.modes.find((item) => Object.keys(item.overrides || {}).length === 0 &&
+      Object.values(item.queries || {}).some((query) => query.value === value));
+    assert(mode, '실제 원본 질의 선택값이 필요합니다: ' + direction + count);
+    bloodNativeCommand('!!' + label + ' ' + direction + count, roll, mode, 'primary-explicit-mode');
+  }));
+});
+const bloodAxeNormal = bloodLabelSheet.rolls.find((roll) => roll.key === bloodPrimaryNormalKeys[0]);
+const bloodFamilyMode = bloodAxeNormal.modes.find((mode) =>
+  mode.labelPath.join(' ') === '루엔야크' && String(mode.overrides.family) === '1');
+assert(bloodFamilyMode, '원본 가족 선택 모드가 필요합니다.');
+const bloodFamilyMessages = runApi('!!근접전(도끼) 루엔야크', bloodLabelCharacter.get('name'));
+const bloodFamilyChoices = stagfieldActionButtons(bloodFamilyMessages.map((item) => item.content || '').join('\n'));
+bloodLabelChecks.push({ label: 'primary-combined-non-dice-mode', choices: bloodFamilyChoices.length,
+  pass: bloodFamilyChoices.length > 1 && bloodFamilyChoices.every((command) => {
+    const parts = command.split('|').map(decodeURIComponent);
+    return bloodLabelSheet.rolls.some((roll) => roll.key === parts[3] && roll.label === bloodAxeNormal.label &&
+      roll.modes.some((mode) => mode.id === parts[5] && String(mode.overrides.family) === '1'));
+  }) && !bloodFamilyMessages.some((item) => (item.content || '').includes('kib_sheet_result=')) });
+// 가족 모드의 기존 일반/질의 버튼 선택은 유지하며, 정확한 일반 링크는 원본 그대로 실행합니다.
+const bloodFamilyNormalChoice = bloodFamilyChoices.find((command) => {
+  const parts = command.split('|').map(decodeURIComponent);
+  return parts[3] === bloodAxeNormal.key && parts[5] === bloodFamilyMode.id;
+});
+assert(bloodFamilyNormalChoice, '가족 모드의 정상 원본 선택 링크를 보존해야 합니다.');
+bloodNativeCommand(bloodFamilyNormalChoice, bloodAxeNormal, bloodFamilyMode, 'primary-family-normal-link');
+const bloodBareModeMessages = runApi('!!루엔야크', bloodLabelCharacter.get('name'));
+const bloodBareModeChoices = stagfieldActionButtons(bloodBareModeMessages.map((item) => item.content || '').join('\n'))
+  .map((command) => command.split('|').map(decodeURIComponent));
+bloodLabelChecks.push({ label: 'bare-mode-keeps-distinct-primary-actions',
+  pass: new Set(bloodBareModeChoices.map((parts) => parts[3])).size > 1 &&
+    bloodBareModeChoices.every((parts) => bloodLabelSheet.rolls.some((roll) => roll.key === parts[3] &&
+      roll.modes.some((mode) => mode.id === parts[5] && String(mode.overrides.family) === '1'))) &&
+    !bloodBareModeMessages.some((item) => (item.content || '').includes('kib_sheet_result=')) });
+
+const bloodPrimaryStatus = runApi('!!상태', bloodLabelCharacter.get('name'))
+  .map((item) => item.content || '').join('\n');
+const bloodUnarmedStatus = bloodPrimaryStatus.match(
+  /<span style="display:inline-block;margin:0 8px 3px 0">비무장 [\s\S]*?<\/span><\/span>/);
+bloodLabelChecks.push({ label: 'status-unarmed-only-native-damage',
+  pass: !!bloodUnarmedStatus && bloodUnarmedStatus[0].replace(/<[^>]+>/g, '').trim() === '비무장 25 (피해 1d3+0)' });
+bloodLabelChecks.push({ label: 'status-four-explicit-modifiers',
+  pass: bloodPrimaryStatus.includes('다이스 종류 4개') &&
+    ['보너스 주사위 1개', '보너스 주사위 2개', '패널티 주사위 1개', '패널티 주사위 2개']
+      .every((label) => bloodPrimaryStatus.includes(label)) });
+bloodLabelChecks.push({ label: 'status-preserve-named-talent-modes',
+  pass: ['재능 획득 내역', '기타 재능', '신체적 재능', '재능 선택', '전투 재능', '정신적 재능']
+    .every((label) => bloodPrimaryStatus.includes(label)) });
+
+// 같은 표시명 우선순위 안에서도 실제로 다른 반복행은 임의로 하나를 고르면 안 됩니다.
+Object.entries({
+  'repeating_science_-BloodPrimaryA_science_title': '동명 원본 기능',
+  'repeating_science_-BloodPrimaryA_science': '47',
+  'repeating_science_-BloodPrimaryB_science_title': '동명 원본 기능',
+  'repeating_science_-BloodPrimaryB_science': '47',
+  _reporder_repeating_science: '-BloodPrimaryA,-BloodPrimaryB',
+}).forEach(([name, value]) => addAttribute(bloodLabelCharacter.id, name, value));
+helper.scan(bloodLabelCharacter.id, true);
+['', ' 보너스1', ' 패널티2'].forEach((suffix) => {
+  const messages = runApi('!!동명 원본 기능' + suffix, bloodLabelCharacter.get('name'));
+  const rows = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'))
+    .map((command) => command.split('|').map(decodeURIComponent)[4]);
+  bloodLabelChecks.push({ label: 'same-primary-distinct-rows' + suffix, rows,
+    pass: rows.slice().sort().join('|') === '-BloodPrimaryA|-BloodPrimaryB' &&
+      !messages.some((item) => (item.content || '').includes('kib_sheet_result=')) });
+});
+delete sheetFieldDefaults[bloodLabelCharacter.id];
+characters.splice(characters.indexOf(bloodLabelCharacter), 1);
+attributeObjects.splice(bloodLabelAttributeStart);
+
+// 일치하는 표시명이 없을 때는 기존 출력 제목 별칭과 그 결합 모드를 계속 허용합니다.
+const outputAliasSheet = parseSheetContract([
+  '<input name="attr_alias_marker_a"><input name="attr_alias_marker_b"><input name="attr_alias_marker_c">',
+  '<label>공식 표시명 <input name="attr_rating" value="47"></label>',
+  '<select name="attr_alias_style"><option value="0">기본</option><option value="1">공개</option></select>',
+  '<button type="roll" name="roll_legacy_alias" value="&{template:fixture} {{subject=기존 출력명}} {{success=[[@{rating}]]}} {{style=[[@{alias_style}]]}} {{roll=[[1d100]]}}">공식 표시명</button>',
+].join('\n'), { id: 'output-alias-priority-fixture' });
+assert.strictEqual(outputAliasSheet.rolls[0].label, '공식 표시명');
+assert.strictEqual(outputAliasSheet.rolls[0].staticLabels[0].value, '기존 출력명');
+const outputAliasAttributeStart = attributeObjects.length;
+const outputAliasCharacter = addCharacter('output-alias-priority', '출력 별칭 보존', 'player-1', {
+  alias_marker_a: 'a', alias_marker_b: 'b', alias_marker_c: 'c', rating: '47', alias_style: '0',
+});
+useContracts(outputAliasSheet);
+useRoomCharacters(outputAliasCharacter);
+const outputAliasExact = helper.exactContractInstance(outputAliasCharacter.id,
+  outputAliasSheet.id, outputAliasSheet.rolls[0].key, '', true);
+assert(outputAliasExact.ok);
+[['!!기존 출력명', null], ['!!기존 출력명 공개', outputAliasSheet.rolls[0].modes.find((mode) =>
+  String(mode.overrides.alias_style) === '1')]].forEach(([command, mode]) => {
+  const expected = helper.qualifyContractMacro(outputAliasCharacter.id, outputAliasExact.instance, mode);
+  assert(expected.ok);
+  const messages = runApi(command, outputAliasCharacter.get('name'));
+  const rolls = messages.filter((item) => (item.content || '').includes('kib_sheet_result='));
+  bloodLabelChecks.push({ label: 'preserve-output-alias', command,
+    pass: rolls.length === 1 && !stagfieldActionButtons(messages.map((item) => item.content || '').join('\n')).length &&
+      rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content });
+});
+characters.splice(characters.indexOf(outputAliasCharacter), 1);
+attributeObjects.splice(outputAliasAttributeStart);
+useContracts(...embeddedSheets);
+useRoomCharacters(westernAutoCharacter);
+assert(bloodLabelChecks.every((item) => item.pass),
+  '원본 표시명 우선 선택과 별칭/동명 행 경계를 보존해야 합니다: ' + JSON.stringify(bloodLabelChecks));
+
 console.log('Sheet Helper check: PASS');
