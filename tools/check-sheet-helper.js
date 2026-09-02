@@ -55,7 +55,7 @@ assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expected
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
 assert.strictEqual(
   crypto.createHash('sha256').update(JSON.stringify(embeddedSheets.slice(0, 34))).digest('hex'),
-  'dc1d90dff68ce9e2a7b4e83b321e4815d84ccb11c6f65f225c4079d6c79493e0',
+  '5f195ffbefc54f5f29cdbb0ed87346a79550af3b1b6aa6476de1973126be0666',
   'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
 );
 assert(!/\brequire\s*\(/.test(recognitionBlock) &&
@@ -4700,5 +4700,109 @@ useContracts(...embeddedSheets);
 useRoomCharacters(westernAutoCharacter);
 assert(bloodLabelChecks.every((item) => item.pass),
   '원본 표시명 우선 선택과 별칭/동명 행 경계를 보존해야 합니다: ' + JSON.stringify(bloodLabelChecks));
+
+// 실제 19번: 기능의 UI 이름과 무기 기능 선택의 독립 모드명이 같아도,
+// 정확한 기능 명령에 다른 계절의 무기 모드를 섞지 않습니다. 원본 출력명은 보존합니다.
+const seasonPrioritySheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-29faeb0167cef992');
+const seasonPriorityAttributeStart = attributeObjects.length;
+const seasonPriorityCharacter = addCharacter('season-primary-mode', '계절 기능과 모드 경계', 'player-1', {
+  showskills: '7', fighting_brawl_mdr: '25', firearms_handgun_mdr: '20', firearms_rifle_mdr: '25', throw_mdr: '20',
+  luck: '50', luck_txt: '운', fighting_brawl_txt: '근접전(격투)', firearms_hg_txt: '사격(권총)',
+  firearms_rs_txt: '사격(라/산)', throw_txt: '투척',
+});
+sheetFieldDefaults[seasonPriorityCharacter.id] = sourceDefaults(seasonPrioritySheet);
+useContracts(...embeddedSheets);
+useRoomCharacters(seasonPriorityCharacter);
+assert.strictEqual(helper.inspectContracts(seasonPriorityCharacter.id).contract.id, seasonPrioritySheet.id,
+  '전체 35종을 유지한 계절 기능 회귀는 실제 19번 원본을 인식해야 합니다.');
+const seasonPriorityChecks = [];
+const seasonView = attributeObjects.find((item) => item.get('_characterid') === seasonPriorityCharacter.id &&
+  item.get('name') === 'showskills');
+function seasonNativeCommand(command, roll, mode, label) {
+  const exact = helper.exactContractInstance(seasonPriorityCharacter.id, seasonPrioritySheet.id, roll.key, '', true);
+  assert(exact.ok);
+  const expected = helper.qualifyContractMacro(seasonPriorityCharacter.id, exact.instance, mode || null);
+  assert(expected.ok, '계절 원본 식을 확장할 수 없습니다: ' + command + ' / ' + JSON.stringify(expected));
+  const messages = runApi(command, seasonPriorityCharacter.get('name'));
+  const rolls = messages.filter((item) => (item.content || '').includes('kib_sheet_result='));
+  const choices = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'));
+  seasonPriorityChecks.push({ label, view: seasonView.get('current'), command, choices: choices.length, rolls: rolls.length,
+    pass: choices.length === 0 && rolls.length === 1 &&
+      rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content });
+}
+const seasonPrioritySubjects = [
+  ['근접전(격투)', 'fighting_brawl_mdr'], ['사격(권총)', 'firearms_handgun_mdr'],
+  ['사격(라/산)', 'firearms_rifle_mdr'], ['투척', 'throw_mdr'],
+];
+const seasonLuckNormal = seasonPrioritySheet.rolls.find((roll) => roll.key === 'luck_check-3de5dde3cfd1');
+assert(seasonLuckNormal && seasonLuckNormal.raw.includes('{{name=@{luck_txt}}}'),
+  '행운 원본의 간접 출력명 참조를 보존해야 합니다.');
+seasonPriorityChecks.push({ label: 'source-luck-visible-ui-label',
+  pass: seasonPrioritySheet.rolls.filter((roll) => roll.raw.includes('{{success=[[@{luck}]]}}'))
+    .every((roll) => roll.label === '행운') });
+['7', '1', '5', '2'].forEach((view) => {
+  seasonView.set('current', view);
+  helper.scan(seasonPriorityCharacter.id, true);
+  seasonPrioritySubjects.forEach(([label, field]) => {
+    const normal = seasonPrioritySheet.rolls.filter((roll) => roll.template === 'coc-1' &&
+      roll.raw.includes('{{success=[[@{' + field + '}]]}}') && visibilityEquals(roll.visibility, 'showskills', view));
+    assert.strictEqual(normal.length, 1, '현재 계절의 실제 일반 기능 버튼이 하나여야 합니다: ' + label);
+    seasonNativeCommand('!!' + label, normal[0], null, 'primary-action-not-bare-weapon-mode');
+  });
+  seasonNativeCommand('!!행운', seasonLuckNormal, null, 'visible-luck-label-keeps-original-output');
+});
+seasonView.set('current', '7');
+helper.scan(seasonPriorityCharacter.id, true);
+seasonNativeCommand('!!운', seasonLuckNormal, null, 'preserve-original-luck-output-alias');
+seasonPrioritySubjects.forEach(([label, field]) => {
+  const multiple = seasonPrioritySheet.rolls.find((roll) => roll.template === 'coc' &&
+    roll.raw.includes('{{success=[[@{' + field + '}]]}}') && visibilityEquals(roll.visibility, 'showskills', '7'));
+  assert(multiple);
+  ['보너스1', '패널티2'].forEach((mode) =>
+    seasonNativeCommand('!!' + label + ' ' + mode, multiple, null, 'preserve-explicit-multiple-dice'));
+});
+
+// 모드만 부르는 기존 경로와 소유 무기+모드 경로를 남깁니다. 계절별 원본 키는 삭제하지 않습니다.
+Object.entries({ weapon1_mdr_name: '계절 시험검', weapon1_mdr_damage: '1d6', weapon1_mdr_db: '+0' })
+  .forEach(([name, value]) => addAttribute(seasonPriorityCharacter.id, name, value));
+helper.scan(seasonPriorityCharacter.id, true);
+const seasonWeaponNormal = seasonPrioritySheet.rolls.find((roll) => roll.key === 'weapon1_mdr_attack-b298e505d882');
+[['다른 기능 #1', '다른 기능 #1'], ['계절 시험검 근접전(격투)', '근접전(격투)']].forEach(([query, modeLabel]) => {
+  const result = helper.resolveContractAction(seasonPriorityCharacter, query, false);
+  const choices = result.result && result.result.choices || [];
+  const expectedMode = seasonWeaponNormal.modes.find((mode) => mode.labelPath.join(' ') === modeLabel);
+  assert(expectedMode);
+  const normalChoice = choices.find((choice) => choice.rollKey === seasonWeaponNormal.key && choice.modeId === expectedMode.id);
+  seasonPriorityChecks.push({ label: 'preserve-bare-and-owner-mode', query, choices: choices.length,
+    pass: !!normalChoice && choices.length > 1 && choices.every((choice) => choice.contractId === seasonPrioritySheet.id &&
+      choice.rollKey.startsWith('weapon1_mdr_attack') && choice.modeId === expectedMode.id) });
+  if (modeLabel === '근접전(격투)' && normalChoice) {
+    const command = '!시트 굴림선택|' + [seasonPriorityCharacter.id, seasonPrioritySheet.id,
+      normalChoice.rollKey, '', normalChoice.modeId, '0'].map(encodeURIComponent).join('|');
+    seasonNativeCommand(command, seasonWeaponNormal, expectedMode, 'preserve-explicit-owner-mode-original-macro');
+  }
+});
+
+Object.entries({
+  'repeating_skillsmdr_-SeasonPrimaryA_skillname_mdr': '계절 동명 기능',
+  'repeating_skillsmdr_-SeasonPrimaryA_skill_mdr': '47',
+  'repeating_skillsmdr_-SeasonPrimaryB_skillname_mdr': '계절 동명 기능',
+  'repeating_skillsmdr_-SeasonPrimaryB_skill_mdr': '47',
+  _reporder_repeating_skillsmdr: '-SeasonPrimaryA,-SeasonPrimaryB',
+}).forEach(([name, value]) => addAttribute(seasonPriorityCharacter.id, name, value));
+helper.scan(seasonPriorityCharacter.id, true);
+const seasonDistinctMessages = runApi('!!계절 동명 기능', seasonPriorityCharacter.get('name'));
+const seasonDistinctRows = stagfieldActionButtons(seasonDistinctMessages.map((item) => item.content || '').join('\n'))
+  .map((command) => command.split('|').map(decodeURIComponent)[4]);
+seasonPriorityChecks.push({ label: 'preserve-same-primary-distinct-rows', rows: seasonDistinctRows,
+  pass: seasonDistinctRows.slice().sort().join('|') === '-SeasonPrimaryA|-SeasonPrimaryB' &&
+    !seasonDistinctMessages.some((item) => (item.content || '').includes('kib_sheet_result=')) });
+delete sheetFieldDefaults[seasonPriorityCharacter.id];
+characters.splice(characters.indexOf(seasonPriorityCharacter), 1);
+attributeObjects.splice(seasonPriorityAttributeStart);
+useContracts(...embeddedSheets);
+useRoomCharacters(westernAutoCharacter);
+assert(seasonPriorityChecks.every((item) => item.pass),
+  '실제 19번 UI 기능명/독립 모드/원본 출력명 경계를 보존해야 합니다: ' + JSON.stringify(seasonPriorityChecks));
 
 console.log('Sheet Helper check: PASS');

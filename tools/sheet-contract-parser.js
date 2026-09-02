@@ -897,7 +897,7 @@
     });
   }
 
-  function adjacentLabelDetails(node, translations, parentDepth) {
+  function adjacentLabelDetails(node, translations, parentDepth, rollRefs) {
     function siblingRollValue(button) {
       return String(button.attrs.value || '')
         .replace(/&\{template:[^}]+\}/gi, '&{template:*}')
@@ -909,6 +909,20 @@
       var values = [];
       var siblings = current.parent.children;
       var index = siblings.indexOf(current);
+      var referencedInput = null;
+      if (depth === 1 && rollRefs && rollRefs.length) {
+        var inputs = [];
+        walk(current.parent, function (child) {
+          if (child.tag !== 'input' || !/^(?:text|number|range)$/.test(fieldNodeType(child))) return;
+          for (var ancestor = child; ancestor && ancestor !== current.parent; ancestor = ancestor.parent)
+            if (hiddenLabelNode(ancestor) || suppressedDefaultNode(ancestor)) return;
+          inputs.push(child);
+        });
+        // 이름칸이나 다른 수치가 함께 있으면 이 묶음의 제목을 한 굴림에 연결하지 않는다.
+        if (inputs.length === 1 && fieldNodeType(inputs[0]) === 'number' && rollRefs.some(function (ref) {
+          return ref && !ref.max && ref.name === baseAttrName(inputs[0].attrs.name);
+        })) referencedInput = inputs[0];
+      }
       [1, -1].forEach(function (direction) {
         for (var i = index + direction; i >= 0 && i < siblings.length; i += direction) {
           var sibling = siblings[i];
@@ -924,6 +938,7 @@
           if (ADJACENT_SKIP_TAGS[sibling.tag]) {
             if (sibling.tag === 'input' &&
               (hasAttr(sibling, 'hidden') || (sibling.attrs.type || '').toLowerCase() === 'hidden')) continue;
+            if (sibling === referencedInput) continue;
             if (depth === 0 && current.tag === 'button' && sibling.tag === 'button' &&
                 normalizeText(current.attrs.name) && current.attrs.name === sibling.attrs.name &&
                 (current.attrs.type || '').toLowerCase() === 'roll' &&
@@ -2422,7 +2437,7 @@
       if (!htmlName && node.tag === 'button' && !nodeText(node) &&
           ownLabel.label && ownLabel.label === normalizeText(node.attrs.title))
         ownLabel = mergeLabelDetails(resourceRollLabelDetails(node), ownLabel);
-      var adjacentLabel = ownLabel.label ? { label: '', aliases: [] } : adjacentLabelDetails(node, translations, 1);
+      var adjacentLabel = ownLabel.label ? { label: '', aliases: [] } : adjacentLabelDetails(node, translations, 1, rawRefs);
       var rowLabel = tableRowLabelDetails(node, translations, rawRefs);
       var labelInfo = mergeLabelDetails(mergeLabelDetails(ownLabel, adjacentLabel), rowLabel);
       var label = labelInfo.label || name || '';
