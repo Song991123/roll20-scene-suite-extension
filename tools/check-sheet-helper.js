@@ -4435,4 +4435,99 @@ useRoomCharacters(westernAutoCharacter);
 assert(tatekMaximumChecks.every((item) => item.pass),
   '실제 16번 최신 저장 최대값은 추적 타이머 전에도 즉시 읽어야 합니다: ' + JSON.stringify(tatekMaximumChecks));
 
+// 실제 16번은 주 기능/전투 영역에 같은 회피 원본 버튼을 한 번씩 둡니다.
+// 접힌 주 기능 패널을 명령에서 계속 허용하는 기존 presentation 정책은 유지하고,
+// 현재 실행 가능한 동일 식만 합칩니다. 원본 키/컷인 항목을 지우는 검사가 아닙니다.
+const tatekCloneSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-333b740f1e467d01');
+const tatekCloneRolls = tatekCloneSheet.rolls.filter((roll) => roll.raw.includes('{{subject=회피}}'));
+assert.strictEqual(tatekCloneRolls.length, 2, '실제 16번 회피 복제 버튼 두 개가 필요합니다.');
+assert.strictEqual(tatekCloneRolls[0].raw, tatekCloneRolls[1].raw, '회피 두 버튼의 원본 식은 완전히 같아야 합니다.');
+assert.deepStrictEqual(tatekCloneRolls[0].modes, tatekCloneRolls[1].modes,
+  '회피 복제 판별 때문에 원본 모드의 차이를 무시하면 안 됩니다.');
+assert.notDeepStrictEqual(tatekCloneRolls[0].visibility, tatekCloneRolls[1].visibility,
+  '이 회귀는 서로 다른 영역의 표시 조건을 가져야 합니다.');
+const tatekCloneAttributeStart = attributeObjects.length;
+const tatekCloneCharacter = addCharacter('tatek-visible-clones', '타텍 회피 복제 회귀', 'player-1', {
+  dodge: '25', edit_mode: '0', view_tabs_default: '1', view_tabs_weapon: '0',
+  dice_type: '{{roll=[[1d100]]}}', san: '50', san_start: '50',
+});
+sheetFieldDefaults[tatekCloneCharacter.id] = sourceDefaults(tatekCloneSheet);
+useContracts(...embeddedSheets);
+useRoomCharacters(tatekCloneCharacter);
+const tatekCloneInspection = helper.inspectContracts(tatekCloneCharacter.id);
+assert(tatekCloneInspection.contract && tatekCloneInspection.contract.id === tatekCloneSheet.id ||
+  (tatekCloneInspection.matches || []).some((item) => item.id === tatekCloneSheet.id),
+  '전체 35종을 유지한 회피 시험에 실제 16번 원본이 포함되어야 합니다.');
+const tatekCloneChecks = [];
+const tatekCloneAttribute = (name) => attributeObjects.find((item) =>
+  item.get('_characterid') === tatekCloneCharacter.id && item.get('name') === name);
+const tatekCloneBonus = tatekCloneRolls[0].modes.find((mode) =>
+  String(mode.overrides.dice_type).includes('{{dice_type=[[1]]}}'));
+assert(tatekCloneBonus, '실제 16번 보너스 1개 원본 모드가 필요합니다.');
+['10', '11', '01', '00'].forEach((tabs) => {
+  ['view_tabs_default', 'view_tabs_weapon'].forEach((name, index) => {
+    const attribute = tatekCloneAttribute(name);
+    const previous = attribute.get('current');
+    attribute.set('current', tabs[index]);
+    events['change:attribute'](attribute, { current: previous });
+  });
+  const exact = tatekCloneRolls.map((roll) =>
+    helper.exactContractInstance(tatekCloneCharacter.id, tatekCloneSheet.id, roll.key, '', true));
+  assert(exact.every((item) => item.ok), '숨은 원본을 포함한 정확 키 조회는 보존되어야 합니다.');
+  const hidden = exact.map((item) => item.instance.hidden);
+  tatekCloneChecks.push({ tabs, label: 'existing-presentation-and-hidden-policy', hidden,
+    pass: hidden[0] === false && hidden[1] === (tabs[1] === '0') });
+  const combatVisible = helper.exactContractInstance(
+    tatekCloneCharacter.id, tatekCloneSheet.id, tatekCloneRolls[1].key, '', false);
+  tatekCloneChecks.push({ tabs, label: 'hidden-combat-key-excluded', pass: combatVisible.ok === (tabs[1] === '1') });
+  [['!!회피', null], ['!!회피 보너스1', tatekCloneBonus]].forEach(([command, mode]) => {
+    const expected = helper.qualifyContractMacro(tatekCloneCharacter.id, exact[0].instance, mode);
+    assert(expected.ok, '실제 회피 원본 식의 확장에 실패했습니다.');
+    const messages = runApi(command, tatekCloneCharacter.get('name'));
+    const rolls = messages.filter((item) => (item.content || '').includes('kib_sheet_result='));
+    const choices = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'));
+    tatekCloneChecks.push({ tabs, label: command, choices: choices.length, rolls: rolls.length,
+      pass: choices.length === 0 && rolls.length === 1 &&
+        rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content });
+  });
+  const search = runApi('!!검색 회피', tatekCloneCharacter.get('name')).map((item) => item.content || '').join('\n');
+  const searchRows = Array.from(search.matchAll(/<tr>[\s\S]*?<\/tr>/g), (match) => match[0])
+    .filter((row) => /<b>회피(?: \([^<]*\))?<\/b>/.test(row) && row.includes('>굴림</span>'));
+  tatekCloneChecks.push({ tabs, label: 'one-action-search-row', rows: searchRows.length, pass: searchRows.length === 1 });
+  const status = runApi('!!상태', tatekCloneCharacter.get('name')).map((item) => item.content || '').join('\n');
+  const statusDodgeLabels = Array.from(status.matchAll(
+    /<span style="display:inline-block;margin:0 8px 3px 0">(회피(?: \([^<]*\))?) <b>/g), (match) => match[1]);
+  tatekCloneChecks.push({ tabs, label: 'one-status-action', labels: statusDodgeLabels, pass: statusDodgeLabels.length === 1 });
+  // 컷인은 원본 실행 키별 연결을 유지하므로, 둘 다 활성일 때에도 두 항목입니다.
+  const cutins = helper.cutinItems().filter((item) => /^회피(?: \(|$)/.test(item.label));
+  tatekCloneChecks.push({ tabs, label: 'preserve-original-cutin-keys', keys: cutins.map((item) => item.key),
+    pass: cutins.length === (tabs[1] === '1' ? 2 : 1) && new Set(cutins.map((item) => item.key)).size === cutins.length });
+});
+
+// 표시명과 수치가 같아도 실제로 다른 원본 고정 필드 및 다른 반복행은 세 선택지입니다.
+const tatekDistinctTitle = '타텍 별도 기능';
+Object.entries({ view_tabs_default: '1', view_tabs_weapon: '1', ori_science_title: tatekDistinctTitle, ori_science: '47',
+  'repeating_science_-TatekCloneA_science_title': tatekDistinctTitle, 'repeating_science_-TatekCloneA_science': '47',
+  'repeating_science_-TatekCloneB_science_title': tatekDistinctTitle, 'repeating_science_-TatekCloneB_science': '47',
+  _reporder_repeating_science: '-TatekCloneA,-TatekCloneB',
+}).forEach(([name, value]) => {
+  const attribute = tatekCloneAttribute(name);
+  if (attribute) attribute.set('current', value);
+  else addAttribute(tatekCloneCharacter.id, name, value);
+});
+helper.scan(tatekCloneCharacter.id, true);
+const tatekDistinctMessages = runApi('!!' + tatekDistinctTitle, tatekCloneCharacter.get('name'));
+const tatekDistinctChoices = stagfieldActionButtons(tatekDistinctMessages.map((item) => item.content || '').join('\n'));
+const tatekDistinctRows = tatekDistinctChoices.map((command) => command.split('|').map(decodeURIComponent)[4]);
+tatekCloneChecks.push({ label: 'distinct-real-field-and-rows', rows: tatekDistinctRows,
+  pass: tatekDistinctRows.slice().sort().join('|') === ['', '-TatekCloneA', '-TatekCloneB'].sort().join('|') &&
+    !tatekDistinctMessages.some((item) => (item.content || '').includes('kib_sheet_result=')) });
+delete sheetFieldDefaults[tatekCloneCharacter.id];
+characters.splice(characters.indexOf(tatekCloneCharacter), 1);
+attributeObjects.splice(tatekCloneAttributeStart);
+useContracts(...embeddedSheets);
+useRoomCharacters(westernAutoCharacter);
+assert(tatekCloneChecks.every((item) => item.pass),
+  '실제 16번 활성 회피 복제와 원본 선택 경계를 보존해야 합니다: ' + JSON.stringify(tatekCloneChecks));
+
 console.log('Sheet Helper check: PASS');
