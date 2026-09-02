@@ -690,6 +690,17 @@
     return cssCompound(source);
   }
 
+  function uncertainDisplaySource(source) {
+    var clean = String(source || '').replace(/\/\*[\s\S]*?\*\//g, '');
+    if (/@(?:import|media|supports|container|layer|document|scope|(?:-[a-z]+-)?keyframes)\b/i.test(clean)) return true;
+    var uncertain = false;
+    clean.replace(/(?:^|[;{])\s*display\s*:\s*([^;}]+)/gi, function (match, declaration) {
+      if (!/^(?:none|block|inline|inline-block|flex|inline-flex|grid|inline-grid|table|table-row|table-cell|list-item|contents)\s*(?:!important\s*)?$/i.test(declaration.trim())) uncertain = true;
+      return match;
+    });
+    return uncertain;
+  }
+
   function buildRollVisibility(root, rollNodes, externalCss) {
     var sources = cssSources(root, externalCss);
     if (!sources.length) return { rolls: dictionary(), controls: dictionary() };
@@ -708,12 +719,16 @@
     var programs = dictionary();
     var globalOrder = 0;
     var tainted = dictionary();
+    var unreachableShows = dictionary();
+    var uncertainPermanentNodes = dictionary();
+    var uncertainPermanent = sources.some(uncertainDisplaySource);
     sources.forEach(function (source) {
       cssDisplayRules(source).forEach(function (rule) {
         var selector = cssSelector(rule.selector);
         rule.order = globalOrder++;
         if (!selector) {
           var rightmost = rightmostCssCompound(rule.selector);
+          if (!rightmost && rule.visible) uncertainPermanent = true;
           if (rightmost) targets.forEach(function (target) {
             if (cssCompoundMatch(target, rightmost).ok) tainted[target._kibSheetNodeId] = true;
           });
@@ -721,7 +736,12 @@
         }
         targets.forEach(function (target) {
           var paths = cleanVisibilityPaths(cssSelectorPaths(target, selector));
-          if (!paths.length) return;
+          if (!paths.length) {
+            if (rule.visible && selector.compounds.some(function (compound) { return compound.checked; }) &&
+                cssCompoundMatch(target, selector.compounds[selector.compounds.length - 1]).ok)
+              unreachableShows[target._kibSheetNodeId] = true;
+            return;
+          }
           var id = target._kibSheetNodeId;
           if (!programs[id]) programs[id] = [];
           programs[id].push({
@@ -733,6 +753,7 @@
     });
     targets.forEach(function (target) {
       var style = target.attrs && target.attrs.style || '';
+      if (uncertainDisplaySource(style)) uncertainPermanentNodes[target._kibSheetNodeId] = true;
       var display = null;
       style.replace(/(?:^|;)\s*display\s*:\s*([a-z-]+)\s*(!important)?\s*(?=;|$)/gi, function (_match, value, important) {
         if (/^(?:none|block|inline|inline-block|flex|inline-flex|grid|inline-grid|table|table-row|table-cell|list-item|contents)$/.test(value.toLowerCase()))
@@ -775,7 +796,15 @@
         });
         if (pairedHides.length) selected = pairedHides.concat(conditional.filter(function (entry) { return entry.visible; }));
       }
-      if (!selected.length) return;
+      if (!selected.length) {
+        // A missing opening control proves only an unreachable panel, not a hidden auxiliary roll.
+        if (!uncertainPermanent && !uncertainPermanentNodes[id] && !base.visible && unreachableShows[id]) {
+          var target = targets.find(function (node) { return String(node._kibSheetNodeId) === id; });
+          if (target && /^(?:div|fieldset|section|article|aside|main|table|tbody|thead|tfoot|tr|td|th|ul|ol|li|form)$/.test(target.tag))
+            nodeConditions[id] = { never: true };
+        }
+        return;
+      }
       var cascade = entries.filter(function (entry) {
         return entry.paths.some(function (path) { return !path.length; }) || selected.indexOf(entry) > -1;
       }).slice().sort(function (left, right) {
@@ -806,7 +835,9 @@
         var key = condition && JSON.stringify(condition);
         if (condition && !seen[key]) { seen[key] = true; conditions.push(condition); }
       }
-      if (conditions.length) rollConditions[roll._kibSheetNodeId] = visibilityAll(conditions);
+      if (conditions.length) rollConditions[roll._kibSheetNodeId] = conditions.some(function (condition) {
+        return condition.never === true;
+      }) ? { never: true } : visibilityAll(conditions);
     });
     return { rolls: rollConditions, controls: usedControls };
   }

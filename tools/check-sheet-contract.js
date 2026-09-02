@@ -805,6 +805,69 @@ assert.strictEqual(visibleContract.rolls.find((roll) => roll.name === 'row').con
 const htmlOnlyContract = parseSheetContract(visibilityHtml, { name: 'HTML 전용', id: 'html-only' });
 assert(htmlOnlyContract.rolls.every((roll) => !Object.prototype.hasOwnProperty.call(roll, 'visibility')));
 
+// 열기 규칙은 있지만 그 규칙의 원본 형제 컨트롤이 없는 폐기된 탭만 확정 숨김입니다.
+const unreachablePanelHtml = `
+  <input type="checkbox" class="sheet-route" name="attr_route" value="on">
+  <input type="checkbox" class="sheet-route" name="attr_route" value="off" checked>
+  <input type="hidden" name="attr_hidden_value" value="10" style="display:none">
+  <div class="sheet-active-panel"><button type="roll" name="roll_active" value="&{template:test} {{roll=[[1d6]]}}">유효한 탭</button></div>
+  <div class="sheet-retired-panel">
+    <input type="number" name="attr_retired_health" value="10">
+    <input type="checkbox" class="sheet-child-route" name="attr_child_route" value="on" checked>
+    <div class="sheet-child-panel"><button type="roll" name="roll_retired" value="&{template:test} {{roll=[[1d8]]}}">폐기된 탭</button></div>
+  </div>
+  <button type="roll" class="sheet-auxiliary" name="roll_auxiliary" style="display:none" value="&{template:test} {{roll=[[1d10]]}}">숨은 보조 버튼</button>
+  <div class="sheet-roll-storage"><button type="roll" name="roll_stored" value="&{template:test} {{roll=[[1d12]]}}">보조 굴림 저장소</button></div>
+  <div class="sheet-future-panel"><button type="roll" name="roll_future" value="&{template:test} {{roll=[[1d20]]}}">불확정 탭</button></div>
+`;
+const unreachablePanelCss = `
+  .sheet-active-panel, .sheet-retired-panel, .sheet-child-panel, .sheet-roll-storage, .sheet-future-panel { display:none; }
+  .sheet-route[value="on"]:checked ~ .sheet-active-panel { display:block; }
+  .sheet-route[value="retired"]:checked ~ .sheet-retired-panel { display:block; }
+  .sheet-child-route[value="on"]:checked ~ .sheet-child-panel { display:block; }
+  .sheet-route[value="retired"]:checked ~ .sheet-auxiliary { display:block; }
+  .sheet-route[value="retired"]:checked ~ .sheet-future-panel { display:block; }
+  .charsheet:has(.sheet-future) .sheet-future-panel { display:block; }
+`;
+const unreachablePanelContract = parseSheetContract(unreachablePanelHtml, { css: unreachablePanelCss });
+assert.deepStrictEqual(unreachablePanelContract.rolls.find((roll) => roll.name === 'retired').visibility,
+  { never: true }, '도달 불가 조상 탭은 자식의 다른 조건과 무관하게 never 하나로 보존해야 합니다.');
+assert.deepStrictEqual(unreachablePanelContract.fields.find((field) => field.name === 'retired_health').visibility,
+  { never: true }, '같은 도달 불가 탭의 수치 필드도 표시 조건을 보존해야 합니다.');
+assert.deepStrictEqual(unreachablePanelContract.rolls.find((roll) => roll.name === 'active').visibility,
+  { name: 'route', op: 'eq', value: 'on', scope: 'global' },
+  '현재 선택이 off라도 원본에 on 컨트롤이 있는 유효한 탭을 영구 숨김으로 바꾸면 안 됩니다.');
+['auxiliary', 'stored', 'future'].forEach((name) => {
+  assert.strictEqual(unreachablePanelContract.rolls.find((roll) => roll.name === name).visibility, undefined,
+    '숨은 보조 버튼, 열기 규칙 없는 저장소, 미지원 조건은 보존해야 합니다: ' + name);
+});
+assert.strictEqual(unreachablePanelContract.rolls.length, 5, '숨겨진 원본 굴림 자체를 삭제하면 안 됩니다.');
+assert.strictEqual(unreachablePanelContract.fields.find((field) => field.name === 'hidden_value').visibility, undefined);
+const uncertainPanelCss = [
+  '@import url("external.css");',
+  '@media (min-width: 1px) { .sheet-retired-panel { display:block; } }',
+  '.sheet-retired-panel { display:var(--panel-display); }',
+  '.sheet-retired-panel:hover { display:block; }',
+  '.sheet-retired-panel { display:inherit; }',
+];
+uncertainPanelCss.forEach((extra) => {
+  const uncertain = parseSheetContract(unreachablePanelHtml, { css: unreachablePanelCss + extra });
+  assert(!uncertain.rolls.find((roll) => roll.name === 'retired').visibility?.never,
+    '해석하지 못하는 CSS가 있을 때 영구 숨김을 확정하면 안 됩니다: ' + extra);
+});
+const inlineUncertainPanel = parseSheetContract(
+  unreachablePanelHtml.replace('class="sheet-retired-panel"', 'class="sheet-retired-panel" style="display:var(--panel-display)"'),
+  { css: unreachablePanelCss });
+assert(!inlineUncertainPanel.rolls.find((roll) => roll.name === 'retired').visibility?.never,
+  '인라인의 미지원 display 선언도 확정 숨김으로 해석하면 안 됩니다.');
+const restoredNeverRuntime = { KIBSheetContracts: [] };
+vm.runInNewContext(render([unreachablePanelContract]), restoredNeverRuntime);
+assert.strictEqual(JSON.stringify(restoredNeverRuntime.KIBSheetContracts[0].rolls.map((roll) => roll.visibility || null)),
+  JSON.stringify(unreachablePanelContract.rolls.map((roll) => roll.visibility || null)),
+  'never와 기존 조건은 임베드 압축/복원 뒤에도 그대로 남아야 합니다.');
+assert.strictEqual(JSON.stringify(restoredNeverRuntime.KIBSheetContracts[0].fields.map((field) => field.visibility || null)),
+  JSON.stringify(unreachablePanelContract.fields.map((field) => field.visibility || null)));
+
 const visibilityRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sheet-contract-css-'));
 try {
   const visibilityInput = path.join(visibilityRoot, 'switchboard.html');
