@@ -3254,6 +3254,153 @@ characters.splice(characters.indexOf(rottenSanityCharacter), 1);
 attributeObjects.splice(rottenSanityAttributeStart);
 delete sheetFieldDefaults[rottenSanityCharacter.id];
 
+// 실제 14번의 숨은 전투 화면에는 같은 회피 버튼이 한 번 더 있습니다.
+// 원본 전체 35종과 원본 기본값을 유지하며 활성 탭·저장값만 실제 UI 형태로 만듭니다.
+const cheonthulhuSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-280aaa54543fa2cb');
+assert(cheonthulhuSheet, '천툴루 실제 임베드 원본이 필요합니다.');
+const cheonthulhuDodgeSources = cheonthulhuSheet.rolls.filter((roll) =>
+  roll.raw.includes('{{subject=회피}}') && roll.raw.includes('{{success=[[@{dodge}]]}}'));
+assert.strictEqual(cheonthulhuDodgeSources.length, 2, '실제 회피의 주 화면/전투 화면 두 버튼이 필요합니다.');
+assert.strictEqual(cheonthulhuDodgeSources[0].raw, cheonthulhuDodgeSources[1].raw,
+  '회피 중복 회귀는 표시 위치만 다른 동일 원본 식이어야 합니다.');
+const cheonthulhuStrengthSource = cheonthulhuSheet.rolls.find((roll) => roll.raw.includes('{{subject=근력}}'));
+assert(cheonthulhuStrengthSource && cheonthulhuStrengthSource.modes.length === 5,
+  '실제 근력에는 일반 및 보너스/패널티 1/2의 다섯 원본 방식이 있어야 합니다.');
+const cheonthulhuAttributeStart = attributeObjects.length;
+const cheonthulhuCharacter = addCharacter('cheonthulhu-live-regressions', '천툴루 실제 구조 회귀', 'player-1', {
+  dodge: '25', san: '50', san_start: '50', int: '100', hp: '10', mp: '10',
+  language_own: '50', credit_rating: '0', luck: '50', temp_insane: '0', indef_insane: '0',
+  character_info_tab_btn: '0', character_info_tab_value: '0',
+  dice_type: '{{roll=[[1d100]]}}', bonus_dice_count: '1', penalty_dice_count: '-1',
+});
+sheetFieldDefaults[cheonthulhuCharacter.id] = sourceDefaults(cheonthulhuSheet);
+useContracts(...embeddedSheets);
+useRoomCharacters(cheonthulhuCharacter);
+const cheonthulhuInspection = helper.inspectContracts(cheonthulhuCharacter.id);
+assert(cheonthulhuInspection.contract && cheonthulhuInspection.contract.id === cheonthulhuSheet.id ||
+  (cheonthulhuInspection.matches || []).some((item) => item.id === cheonthulhuSheet.id),
+  '전체 배포 원본을 유지한 실제 저장값이 천툴루 후보를 포함해야 합니다.');
+const cheonthulhuChecks = [];
+const cheonthulhuAttribute = (name) => attributeObjects.find((item) =>
+  item.get('_characterid') === cheonthulhuCharacter.id && item.get('name') === name);
+function changeCheonthulhu(name, current) {
+  const attribute = cheonthulhuAttribute(name);
+  const previous = attribute.get('current');
+  attribute.set('current', current);
+  events['change:attribute'](attribute, { current: previous });
+}
+function cheonthulhuRollEvidence(command, sourceRoll, mode) {
+  const exact = helper.exactContractInstance(cheonthulhuCharacter.id, cheonthulhuSheet.id, sourceRoll.key, '', true);
+  assert(exact.ok, '천툴루 원본 인스턴스를 찾지 못했습니다: ' + command);
+  const expected = helper.qualifyContractMacro(cheonthulhuCharacter.id, exact.instance, mode || null);
+  assert(expected.ok, '천툴루 실제 원본 식을 확장하지 못했습니다: ' + command);
+  const messages = runApi(command, cheonthulhuCharacter.get('name'));
+  const rolls = messages.filter((item) => (item.content || '').includes('kib_sheet_result='));
+  const choices = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'));
+  return { command, choices, pass: choices.length === 0 && rolls.length === 1 &&
+    rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') === expected.content,
+    diceCounts: rolls.map((item) => inlineRollFieldCount(item.content)) };
+}
+['0', '1'].forEach((tab) => {
+  changeCheonthulhu('character_info_tab_btn', tab);
+  changeCheonthulhu('character_info_tab_value', tab);
+  const evidence = cheonthulhuRollEvidence('!!회피', cheonthulhuDodgeSources[Number(tab)]);
+  cheonthulhuChecks.push({ ...evidence, tab, pass: evidence.pass && evidence.diceCounts.join() === '1' });
+});
+changeCheonthulhu('character_info_tab_btn', '0');
+changeCheonthulhu('character_info_tab_value', '0');
+const cheonthulhuExpectedModeLabels = [];
+[['보너스', 'bonus_dice_count', '1'], ['보너스', 'bonus_dice_count', '2'],
+  ['패널티', 'penalty_dice_count', '-1'], ['패널티', 'penalty_dice_count', '-2']].forEach(([label, control, value]) => {
+  const mode = cheonthulhuStrengthSource.modes.find((item) => item.overrides[control] === value);
+  assert(mode, '천툴루 실제 원본 방향/개수 방식이 필요합니다: ' + label + value);
+  cheonthulhuExpectedModeLabels.push(mode.labelPath.join(' '));
+  const evidence = cheonthulhuRollEvidence('!!근력 ' + label + Math.abs(Number(value)), cheonthulhuStrengthSource, mode);
+  cheonthulhuChecks.push({ ...evidence, pass: evidence.pass && evidence.diceCounts.join() === '3' &&
+    ['dice_type', 'bonus_dice_count', 'penalty_dice_count'].map((name) => cheonthulhuAttribute(name).get('current')).join('|') ===
+      '{{roll=[[1d100]]}}|1|-1' });
+});
+const cheonthulhuStatus = runApi('!!상태', cheonthulhuCharacter.get('name')).find((item) => item.who === '시트 헬퍼').content;
+const cheonthulhuModeSection = cheonthulhuStatus.match(/font-weight:bold">다이스 종류 (\d+)개<\/div><div style="padding:8px">([^<]*)<\/div>/);
+const cheonthulhuModeLabels = cheonthulhuModeSection ? cheonthulhuModeSection[2].split(',').map((item) => item.trim()) : [];
+cheonthulhuChecks.push({ command: '!!상태 다이스 종류', expected: cheonthulhuExpectedModeLabels, labels: cheonthulhuModeLabels,
+  pass: !!cheonthulhuModeSection && Number(cheonthulhuModeSection[1]) === 4 &&
+    cheonthulhuModeLabels.slice().sort().join('|') === cheonthulhuExpectedModeLabels.slice().sort().join('|') });
+
+const cheonthulhuSanChanges = runGeneral(':이성-5', cheonthulhuCharacter.get('name'));
+cheonthulhuChecks.push({ command: ':이성-5', current: cheonthulhuAttribute('san').get('current'),
+  starting: cheonthulhuAttribute('san_start').get('current'), intelligenceRolls: intelligenceRolls(cheonthulhuSanChanges).length,
+  pass: cheonthulhuAttribute('san').get('current') === '45' && cheonthulhuAttribute('san_start').get('current') === '50' &&
+    intelligenceRolls(cheonthulhuSanChanges).length === 1 && !cheonthulhuSanChanges.some((item) =>
+      (item.content || '').includes('같은 이름의 수치가 여러 개')) });
+const cheonthulhuSanBeforeStart = cheonthulhuAttribute('san').get('current');
+const cheonthulhuStartChanges = runGeneral(':시작이성=51', cheonthulhuCharacter.get('name'));
+cheonthulhuChecks.push({ command: ':시작이성=51',
+  pass: cheonthulhuAttribute('san_start').get('current') === '51' && cheonthulhuAttribute('san').get('current') === cheonthulhuSanBeforeStart &&
+    !cheonthulhuStartChanges.some((item) => /찾지 못|같은 이름의 수치가 여러 개/.test(item.content || '')) });
+runGeneral(':시작이성=50', cheonthulhuCharacter.get('name'));
+
+// 같은 표시명·현재값이어도 실제 필드나 반복행이 다르면 합치면 안 됩니다.
+const cheonthulhuSharedTitle = '천툴루 별도 기능';
+Object.entries({ ori_other_skills_title: cheonthulhuSharedTitle, ori_other_skills: '47',
+  'repeating_skills_-CheonRowA_other_skills_title': cheonthulhuSharedTitle,
+  'repeating_skills_-CheonRowA_other_skills': '47',
+  'repeating_skills_-CheonRowB_other_skills_title': cheonthulhuSharedTitle,
+  'repeating_skills_-CheonRowB_other_skills': '47', _reporder_repeating_skills: '-CheonRowA,-CheonRowB',
+}).forEach(([name, value]) => addAttribute(cheonthulhuCharacter.id, name, value));
+const cheonthulhuDistinctMessages = runApi('!!' + cheonthulhuSharedTitle, cheonthulhuCharacter.get('name'));
+const cheonthulhuDistinctChoices = stagfieldActionButtons(cheonthulhuDistinctMessages.map((item) => item.content || '').join('\n'));
+const cheonthulhuDistinctRows = cheonthulhuDistinctChoices.map((command) => command.split('|').map(decodeURIComponent)[4]);
+cheonthulhuChecks.push({ command: '서로 다른 실제 필드/행 보존', rows: cheonthulhuDistinctRows,
+  pass: cheonthulhuDistinctRows.slice().sort().join('|') === ['', '-CheonRowA', '-CheonRowB'].sort().join('|') &&
+    !cheonthulhuDistinctMessages.some((item) => (item.content || '').includes('kib_sheet_result=')) });
+characters.splice(characters.indexOf(cheonthulhuCharacter), 1);
+attributeObjects.splice(cheonthulhuAttributeStart);
+delete sheetFieldDefaults[cheonthulhuCharacter.id];
+assert(cheonthulhuChecks.every((item) => item.pass),
+  '천툴루 실제 회피/모드/SAN 회귀: ' + JSON.stringify(cheonthulhuChecks));
+
+// 실제 31번 Physics 버튼의 원본 식은 잘못 복사된 Photography 식입니다.
+// 원본 오류를 고치거나 숨기지 말고, 서로 다른 표시명의 검색 항목/선택 키를 보존합니다.
+const photographyPhysicsSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-1b678812ac2dada9');
+assert(photographyPhysicsSheet, 'Photography/Physics 원본 표시명 반례가 필요합니다.');
+const photographyPhysicsAttributeStart = attributeObjects.length;
+const photographyPhysicsCharacter = addCharacter('photography-physics-source-preservation', '원본 Physics 표시 보존', 'player-1', {
+  showskills: '2', Photography: '47', Physics: '63',
+});
+sheetFieldDefaults[photographyPhysicsCharacter.id] = sourceDefaults(photographyPhysicsSheet);
+useContracts(...embeddedSheets);
+useRoomCharacters(photographyPhysicsCharacter);
+const photographyPhysicsChecks = [];
+['2', '4'].forEach((view) => {
+  const attribute = attributeObjects.find((item) => item.get('_characterid') === photographyPhysicsCharacter.id && item.get('name') === 'showskills');
+  const previous = attribute.get('current');
+  attribute.set('current', view);
+  events['change:attribute'](attribute, { current: previous });
+  ['Photography (10%)', 'Physics (01)'].forEach((label) => {
+    const sourceRolls = photographyPhysicsSheet.rolls.filter((roll) => roll.label === label &&
+      visibilityEquals(roll.visibility, 'showskills', view));
+    assert.strictEqual(sourceRolls.length, 2, '원본 표시별 일반/수정 버튼 두 개가 필요합니다: ' + label + '/' + view);
+    assert(sourceRolls.every((roll) => roll.raw.includes('{{skillname=Photography}}') && roll.raw.includes('@{Photography}')),
+      '원본 Physics 복사 오류를 바꿔 반례를 우회하면 안 됩니다.');
+    const html = runApi('!!검색 ' + label, photographyPhysicsCharacter.get('name')).map((item) => item.content || '').join('\n');
+    const rows = Array.from(html.matchAll(/<tr>[\s\S]*?<\/tr>/g), (match) => match[0])
+      .filter((row) => row.includes('<b>' + label + '</b>') && row.includes('>굴림</span>'));
+    const buttons = Array.from(rows.join('\n').matchAll(/<a href="([^"]+)"/g), (match) => match[1].replace(/&amp;/g, '&'));
+    const messages = buttons.length === 1 ? runApi(buttons[0], photographyPhysicsCharacter.get('name')) : [];
+    const keys = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'))
+      .map((command) => command.split('|').map(decodeURIComponent)[3]);
+    const expectedKeys = sourceRolls.map((roll) => roll.key);
+    photographyPhysicsChecks.push({ view, label, rows: rows.length, buttons, keys, expectedKeys,
+      pass: rows.length === 1 && buttons.length === 1 && keys.slice().sort().join('|') === expectedKeys.slice().sort().join('|') });
+  });
+});
+characters.splice(characters.indexOf(photographyPhysicsCharacter), 1);
+attributeObjects.splice(photographyPhysicsAttributeStart);
+delete sheetFieldDefaults[photographyPhysicsCharacter.id];
+assert(photographyPhysicsChecks.every((item) => item.pass),
+  '31번 원본 Photography/Physics 표시와 검색 선택 키를 보존해야 합니다: ' + JSON.stringify(photographyPhysicsChecks));
+
 // 같은 원본 계열이 함께 후보로 남고 숨은 표시명이 빈 Attribute로 저장된 경우에도
 // 단일 판정 버튼을 골라 완전한 원본 rolltemplate 식을 보내야 합니다.
 const singleRollSource = embeddedSheets.find((sheet) => sheet.id === 'sheet-897a7f3b9c6a8d78');

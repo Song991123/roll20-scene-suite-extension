@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.27
+ * Scene Suite 10 - Sheet Helper 0.6.28
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -335,7 +335,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.27';
+  var VERSION = '0.6.28';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -3834,6 +3834,26 @@ var sheet_helper_setting = {
 
   function collapseEquivalentContractCandidates(characterId, candidates, expression) {
     if (candidates.length < 2) return candidates;
+    var copies = dictionary();
+    candidates = candidates.filter(function (candidate) {
+      var instance = candidate.instance;
+      var roll = instance.roll || {};
+      var labels = contractStaticLabels(roll);
+      var labelKey = normalize(trim(instance.label).replace(/\s*[（(][^()（）]*\d[^()（）]*[)）]\s*$/, ''));
+      if (!labels.length || !roll.raw || !labels.some(function (label) {
+        return normalize(label) === labelKey;
+      })) return true;
+      // 같은 행의 동일 출력/식 복제 버튼만 합치며 원본 계약과 키는 그대로 둡니다.
+      var key = JSON.stringify([
+        instance.contract.id, instance.row ? instance.row.id : '', roll.repeating || null,
+        labelKey, labels, roll.raw, roll.refs || [], roll.expressionRefs || [], roll.modes || [],
+        roll.visibility || null, !!instance.hidden, roll.kind || '', candidate.mode || null,
+        roll.template || '',
+      ]);
+      if (copies[key]) return false;
+      copies[key] = true;
+      return true;
+    });
     var firstContractId = candidates[0].instance.contract.id;
     if (candidates.every(function (candidate) {
       return candidate.instance.contract.id === firstContractId;
@@ -4458,7 +4478,14 @@ var sheet_helper_setting = {
     });
     var result = [];
     uniqueContractCandidates(selected).forEach(function (candidate) {
-      contractUserModeLabels(candidate.mode).map(contractDisplayLabel).filter(Boolean).forEach(function (label) {
+      var labels = contractUserModeLabels(candidate.mode).map(contractDisplayLabel).filter(Boolean);
+      labels.filter(function (label) {
+        var key = normalize(label);
+        return !/(?:보너스|패널티|페널티|bonus|penalty)/i.test(key) || !labels.some(function (other) {
+          var otherKey = normalize(other);
+          return otherKey.indexOf(key) === 0 && /^\+?\d+(?:개)?$/.test(otherKey.slice(key.length));
+        });
+      }).forEach(function (label) {
         result.push({
           id: trim(candidate.mode.id), label: label,
           modifier: /(?:보너스|패널티|페널티|bonus|penalty)/i.test(normalize(label)),
@@ -5002,6 +5029,10 @@ var sheet_helper_setting = {
     if (!wanted) return { ok: false, error: '바꿀 수치 이름을 적어 주세요.' };
     var exact = uniqueResources(data.resourceAliases[wanted] || []);
     if (exact.length === 1) return { ok: true, item: exact[0] };
+    var primary = exact.filter(function (item) {
+      return normalize(item.label) === wanted || normalize(item.name) === wanted;
+    });
+    if (primary.length === 1) return { ok: true, item: primary[0] };
     if (exact.length > 1)
       return { ok: false, error: '같은 이름의 수치가 여러 개입니다: ' + exact.map(function (item) { return item.label; }).join(', ') };
     var roles = ['health', 'magicPoints', 'sanity', 'startingSanity'].filter(function (role) {
