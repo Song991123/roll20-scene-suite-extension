@@ -141,6 +141,69 @@ assert.strictEqual(adjacentSiblingRolls.rolls[7].label, 'tracker',
 assert.deepStrictEqual(adjacentSiblingRolls.rolls.slice(8).map((roll) => roll.label), ['방패', 'AP'],
   '동명 버튼 뒤의 다른 입력 제목을 앞 판정 제목으로 끌어오면 안 됩니다.');
 
+// source19 원본의 빈 일반/보너스 버튼은 숫자 입력 한 칸 뒤의 wrapper에 있습니다.
+const source19LuckHtml = `
+  <div class="characterisrics_container">
+    <input type="checkbox" style="display:none" class="sheet-showpulp" name="attr_showpulp" value="1">
+    <input type="checkbox" style="display:none" class="sheet-showpulp" name="attr_showpulp" value="1">
+    <input type="checkbox" style="display:none" class="sheet-showskills" name="attr_showskills" value="7" checked="checked">
+    <input type="checkbox" style="display:none" class="sheet-showskills" name="attr_showskills" value="1">
+    <input type="checkbox" style="display:none" class="sheet-showskills" name="attr_showskills" value="5">
+    <input type="checkbox" style="display:none" class="sheet-showskills" name="attr_showskills" value="2">
+    <h4 class="section-head" style="width:73px">행운</h4>
+    <input class="attr-input" type="number" name="attr_luck" value="50" min="0" max="99">
+    <div class="attr-roll">
+      <button class="sheet-old-roll btn ui-draggable" type="roll" value="&amp;{template:coc} {{name=@{luck_txt}}} {{success=[[@{luck}]]}} {{hard=[[floor(@{luck}/2)]]}} {{extreme=[[floor(@{luck}/5)]]}} {{roll1=[[1d100]]}} {{roll2=[[1d100]]}} {{roll3=[[1d100]]}}" name="roll_luck_check"></button>
+      <button class="sheet-new-roll btn ui-draggable" type="roll" value="&amp;{template:coc-1} {{name=@{luck_txt}}} {{success=[[@{luck}]]}} {{hard=[[floor(@{luck}/2)]]}} {{extreme=[[floor(@{luck}/5)]]}} {{roll1=[[1d100]]}}" name="roll_luck_check"></button>
+    </div>
+  </div>
+  <input type="hidden" name="attr_luck_txt" value="Luck ROLL"/>
+  <script type="text/worker">
+    getAttrs(['luck_txt'], v => {
+      if (v.luck_txt !== getTranslationByKey('luck-u')) {
+        setAttrs({luck_txt: getTranslationByKey('luck-u')});
+    }});
+  </script>`;
+const source19Luck = parseSheetContract(source19LuckHtml, { translations: [{ 'luck-u': '운' }] });
+assert.deepStrictEqual(source19Luck.rolls.map((roll) => roll.label), ['행운', '행운'],
+  'source19의 숫자 입력 뒤에 묶인 일반·보너스 버튼은 실제 UI 제목 행운을 함께 보존해야 합니다.');
+assert.deepStrictEqual(source19Luck.rolls.map((roll) => roll.template), ['coc', 'coc-1']);
+assert(source19Luck.rolls.every((roll) => roll.raw.includes('{{name=@{luck_txt}}}') &&
+  roll.labelRefs.some((ref) => ref.field === 'name' && ref.name === 'luck_txt')),
+'UI 제목을 연결해도 원본 출력 이름 참조를 바꾸면 안 됩니다.');
+assert.strictEqual(source19Luck.fields.find((field) => field.name === 'luck_txt').default, '운');
+assert.strictEqual(source19Luck.fields.find((field) => field.name === 'luck').label, '행운');
+
+const wrappedNumericBoundaries = parseSheetContract(`
+  <div><h4>주변 제목</h4><input type="number" name="attr_explicit_target" value="50">
+    <div><button type="roll" name="roll_explicit" value="&{template:test} {{success=[[@{explicit_target}]]}}">명시된 버튼 이름</button></div>
+  </div>
+  <div><h4>무관한 입력 제목</h4><input type="number" name="attr_unrelated" value="50">
+    <div><button type="roll" name="roll_unrelated" value="&{template:test} {{success=[[@{elsewhere}]]}}"></button></div>
+  </div>
+  <div><h4>시작</h4><input type="number" name="attr_san_start" value="50">
+    <input type="number" name="attr_san_max" value="99" readonly>
+    <h4>현재</h4><input type="number" name="attr_san" value="50">
+    <div><button type="roll" name="roll_san_check" value="&{template:test} {{name=SAN Roll}} {{success=[[@{san}]]}}"></button></div>
+  </div>
+  <fieldset class="repeating_custom"><h4>가변 이름칸 제목</h4><input type="number" name="attr_custom_value" value="47">
+    <div><button type="roll" name="roll_custom" value="&{template:test} {{name=@{custom_name}}} {{success=[[@{custom_value}]]}}"></button></div>
+    <input type="text" name="attr_custom_name" value="">
+  </fieldset>`);
+assert.strictEqual(wrappedNumericBoundaries.rolls[0].label, '명시된 버튼 이름',
+  '명시된 버튼 이름을 숫자 입력 앞의 주변 제목으로 덮으면 안 됩니다.');
+assert(!wrappedNumericBoundaries.rolls[0].aliases.includes('주변 제목'));
+assert.strictEqual(wrappedNumericBoundaries.rolls[1].label, 'unrelated',
+  '굴림이 참조하지 않는 숫자 입력을 건너 제목을 가져오면 안 됩니다.');
+assert.strictEqual(wrappedNumericBoundaries.rolls[2].label, 'san_check',
+  '숫자 입력이 여러 개인 묶음의 현재 라벨을 SAN 굴림 제목으로 가져오면 안 됩니다.');
+assert.deepStrictEqual(wrappedNumericBoundaries.rolls[2].staticLabels, [{ field: 'name', value: 'SAN Roll' }]);
+assert.strictEqual(wrappedNumericBoundaries.rolls[3].label, 'custom',
+  '가변 텍스트 이름칸은 숫자 입력으로 취급하여 건너뛰면 안 됩니다.');
+assert.deepStrictEqual(wrappedNumericBoundaries.rolls[3].labelRefs,
+  [{ field: 'name', name: 'custom_name', max: false }],
+  '가변 이름의 원본 참조는 이름 변경 후에도 사용할 수 있게 보존해야 합니다.');
+
 function packedContractShape(sheet) {
   const fieldKeys = [
     'name', 'type', 'label', 'aliases', 'section', 'default', 'max', 'onValue', 'visibility',
