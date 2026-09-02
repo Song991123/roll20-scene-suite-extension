@@ -55,7 +55,7 @@ assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expected
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
 assert.strictEqual(
   crypto.createHash('sha256').update(JSON.stringify(embeddedSheets.slice(0, 34))).digest('hex'),
-  'bf3320762ac280e960a19a2f89171cb30348a7150fbc0f03f63e91e4f2aa7bfa',
+  'c196a2a7f1e37cb6bff9a43927ad574d7c5db4f43971dc147a1dcfb2d8de8485',
   'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
 );
 assert(!/\brequire\s*\(/.test(recognitionBlock) &&
@@ -4824,5 +4824,128 @@ useContracts(...embeddedSheets);
 useRoomCharacters(westernAutoCharacter);
 assert(seasonPriorityChecks.every((item) => item.pass),
   '실제 19번 UI 기능명/독립 모드/원본 출력명 경계를 보존해야 합니다: ' + JSON.stringify(seasonPriorityChecks));
+
+// 실제 20번: UI 정신/운과 원본 출력 정신력/행운은 같은 버튼의 별칭입니다.
+// 비슷한 이름의 독립 기능, 일반/보너스 원식, 자원 최대값과 광기 처리는 유지합니다.
+const pairSourceSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-5a49a6311b033377');
+assert(pairSourceSheet, 'Pair 원본 임베드가 필요합니다.');
+const pairSourceAttributeStart = attributeObjects.length;
+const pairSourceCharacter = addSourceCharacter(pairSourceSheet, 'pair-visible-labels', 'Pair 표시명과 자원 회귀').character;
+sheetFieldDefaults[pairSourceCharacter.id] = sourceDefaults(pairSourceSheet);
+const pairSourceAttribute = (name) => attributeObjects.find((item) =>
+  item.get('_characterid') === pairSourceCharacter.id && item.get('name') === name);
+Object.entries({
+  con: '80', siz: '50', pow: '60', luck: '50', psychoanalysis: '1', int: '100',
+  hp: '10', mp: '10', san: '50', san_start: '50', cthulhu_mythos: '0',
+  majorwound: '0', dying: '0', temp_insane: '0', indef_insane: '0', menu: 'skills',
+}).forEach(([name, value]) => {
+  const attribute = pairSourceAttribute(name) || addAttribute(pairSourceCharacter.id, name, value);
+  attribute.set('current', value);
+});
+useContracts(...embeddedSheets);
+useRoomCharacters(pairSourceCharacter);
+assert.strictEqual(helper.inspectContracts(pairSourceCharacter.id).contract.id, pairSourceSheet.id,
+  'Pair 회귀도 다른 34종을 남긴 상태에서 실제 원본으로 인식해야 합니다.');
+const pairSourceChecks = [];
+[['pow_check', '정신'], ['luck', '운']].forEach(([name, label]) => {
+  const sourceRolls = pairSourceSheet.rolls.filter((roll) => roll.name === name);
+  pairSourceChecks.push({ label: 'source-ui-' + label,
+    pass: sourceRolls.length === 2 && sourceRolls.every((roll) => roll.label === label) });
+});
+const pairDiceBefore = runtime.getAttrByName(pairSourceCharacter.id, 'dice_corr');
+[
+  ['정신', 'pow_check', '정신력'], ['정신력', 'pow_check', '정신력'],
+  ['운', 'luck', '행운'], ['행운', 'luck', '행운'],
+  ['정신분석', 'psychoanalysis_check', '정신분석'],
+].forEach(([query, name, outputName]) => {
+  [[false, false], [true, false], [false, true], [true, true]].forEach(([bonus, secret]) => {
+    const sourceRoll = pairSourceSheet.rolls.find((roll) => roll.name === name &&
+      roll.raw.includes('@{dice_corr}') === bonus);
+    assert(sourceRoll && sourceRoll.raw.includes('{{name=' + outputName + '}}'));
+    const exact = helper.exactContractInstance(pairSourceCharacter.id, pairSourceSheet.id, sourceRoll.key, '', true);
+    assert(exact.ok);
+    const expected = helper.qualifyContractMacro(pairSourceCharacter.id, exact.instance, null);
+    assert(expected.ok);
+    const command = '!!' + (secret ? '비밀 ' : '') + query + (bonus ? ' 보너스1' : '');
+    const messages = runApi(command, pairSourceCharacter.get('name'));
+    const rolls = messages.filter((item) => (item.content || '').includes('kib_sheet_result='));
+    const choices = stagfieldActionButtons(messages.map((item) => item.content || '').join('\n'));
+    pairSourceChecks.push({ label: command, choices: choices.length, rolls: rolls.length,
+      pass: choices.length === 0 && rolls.length === 1 &&
+        rolls[0].content.replace(/ \{\{kib_sheet_result=[A-Za-z0-9_-]+\}\}$/, '') ===
+          (secret ? '/w gm ' : '') + expected.content });
+  });
+});
+pairSourceChecks.push({ label: 'preserve-source-dice-selection',
+  pass: runtime.getAttrByName(pairSourceCharacter.id, 'dice_corr') === pairDiceBefore });
+function pairResourceMaximums(label, hpMax, mpMax) {
+  const resources = helper.scan(pairSourceCharacter.id).resourcesByAttribute;
+  pairSourceChecks.push({ label, actual: ['hp', 'mp', 'san'].map((name) => resources[name] && resources[name].max),
+    pass: resources.hp && resources.hp.max === hpMax && resources.mp && resources.mp.max === mpMax &&
+      resources.san && resources.san.max === 99 });
+}
+pairResourceMaximums('source-formulas-13-12', 13, 12);
+[['90', '70', 14, 14], ['80', '60', 13, 12]].forEach(([con, pow, hpMax, mpMax]) => {
+  [['con', con], ['pow', pow]].forEach(([name, value]) => {
+    const attribute = pairSourceAttribute(name), previous = attribute.get('current');
+    attribute.set('current', value);
+    events['change:attribute'](attribute, { current: previous });
+  });
+  pairResourceMaximums('source-formulas-after-' + con + '-' + pow, hpMax, mpMax);
+});
+const pairPreviousTracking = runtime.state.KIBSheetHelper.trackingMode;
+runtime.state.KIBSheetHelper.trackingMode = 'public';
+runGeneral(':마력-1', pairSourceCharacter.get('name'));
+pairSourceChecks.push({ label: 'magic-not-health',
+  pass: pairSourceAttribute('mp').get('current') === '9' && pairSourceAttribute('hp').get('current') === '10' &&
+    pairSourceAttribute('majorwound').get('current') === '0' });
+runGeneral(':체력-7', pairSourceCharacter.get('name'));
+pairSourceChecks.push({ label: 'health-major-current-maximum',
+  pass: pairSourceAttribute('hp').get('current') === '3' && pairSourceAttribute('mp').get('current') === '9' &&
+    pairSourceAttribute('majorwound').get('current') === '1' });
+[
+  { int: 100, loss: 5, die: 95, temporary: '1', indefinite: '0' },
+  { int: 1, loss: 5, die: 14, temporary: '0', indefinite: '0' },
+  { int: 100, loss: 10, temporary: '0', indefinite: '1' },
+].forEach((branch) => {
+  Object.entries({ int: branch.int, san: 50, san_start: 50, temp_insane: 0, indef_insane: 0 })
+    .forEach(([name, value]) => pairSourceAttribute(name).set('current', String(value)));
+  helper.scan(pairSourceCharacter.id, true);
+  const messages = runGeneral(':이성-' + branch.loss, pairSourceCharacter.get('name'));
+  const automatic = messages.filter((item) => (item.content || '').includes('{{name=지능}}') &&
+    item.content.includes('kib_sheet_result='));
+  pairSourceChecks.push({ label: 'SAN-' + branch.loss + '-INT-' + branch.int + '-before-result',
+    pass: automatic.length === (branch.die ? 1 : 0) &&
+      pairSourceAttribute('san').get('current') === String(50 - branch.loss) &&
+      pairSourceAttribute('san_start').get('current') === '50' &&
+      pairSourceAttribute('temp_insane').get('current') === '0' });
+  if (branch.die && automatic.length === 1) {
+    const content = automatic[0].content;
+    pairSourceChecks.push({ label: 'SAN-original-single-INT-' + branch.int,
+      pass: content.includes('&{template:coc}') && content.includes('{{success=[[' + branch.int + ']]}}') &&
+        content.includes('{{roll1=[[1d100]]}}') && !content.includes('{{roll2=') });
+    const token = content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+    const fields = { success: branch.int, hard: Math.floor(branch.int / 2), extreme: Math.floor(branch.int / 5), roll1: branch.die };
+    events['chat:message']({
+      type: 'general', rolltemplate: 'coc',
+      content: '{{name=지능}} ' + Object.keys(fields).map((name, index) => '{{' + name + '=$[[' + index + ']]}}').join(' ') +
+        ' {{kib_sheet_result=' + token + '}}',
+      inlinerolls: Object.values(fields).map((total) => ({ results: { total } })),
+      who: pairSourceCharacter.get('name'), playerid: 'player-1',
+    });
+  }
+  pairSourceChecks.push({ label: 'SAN-' + branch.loss + '-INT-' + branch.int + '-final-flags',
+    pass: pairSourceAttribute('temp_insane').get('current') === branch.temporary &&
+      pairSourceAttribute('indef_insane').get('current') === branch.indefinite &&
+      pairSourceAttribute('san_start').get('current') === '50' });
+});
+runtime.state.KIBSheetHelper.trackingMode = pairPreviousTracking;
+delete sheetFieldDefaults[pairSourceCharacter.id];
+characters.splice(characters.indexOf(pairSourceCharacter), 1);
+attributeObjects.splice(pairSourceAttributeStart);
+useContracts(...embeddedSheets);
+useRoomCharacters(westernAutoCharacter);
+assert(pairSourceChecks.every((item) => item.pass),
+  '실제 20번 UI 별칭/원본 굴림/자원 공식/광기 분기를 보존해야 합니다: ' + JSON.stringify(pairSourceChecks));
 
 console.log('Sheet Helper check: PASS');

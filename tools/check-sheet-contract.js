@@ -204,6 +204,71 @@ assert.deepStrictEqual(wrappedNumericBoundaries.rolls[3].labelRefs,
   [{ field: 'name', name: 'custom_name', max: false }],
   '가변 이름의 원본 참조는 이름 변경 후에도 사용할 수 있게 보존해야 합니다.');
 
+// source20: 숫자를 담는 text 입력의 순수 wrapper 뒤에도 실제 UI 제목이 있습니다.
+const source20PowRaw = '&{template:coc}@{template_name}{{name=정신력}}{{success=[[@{pow}]]}}{{hard=[[floor(@{pow}/2)]]}}{{extreme=[[floor(@{pow}/5)]]}}{{roll1=[[1d100]]}}';
+const source20Pow = parseSheetContract(`
+  <div>
+    <div class="sheet-ability-header">정신</div>
+    <div class="sheet-attributes"><input type="text" name="attr_pow" value="50"></div>
+    <div class="sheet-ability-footer">
+      <button type="roll" value="${source20PowRaw}@{dice_corr}" name="roll_pow_check" class="sheet-button sheet-dice-btn pale"><i class="fa-solid fa-dice-d20"></i><img name="attr_dice_01" class="sheet-for-custom"></button>
+      <button type="roll" value="${source20PowRaw}" name="roll_pow_check" class="sheet-button sheet-dice-btn"><i class="fa-solid fa-dice-d20"></i><img name="attr_dice_02" class="sheet-for-custom"></button>
+    </div>
+  </div>`);
+assert.deepStrictEqual(source20Pow.rolls.map((roll) => roll.label), ['정신', '정신'],
+  '숫자 text 입력만 감싼 wrapper를 사이에 둔 일반·보너스 굴림은 UI 제목 정신을 읽어야 합니다.');
+assert.deepStrictEqual(source20Pow.rolls.map((roll) => roll.raw),
+  [source20PowRaw + '@{dice_corr}', source20PowRaw],
+  'UI 제목을 읽어도 정신력이라는 원본 출력 이름과 판정 식은 그대로 보존해야 합니다.');
+assert(source20Pow.rolls.every((roll) => roll.staticLabels.some((entry) => entry.value === '정신력')));
+
+const source20LuckRaw = '&{template:coc}@{template_name}{{name=행운}}{{success=[[@{luck}]]}} {{hard=[[floor(@{luck}/2)]]}}{{extreme=[[floor(@{luck}/5)]]}}{{roll1=[[1d100]]}}';
+const source20Luck = parseSheetContract(`
+  <div class="sheet-subability-03">
+    <label for="attr_luck" class="sheet-label-default">운</label>
+    <input type="number" min="0" max="99" name="attr_luck" placeholder="50" id="attr_luck" class="sheet-point-box-input">
+    <button type="roll" name="roll_luck" value="${source20LuckRaw}@{dice_corr}"><i class="fa-solid fa-dice-d20"></i><img name="attr_dice_01"></button>
+    <button type="roll" name="roll_luck" value="${source20LuckRaw}"><i class="fa-solid fa-dice-d20"></i><img name="attr_dice_02"></button>
+  </div>`);
+assert.deepStrictEqual(source20Luck.rolls.map((roll) => roll.label), ['운', '운'],
+  '같은 국소 수치 입력을 참조하는 두 버튼은 명시된 label-for UI 이름을 함께 읽어야 합니다.');
+assert.deepStrictEqual(source20Luck.rolls.map((roll) => roll.raw),
+  [source20LuckRaw + '@{dice_corr}', source20LuckRaw]);
+assert(source20Luck.rolls.every((roll) => roll.staticLabels.some((entry) => entry.value === '행운')));
+assert.strictEqual(source20Luck.fields.find((field) => field.name === 'luck').default, null,
+  'placeholder만 있는 숫자 입력에 임의 기본값을 넣으면 안 됩니다.');
+
+const scalarBridgeCases = [
+  { name: 'direct_text', input: '<input type="text" name="attr_score" value="-2.5">', expected: '국소 제목' },
+  { name: 'wrapped_number', input: '<div><input type="number" name="attr_score" value="50"></div>', expected: '국소 제목' },
+  ...['', ' ', '50%', '@{other}', 'Infinity', '9'.repeat(310)].map((value, index) => ({
+    name: 'nonnumeric_' + index, input: `<div><input type="text" name="attr_score" value="${value}"></div>`,
+  })),
+  ...[
+    '현재', '<span>현재</span>', '<input type="hidden" name="attr_mirror" value="1">',
+    '<input type="checkbox" name="attr_flag">', '<input type="radio" name="attr_mode">',
+    '<select name="attr_option"><option>옵션</option></select>', '<textarea name="attr_note"></textarea>',
+    '<button type="action" name="act_other"></button>', '<img alt="현재">',
+    '<span data-i18n="current"></span>', '<span title="현재"></span>',
+    '<span name="attr_display"></span>', '<span aria-label="현재"></span>',
+    '<span placeholder="현재"></span>', '<span></span>'.repeat(205) + '현재',
+  ].map((extra, index) => ({
+    name: 'semantic_wrapper_' + index,
+    input: `<div><input type="text" name="attr_score" value="50">${extra}</div>`,
+  })),
+  { name: 'label_only', input: '<div><input type="text" name="attr_score" value="50"></div>', raw: '{{name=@{score}}} {{roll=[[1d100]]}}' },
+  { name: 'inline_max_only', input: '<div><input type="text" name="attr_score" value="50"></div>', raw: '{{name=@{score}}} {{target=[[@{score|max}]]}}' },
+  { name: 'multiple_scalars', input: '<div><input type="text" name="attr_score" value="50"></div><input type="text" name="attr_name" value="">' },
+  { name: 'explicit_for', input: '<label for="score-id">국소 제목</label><input type="number" name="attr_score" id="score-id">', expected: '국소 제목' },
+  { name: 'unrelated_for', input: '<label for="other-id">무관한 명시 제목</label><input type="number" name="attr_score" id="score-id">' },
+  { name: 'label_only_for', input: '<label for="score-id">이름칸 제목</label><input type="text" name="attr_score" id="score-id" value="50">', raw: '{{name=@{score}}} {{roll=[[1d100]]}}' },
+];
+scalarBridgeCases.forEach((test) => {
+  const sheet = parseSheetContract(`<div><h4>국소 제목</h4>${test.input}<div><button type="roll" name="roll_${test.name}" value="&{template:test} ${test.raw || '{{success=[[@{score}]]}} {{roll=[[1d100]]}}'}"></button></div></div>`);
+  assert.strictEqual(sheet.rolls[0].label, test.expected || test.name,
+    test.name + ': 숫자 참조와 순수 입력 wrapper가 확인된 경우에만 앞 제목을 연결해야 합니다.');
+});
+
 function packedContractShape(sheet) {
   const fieldKeys = [
     'name', 'type', 'label', 'aliases', 'section', 'default', 'max', 'onValue', 'visibility',
@@ -446,6 +511,65 @@ assert.strictEqual(parallelResourceContract.fields.find((field) => field.name ==
   '병렬 자원 입력은 실제 소스 토큰이 유일하게 맞는 제목을 사용해야 합니다.');
 assert.strictEqual(parallelResourceContract.fields.find((field) => field.name === 'unknown').groupLabel, undefined,
   '병렬 제목 중 유일하게 맞는 원본 후보가 없으면 자원 이름을 추측하면 안 됩니다.');
+
+// source20: 현재값에만 연결된 label과 같은 부모의 무명 disabled *_max 원본 입력입니다.
+const source20ResourceContract = parseSheetContract(`
+  <div class="sheet-subability-01">
+    <label for="attr_hp" class="sheet-label-default">체력</label>
+    <div>
+      <input type="number" name="attr_hp" placeholder="0" id="attr_hp">/<input type="number" min="0" name="attr_hp_max" value="floor((@{con}+@{siz})/10)" disabled="true">
+      <input type="checkbox" id="attr_majorwound" value="1" name="attr_majorwound" class="sheet-checkbox"><label for="attr_majorwound" class="sheet-check-label">중상</label>
+      <input type="checkbox" id="attr_dying" value="1" name="attr_dying" class="sheet-checkbox"><label for="attr_dying" class="sheet-check-label">빈사</label>
+    </div>
+    <label for="attr_mp" class="sheet-label-default">마력</label>
+    <div>
+      <input type="number" min="0" name="attr_mp" placeholder="0" id="attr_mp">/<input type="number" min="0" name="attr_mp_max" value="floor(@{pow}/5)" disabled="true">
+    </div>
+    <label for="attr_san" class="sheet-label-default">이성</label>
+    <div>
+      <input type="number" name="attr_san" min="0" placeholder="0" id="attr_san"> / <input type="number" min="0" name="attr_san_max" placeholder="최대" value="99-@{cthulhu_mythos}" disabled="true">
+      <input type="number" min="0" name="attr_san_start" placeholder="시작" title="시작 이성" alt="시작 이성">
+    </div>
+  </div>`);
+[['hp', '체력', 'floor((@{con}+@{siz})/10)'], ['mp', '마력', 'floor(@{pow}/5)']]
+  .forEach(([name, label, formula]) => {
+    const current = source20ResourceContract.fields.find((field) => field.name === name);
+    const maximum = source20ResourceContract.fields.find((field) => field.name === name + '_max');
+    assert.strictEqual(current.label, label);
+    assert.strictEqual(maximum.label, '최대', 'source20의 명시적 *_max 선언은 같은 부모의 현재값 최대 역할로 보존해야 합니다.');
+    assert.strictEqual(maximum.groupLabel, label);
+    assert(maximum.aliases.includes(label));
+    assert.strictEqual(maximum.default, formula, '원본 최대값 공식은 명칭 보완으로 바뀌면 안 됩니다.');
+    assert.strictEqual(maximum.disabled, true);
+    assert.strictEqual(maximum.numericCandidate, false);
+  });
+assert.strictEqual(source20ResourceContract.fields.find((field) => field.name === 'san_max').label, '최대');
+assert.strictEqual(source20ResourceContract.fields.find((field) => field.name === 'san_max').default, '99-@{cthulhu_mythos}');
+assert.strictEqual(source20ResourceContract.fields.find((field) => field.name === 'san_start').label, '시작 이성');
+
+const namedMaximumGuards = parseSheetContract(`
+  <label for="attr_readonly_pool">정력</label><div><input type="number" name="attr_readonly_pool" id="attr_readonly_pool"><input type="number" name="attr_readonly_pool_max" value="12" readonly></div>
+  <label for="attr_explicit_pool">잔량</label><div><input type="number" name="attr_explicit_pool" id="attr_explicit_pool"><input type="number" name="attr_explicit_pool_max" title="보유 상한" value="13" disabled></div>
+  <label for="attr_aliased_pool">평정</label><div><input type="number" name="attr_aliased_pool" id="attr_aliased_pool"><input type="number" name="attr_aliased_pool_max" title="aliased_pool_max" placeholder="독립 상한" value="20" disabled></div>
+  <label for="attr_editable_pool">동력</label><div><input type="number" name="attr_editable_pool" id="attr_editable_pool"><input type="number" name="attr_editable_pool_max" value="14"></div>
+  <label for="attr_wrong_pool">집중</label><div><input type="number" name="attr_wrong_pool" id="attr_wrong_pool"><input type="number" name="attr_different_max" value="15" disabled></div>
+  <label for="attr_split_pool">생명</label><div><input type="number" name="attr_split_pool" id="attr_split_pool"></div><div><input type="number" name="attr_split_pool_max" value="16" disabled></div>
+  <label for="attr_crowded_pool">마나</label><div><input type="number" name="attr_crowded_pool" id="attr_crowded_pool"><input type="number" name="attr_crowded_pool_max" value="17" disabled><input type="number" name="attr_other_count" value="1"></div>
+  <label for="attr_hidden_pool">기력</label><div><input type="number" name="attr_hidden_pool" id="attr_hidden_pool"><input type="number" name="attr_hidden_pool_max" value="18" disabled hidden></div>
+  <fieldset class="repeating_pool"><label for="attr_row_pool">에너지</label><div><input type="number" name="attr_row_pool" id="attr_row_pool"><input type="number" name="attr_row_pool_max" value="19" disabled></div></fieldset>
+`);
+assert.strictEqual(namedMaximumGuards.fields.find((field) => field.name === 'readonly_pool_max').label, '최대');
+assert.strictEqual(namedMaximumGuards.fields.find((field) => field.name === 'row_pool_max').label, '에너지',
+  '반복행에서 이미 얻은 표시명도 새 선언명 보완으로 덮으면 안 됩니다.');
+assert.strictEqual(namedMaximumGuards.fields.find((field) => field.name === 'explicit_pool_max').label, '보유 상한',
+  '이미 있는 최대 필드의 명시적 UI 제목을 선언명 역할로 덮으면 안 됩니다.');
+const aliasedMaximum = namedMaximumGuards.fields.find((field) => field.name === 'aliased_pool_max');
+assert.strictEqual(aliasedMaximum.label, 'aliased_pool_max');
+assert(aliasedMaximum.aliases.includes('독립 상한'), '기계명 label이어도 원본 별칭이 있으면 새 최대 역할로 바꾸면 안 됩니다.');
+['editable_pool_max', 'different_max', 'split_pool_max', 'crowded_pool_max', 'hidden_pool_max'].forEach((name) => {
+  assert.strictEqual(namedMaximumGuards.fields.find((field) => field.name === name).label, name,
+    '편집 가능·다른 선언명·다른 부모·여러 현재값·숨김 최대필드는 새 명칭 보완에서 제외해야 합니다: ' + name);
+});
 
 const imageResourceContract = parseSheetContract(`
   <div class="sheet-resource-board"><div class="sheet-column">

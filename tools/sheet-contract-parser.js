@@ -935,13 +935,28 @@
         .replace(/\{\{\s*roll(?:[2-9]\d*)\s*=\s*\[\[[\s\S]*?\]\]\s*\}\}/gi, '')
         .replace(/\s+/g, ' ').trim();
     }
+    var inlineNames = rollRefs && rollRefs.length
+      ? inlineExpressionRefs(node.attrs.value || '') : dictionary();
+    function onlyReferencedInput(wrapper, input) {
+      if (!input || !inlineNames[baseAttrName(input.attrs.name)]) return false;
+      var found = false;
+      var blocked = false;
+      walk(wrapper, function (child) {
+        if (child === input) { found = true; return; }
+        if (!/^(?:div|span)$/.test(child.tag) || directLabelText(child) || Object.keys(child.attrs).some(function (name) {
+          return /^(?:name|title|placeholder|aria-label|data-i18n(?:-.+)?)$/.test(name) &&
+            normalizeText(child.attrs[name]);
+        })) blocked = true;
+      });
+      return found && !blocked;
+    }
     var current = node;
     for (var depth = 0; current && current.parent && depth <= parentDepth; depth += 1) {
       var values = [];
       var siblings = current.parent.children;
       var index = siblings.indexOf(current);
       var referencedInput = null;
-      if (depth === 1 && rollRefs && rollRefs.length) {
+      if (depth <= 1 && rollRefs && rollRefs.length) {
         var inputs = [];
         walk(current.parent, function (child) {
           if (child.tag !== 'input' || !/^(?:text|number|range)$/.test(fieldNodeType(child))) return;
@@ -950,9 +965,25 @@
           inputs.push(child);
         });
         // 이름칸이나 다른 수치가 함께 있으면 이 묶음의 제목을 한 굴림에 연결하지 않는다.
-        if (inputs.length === 1 && fieldNodeType(inputs[0]) === 'number' && rollRefs.some(function (ref) {
+        var scalar = inputs.length === 1 && inputs[0];
+        var scalarValue = scalar && normalizeText(scalar.attrs.value);
+        var numericText = scalar && fieldNodeType(scalar) === 'text' &&
+          /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(scalarValue) && isFinite(Number(scalarValue)) &&
+          inlineNames[baseAttrName(scalar.attrs.name)];
+        if (scalar && (fieldNodeType(scalar) === 'number' || numericText) && rollRefs.some(function (ref) {
           return ref && !ref.max && ref.name === baseAttrName(inputs[0].attrs.name);
         })) referencedInput = inputs[0];
+      }
+      // 같은 국소 입력에 명시적으로 연결된 제목은 별도 일반·보너스 버튼에도 유효하다.
+      if (referencedInput && referencedInput.attrs.id && inlineNames[baseAttrName(referencedInput.attrs.name)]) {
+        var explicitLabels = siblings.filter(function (sibling) {
+          return sibling.tag === 'label' && sibling.attrs.for === referencedInput.attrs.id &&
+            !hiddenLabelNode(sibling) && !hasRollControl(sibling);
+        });
+        if (explicitLabels.length === 1) {
+          var explicitLabel = labelDetails(explicitLabels[0], translations, labelText);
+          if (explicitLabel.label) return explicitLabel;
+        }
       }
       [1, -1].forEach(function (direction) {
         for (var i = index + direction; i >= 0 && i < siblings.length; i += direction) {
@@ -966,6 +997,7 @@
             continue;
           }
           if (hiddenLabelNode(sibling)) continue;
+          if (onlyReferencedInput(sibling, referencedInput)) continue;
           if (ADJACENT_SKIP_TAGS[sibling.tag]) {
             if (sibling.tag === 'input' &&
               (hasAttr(sibling, 'hidden') || (sibling.attrs.type || '').toLowerCase() === 'hidden')) continue;
@@ -1721,6 +1753,16 @@
             !/^(?:현재|최대|시작|current|maximum|max|start|value|score|값|수치|점수)$/i.test(normalized);
         });
         if (!labels.length) return;
+        siblingFields.forEach(function (candidate) {
+          if (candidate.name !== field.name + '_max' || !(candidate.disabled || candidate.readonly) ||
+            normalizeText(candidate.label) !== normalizeText(candidate.name) ||
+            (candidate.aliases || []).some(function (alias) {
+              return normalizeText(alias) && normalizeText(alias) !== normalizeText(candidate.name);
+            })) return;
+          // 같은 부모의 유일한 현재값과 명시적으로 짝지어진 무명 최대 선언만 보완한다.
+          candidate.label = '최대';
+          if (!candidate.groupLabel) candidate.groupLabel = labels[0];
+        });
         siblingFields.filter(function (candidate) {
           return candidate !== field && /^(?:최대|maximum|max)(?:값|수치|점수)?$/i.test(normalizeText(candidate.label));
         }).forEach(function (maximum) {
