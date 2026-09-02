@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.37
+ * Scene Suite 10 - Sheet Helper 0.6.38
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -335,7 +335,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.37';
+  var VERSION = '0.6.38';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -3164,11 +3164,14 @@ var sheet_helper_setting = {
 
   function captureResult(message) {
     var content = String((message && message.content) || '');
-    var tokenMatch = content.match(/\{\{\s*kib_sheet_result\s*=\s*([A-Za-z0-9_-]+)\s*\}\}/i);
-    if (tokenMatch && pendingResults[tokenMatch[1]]) {
-      var pending = pendingResults[tokenMatch[1]];
-      delete pendingResults[tokenMatch[1]];
-      emitResult(pending.payload, message);
+    var tokenMatch = content.match(/<!--\s*kib_sheet_result\s*=\s*([A-Za-z0-9_-]+)\s*-->/i) ||
+      content.match(/\{\{\s*kib_sheet_result\s*=\s*([A-Za-z0-9_-]+)\s*\}\}/i);
+    if (tokenMatch) {
+      if (own(pendingResults, tokenMatch[1])) {
+        var pending = pendingResults[tokenMatch[1]];
+        delete pendingResults[tokenMatch[1]];
+        emitResult(pending.payload, message);
+      }
       return true;
     }
     return captureDirectResult(message);
@@ -3186,7 +3189,7 @@ var sheet_helper_setting = {
     var token = 'k' + Date.now().toString(36) + randomInteger(1000000000).toString(36);
     pendingResults[token] = { created: Date.now(), payload: payload };
     try {
-      sendChat('character|' + character.id, content + ' {{kib_sheet_result=' + token + '}}');
+      sendChat('character|' + character.id, content + ' <!--kib_sheet_result=' + token + '-->');
       return { ok: true, payload: payload };
     } catch (err) {
       delete pendingResults[token];
@@ -3466,7 +3469,7 @@ var sheet_helper_setting = {
     var raw = String(instance && instance.roll && instance.roll.raw || '');
     if (!raw || raw.length > 20000) return { ok: false, error: '시트의 굴림 값이 비어 있거나 너무 깁니다.' };
     if (/(^|[\r\n])\s*!/.test(raw)) return { ok: false, error: 'API 명령을 실행하는 시트 굴림은 대신 실행하지 않습니다.' };
-    if (/\{\{\s*kib_sheet_result\s*=/i.test(raw)) return { ok: false, error: '시트 헬퍼 예약 필드가 들어간 롤은 실행하지 않습니다.' };
+    if (/(?:\{\{|<!--)\s*kib_sheet_result\s*=/i.test(raw)) return { ok: false, error: '시트 헬퍼 예약 필드가 들어간 롤은 실행하지 않습니다.' };
     if (/%\{\s*(?:selected|target)\|/i.test(raw))
       return { ok: false, error: 'selected 또는 target이 필요한 롤은 토큰 대상이 없는 API에서 바로 실행할 수 없습니다.' };
     if (mode && !contractOverridesValid(instance.contract, instance.roll, mode))
@@ -3617,7 +3620,7 @@ var sheet_helper_setting = {
     if (!content || content.length > 20000) return { ok: false, error: '확장된 시트 롤이 비어 있거나 너무 깁니다.' };
     if (/(^|[\r\n])\s*!/.test(content) || /%\{[^{}]+\}/.test(content))
       return { ok: false, error: '다른 능력 또는 API 명령을 불러오는 롤은 안전하게 재생할 수 없습니다.' };
-    if (/\{\{\s*kib_sheet_result\s*=/i.test(content)) return { ok: false, error: '시트 헬퍼 예약 필드가 들어간 롤은 실행하지 않습니다.' };
+    if (/(?:\{\{|<!--)\s*kib_sheet_result\s*=/i.test(content)) return { ok: false, error: '시트 헬퍼 예약 필드가 들어간 롤은 실행하지 않습니다.' };
     if (content.indexOf('?{') > -1)
       return { ok: false, reason: 'query', error: '이 굴림은 시트에서 고르는 값이 더 필요합니다.' };
     return { ok: true, content: content };
