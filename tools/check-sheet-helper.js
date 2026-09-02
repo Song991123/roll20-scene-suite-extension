@@ -201,7 +201,8 @@ const fixture = parseSheetContract([
   '<input name="attr_fixture_marker_b">',
   '<input name="attr_fixture_marker_c">',
   '<input name="attr_character_name">',
-  '<label>체력 <input type="number" name="attr_vital_current" max="20"></label>',
+  '<label>체력 <input type="number" name="attr_vital_current" max="@{vital_limit}"></label>',
+  '<input type="hidden" name="attr_vital_limit" value="20">',
   '<input type="checkbox" class="sheet-temporary-mode" name="attr_temporary_mode" value="on">',
   '<label class="sheet-major-field">중상 <input type="checkbox" name="attr_major_state" value="active"></label>',
   '<div class="sheet-temporary-panel"><label>임시 체력 <input type="number" name="attr_temporary_health" value="20"></label></div>',
@@ -555,6 +556,7 @@ delete fixtureValues.blank_target;
 Object.assign(fixtureValues, {
   character_name: '범용 탐사자',
   vital_current: '10',
+  vital_limit: '20',
   temporary_mode: '',
   temporary_health: '20',
   major_state: '0',
@@ -1781,7 +1783,7 @@ const achtungSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-cf240692
 const nativeLimitSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-4ffca055eb552326');
 const officialSixSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-c236bcff42e9a873');
 assert(achtungSheet, 'Achtung! Cthulhu 공개 시트 인식 정보가 필요합니다.');
-assert(nativeLimitSheet, 'HTML max를 현재 자원 최대값으로 쓰는 공개 시트 인식 정보가 필요합니다.');
+assert(nativeLimitSheet, 'HTML 입력 상한과 명시 최대 필드가 함께 있는 공개 시트 인식 정보가 필요합니다.');
 const actualField = (name) => actualSheet.fields.find((field) => field.name === name);
 assert([actualField('str').label].concat(actualField('str').aliases || []).includes('근력'));
 assert([actualField('hp').label].concat(actualField('hp').aliases || []).includes('체력'));
@@ -3979,7 +3981,7 @@ const nativeSlotResources = helper.scan(nativeSlotCharacter.id, true).resourcesB
 const nativeLimitRuntime = addSourceCharacter(
   nativeLimitSheet,
   'source-native-limit',
-  'HTML 최대값 공개 시트 시험',
+  'HTML 입력 상한 공개 시트 시험',
 );
 const damageBonusAttribute = attributeObjects.find((item) =>
   item.get('_characterid') === nativeLimitRuntime.character.id && item.get('name') === 'Damage-Bonus') ||
@@ -3988,16 +3990,39 @@ damageBonusAttribute.set('current', '0');
 const nativeLimitResources = helper.scan(nativeLimitRuntime.character.id, true).resources
   .filter((item) => item.statusResource);
 [
-  ['HP', 15, 37],
-  ['MP', 9, 37],
+  ['HP', 15, null],
+  ['MP', 9, null],
   ['Sanity', 45, 99],
 ].forEach(([name, value, maximum]) => {
   const item = nativeLimitResources.find((candidate) => candidate.name === name);
   assert(item && item.value === value && item.max === maximum,
-    'HTML max를 실제 현재 자원 최대값으로 쓰는 공개 시트를 읽지 못했습니다: ' + name);
+    'HTML 입력 상한은 최대값으로 쓰지 않고 원본 명시 최대 필드는 보존해야 합니다: ' + name);
 });
 assert(!nativeLimitResources.some((item) => item.name === 'Damage-Bonus'),
   '인접 별칭이 섞인 피해 보너스를 현재/최대 자원 묶음으로 오인하면 안 됩니다.');
+const nativeLimitStatus = runApi('!!상태', nativeLimitRuntime.character.get('name'))
+  .find((item) => item.who === '시트 헬퍼').content;
+['Idea', 'Luck'].forEach((label) => {
+  assert(nativeLimitSheet.rolls.some((roll) => roll.name === label &&
+    (roll.staticLabels || []).some((entry) => entry.field === 'header' && entry.value === label)),
+  '실제 공개 시트의 버튼 키와 같은 원본 header 증거가 필요합니다: ' + label);
+  assert(new RegExp('>' + label + '(?: <b>[^<]+</b>)?</span>').test(nativeLimitStatus),
+    '버튼 키와 같아도 원본 header가 명시한 판정은 상태에서 숨기면 안 됩니다: ' + label);
+});
+['INT', 'POW', 'EDU', 'DEX', 'Active', 'Passive'].forEach((name) => {
+  const attribute = attributeObjects.find((item) =>
+    item.get('_characterid') === nativeLimitRuntime.character.id && item.get('name') === name) ||
+    addAttribute(nativeLimitRuntime.character.id, name, '10');
+  attribute.set('current', '10');
+});
+helper.scan(nativeLimitRuntime.character.id, true);
+const nativeDerivedStatus = runApi('!!상태', nativeLimitRuntime.character.get('name'))
+  .find((item) => item.who === '시트 헬퍼').content;
+const nativeDerivedMissing = [
+  ['Idea', 50], ['Luck', 50], ['Know', 50], ['Resistance Roll', 50], ['Dodge (DEX x2)', 20],
+].filter(([label, value]) => !nativeDerivedStatus.includes('>' + label + ' <b>' + value + '</b></span>'));
+assert.strictEqual(nativeDerivedMissing.length, 0,
+  '원본 중첩 inline 산술 기준은 상태에 계산된 수치로 표시해야 합니다: ' + JSON.stringify(nativeDerivedMissing));
 
 // 배포본에 들어간 모든 실제 시트도 시트 화면에서 직접 누른 rolltemplate 결과를
 // 명령 굴림과 같은 판정 컷인 키로 전달해야 합니다.
@@ -4972,6 +4997,7 @@ const statusPairDefinitions = [
   ['starting_meter', '시작 측정값', 5, ''], ['starting_meter_max', '최대', 10, 'disabled'],
   ['disabled_meter', '읽기전용 값', 5, 'disabled'], ['disabled_meter_max', '최대', 10, 'disabled'],
   ['ordinary_skill', '독립 기능', 5, 'max="99"'], ['inline_hp', '체력', 5, 'max="20"'],
+  ['reference_limit', '보관 한계', 17, ''], ['dynamic_pool', '동적 자원', 5, 'max="@{reference_limit}"'],
 ];
 const statusPairSheet = parseSheetContract(statusPairDefinitions.map(([name, label, value, attrs]) =>
   `<label>${label}<input type="number" name="attr_${name}" value="${value}" ${attrs}></label>`).concat([
@@ -4980,6 +5006,9 @@ const statusPairSheet = parseSheetContract(statusPairDefinitions.map(([name, lab
   '<fieldset class="repeating_samples"><label>행 값<input type="number" name="attr_row_meter" value="5"></label>',
   '<label>최대<input type="number" name="attr_row_meter_max" value="10" disabled></label></fieldset>',
   '<button type="roll" name="roll_status_pair" value="&{template:status_pair} {{subject=독립 판정}} {{success=[[@{meter}]]}} {{roll=[[1d100]]}}">독립 판정</button>',
+  '<button type="roll" name="roll_internal_probe" value="&{template:status_pair} {{roll=[[1d6]]}}"></button>',
+  '<button type="roll" name="roll_random_threshold" value="&{template:status_pair} {{subject=주사위 기준}} {{stat=[[[[1d6]]]]}} {{roll=[[1d100]]}}"></button>',
+  '<button type="roll" name="roll_broken_threshold" value="&{template:status_pair} {{subject=불완전 기준}} {{stat=[[[[50]]}} {{roll=[[1d100]]}}"></button>',
 ]).join('\n'), { id: 'status-resource-name-pair', sourceHash: 'status-resource-name-pair-v1' });
 const statusPairAttributeStart = attributeObjects.length;
 const statusPairCharacter = addCharacter('status-resource-name-pair', '현재 수치 표시 경계', 'player-1', {
@@ -4994,6 +5023,26 @@ assert.deepStrictEqual(Array.from(statusPairNames), ['inline_hp', 'label_current
   '유일한 명시 최대/기존 label·HTML 자원만 표시하고 무관·중복·숨김·반복·시작값은 제외해야 합니다.');
 assert.strictEqual(statusPairData.resourcesByAttribute.doubled.max, null,
   '같은 원본 이름으로 연결되는 최대가 둘이면 표시와 최대값 모두 임의 선택하면 안 됩니다.');
+['ordinary_skill', 'inline_hp'].forEach((name) => {
+  assert.strictEqual(statusPairData.resourcesByAttribute[name].max, null,
+    '숫자형 HTML 입력 상한은 기능이나 자원의 실제 최대값이 아닙니다: ' + name);
+});
+[['meter', 10], ['label_current', 10], ['dynamic_pool', 17]].forEach(([name, maximum]) => {
+  assert.strictEqual(statusPairData.resourcesByAttribute[name].max, maximum,
+    '명시 최대 필드와 HTML max의 동적 속성 참조는 보존해야 합니다: ' + name);
+});
+const headerlessProbe = statusPairSheet.rolls.find((roll) => roll.name === 'internal_probe');
+assert(headerlessProbe && !headerlessProbe.staticLabels.length &&
+  helper.contractRolls(statusPairCharacter.id).some((instance) => instance.roll.key === headerlessProbe.key),
+  'header 없는 내부 키 굴림도 원본 계약과 직접 실행 후보에는 보존해야 합니다.');
+const statusPairHtml = runApi('!!상태', statusPairCharacter.get('name'))
+  .find((item) => item.who === '시트 헬퍼').content;
+assert(!statusPairHtml.includes('internal_probe'),
+  '원본 header 없이 버튼 내부 키만 있는 굴림은 상태 표시명으로 노출하면 안 됩니다.');
+['주사위 기준', '불완전 기준'].forEach((label) => {
+  assert(statusPairHtml.includes('>' + label + '</span>'),
+    '주사위나 짝이 맞지 않는 중첩 inline을 확정 숫자로 표시하면 안 됩니다: ' + label);
+});
 assert(statusPairData.resourcesByAttribute.starting_meter &&
   statusPairData.resourcesByAttribute.repeating_samples_row1_row_meter,
   '시작값과 실제 반복행은 상태에서만 제외하고 일반 수치 접근은 보존해야 합니다.');

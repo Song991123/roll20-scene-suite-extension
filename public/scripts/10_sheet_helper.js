@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.35
+ * Scene Suite 10 - Sheet Helper 0.6.36
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -335,7 +335,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.35';
+  var VERSION = '0.6.36';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -2311,12 +2311,14 @@ var sheet_helper_setting = {
         _structure: structure,
       };
       if (number === null) return;
+      // A literal HTML input limit is not the character's resource maximum.
+      var sourceMaximum = /@\{[^}]+\}/.test(trim(field.max)) ? field.max : '';
       var maxRaw = attribute && attribute.get('max');
-      if (trim(maxRaw) === '' && trim(field.max)) {
+      if (trim(maxRaw) === '' && sourceMaximum) {
         var liveMax = readLive(fullName, 'max');
         if (liveMax !== undefined && liveMax !== null && trim(liveMax) !== '') maxRaw = liveMax;
       }
-      if (trim(maxRaw) === '') maxRaw = field.max;
+      if (trim(maxRaw) === '') maxRaw = sourceMaximum;
       var item = {
         attribute: attribute || null,
         name: fullName,
@@ -2332,7 +2334,7 @@ var sheet_helper_setting = {
         automationVisible: visible === true,
         _definition: definition,
         _structure: structure,
-        _maxDefinition: trim(field.max) ? JSON.stringify(field.max) : '',
+        _maxDefinition: sourceMaximum ? JSON.stringify(sourceMaximum) : '',
       };
       result.references.push(item);
       if (!field.numericCandidate) return;
@@ -4284,9 +4286,10 @@ var sheet_helper_setting = {
     var roll = instance && instance.roll || {};
     var rollName = normalize(roll.name);
     var rollKey = normalize(roll.key);
+    var sourceLabels = contractStaticLabels(roll).map(normalize);
     return [instance && instance.label].concat(instance && instance.aliases || []).map(contractDisplayLabel).filter(function (label) {
       var key = normalize(label);
-      return key && key !== rollName && key !== rollKey;
+      return key && (key !== rollName && key !== rollKey || sourceLabels.indexOf(key) > -1);
     })[0] || '';
   }
 
@@ -4373,7 +4376,7 @@ var sheet_helper_setting = {
     }), null) : null;
     if (m && m.ok) {
       var v = m.content.match(tr);
-      var n = v && resolvedResourceValue(characterId, v[1]);
+      var n = v && resolvedResourceValue(characterId, v[1].replace(/\[\[/g, '(').replace(/\]\]/g, ')'));
       if (n && n.number !== null) return n.text;
     }
     var values = [];
