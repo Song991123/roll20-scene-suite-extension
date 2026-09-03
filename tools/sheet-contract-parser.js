@@ -771,14 +771,6 @@
         programs[target._kibSheetNodeId].push({ visible: display.visible, important: display.important, order: 1000000000, specificity: 1000, paths: [[]] });
       }
     });
-    var showAtoms = dictionary();
-    Object.keys(programs).forEach(function (id) {
-      programs[id].filter(function (entry) { return entry.visible && entry.paths.every(function (path) { return path.length; }); }).forEach(function (entry) {
-        entry.paths.forEach(function (path) {
-          path.forEach(function (atom) { showAtoms[atomKey(atom, true)] = true; });
-        });
-      });
-    });
     var nodeConditions = dictionary();
     var usedControls = dictionary();
     Object.keys(programs).forEach(function (id) {
@@ -792,16 +784,8 @@
       });
       var conditional = entries.filter(function (entry) { return entry.paths.every(function (path) { return path.length; }); });
       var selected = [];
-      if (!base.visible) {
-        if (conditional.some(function (entry) { return entry.visible; })) selected = conditional.slice();
-      } else {
-        var pairedHides = conditional.filter(function (entry) {
-          return !entry.visible && entry.paths.every(function (path) {
-            return path.some(function (atom) { return !!showAtoms[atomKey(atom, true)]; });
-          });
-        });
-        if (pairedHides.length) selected = pairedHides.concat(conditional.filter(function (entry) { return entry.visible; }));
-      }
+      if (base.visible || conditional.some(function (entry) { return entry.visible; }))
+        selected = conditional.slice();
       if (!selected.length) {
         // A missing opening control proves only an unreachable panel, not a hidden auxiliary roll.
         if (!uncertainPermanent && !uncertainPermanentNodes[id] && !base.visible && unreachableShows[id]) {
