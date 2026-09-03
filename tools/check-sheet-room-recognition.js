@@ -610,4 +610,58 @@ helper.refresh();
 assert(!helper.contractRolls(unsupported.id).some(item => item.label === '행 판정'),
   '반복 행의 독립적인 비활성 조건도 즉시 반영해야 합니다.');
 
+const sharedLabelRaw = '&{template:test} {{title=@{shared_title}}} {{target=[[50]]}} {{roll=[[1d100]]}}';
+const sharedLabelSheet = parseSheetContract(`
+  <input name="attr_shared_marker" value="shared-label"><input name="attr_shared_version" value="one"><input name="attr_shared_guard" value="guard">
+  <input type="hidden" name="attr_npc"><input type="hidden" name="attr_shared_title">
+  <div class="pc"><button type="roll" name="roll_appraise" data-i18n="appraise" value="${sharedLabelRaw}">appraise</button></div>
+  <div class="npc"><button type="roll" name="roll_appraise" value="${sharedLabelRaw}"></button></div>
+  <button type="roll" name="roll_different" value="${sharedLabelRaw}"></button>
+  <button type="roll" name="roll_appraise" value="[[1d6]]"></button>
+  <fieldset class="repeating_other"><button type="roll" name="roll_appraise" value="${sharedLabelRaw}"></button></fieldset>
+`, {id:'shared-roll-labels', sourceHash:'shared-roll-labels', translations:[{appraise:'감정'}], css:`
+  .npc { display:none; }
+  input[name=attr_npc][value=on] ~ .npc { display:block; }
+  input[name=attr_npc][value=on] ~ .pc { display:none; }
+`});
+assert.strictEqual(sharedLabelSheet.rolls[1].label, '감정',
+  '같은 이름·원본 식·반복 영역인 복제 버튼은 명시된 번역 별칭을 공유해야 합니다.');
+assert(sharedLabelSheet.rolls[1].aliases.includes('appraise'), '원본 식별자 명령도 보존해야 합니다.');
+assert(sharedLabelSheet.rolls.slice(2).every(roll => roll.label !== '감정'),
+  '다른 이름, 다른 식, 다른 반복 영역에는 복제 버튼의 이름을 전파하면 안 됩니다.');
+const ambiguousSharedLabels = parseSheetContract(`
+  <button type="roll" name="roll_appraise" value="${sharedLabelRaw}"></button>
+  <button type="roll" name="roll_appraise" data-i18n="first" value="${sharedLabelRaw}">appraise</button>
+  <button type="roll" name="roll_appraise" data-i18n="second" value="${sharedLabelRaw}">appraise</button>
+`, {translations:[{first:'감정', second:'평가'}]});
+assert.strictEqual(ambiguousSharedLabels.rolls[0].label, 'appraise',
+  '원본에 서로 다른 표시명이 연결되어 있으면 어느 하나를 임의로 선택하지 않습니다.');
+const fallbackSharedLabels = parseSheetContract(`
+  <button type="roll" name="roll_drive_auto" value="${sharedLabelRaw}"></button>
+  <button type="roll" name="roll_drive_auto" data-i18n="drive-auto" value="${sharedLabelRaw}">drive auto</button>
+  <button type="roll" name="roll_own" value="${sharedLabelRaw}"></button>
+  <button type="roll" name="roll_own" data-i18n="languages" value="${sharedLabelRaw}">languages</button>
+  <button type="roll" name="roll_other_skill" value="${sharedLabelRaw}"></button>
+  <button type="roll" name="roll_other_skill" data-i18n="other" value="${sharedLabelRaw}">other_skill</button>
+`, {translations:[{'drive-auto':'자동차 운전', languages:'언어', other:'다른 기능'}]});
+assert.strictEqual(fallbackSharedLabels.rolls[0].label, '자동차 운전',
+  '표시명이 없어 내부 버튼명을 사용한 복제본도 같은 원본 굴림의 명시된 표시명을 공유해야 합니다.');
+assert.strictEqual(fallbackSharedLabels.rolls[2].label, 'own',
+  '내부 버튼명과 연결되지 않은 주변 분류 제목을 복제 버튼의 표시명으로 확산하면 안 됩니다.');
+assert.strictEqual(fallbackSharedLabels.rolls[4].label, '다른 기능',
+  '원본 별칭에 밑줄이 그대로 있는 경우의 정확 일치도 보존해야 합니다.');
+runtime.KIBSheetContracts = [sharedLabelSheet];
+attributes.length = 0;
+currentDefaults = Object.fromEntries(sharedLabelSheet.fields.map(field => [field.name, field.default]));
+['shared_marker', 'shared_version', 'shared_guard'].forEach(name => attribute(unsupported.id, name, currentDefaults[name]));
+const sharedNpc = attribute(unsupported.id, 'npc', 'on');
+helper.registerContract(sharedLabelSheet);
+for (const mode of ['on', '0', 'on']) {
+  sharedNpc.set('current', mode);
+  helper.refresh();
+  const matches = helper.contractRolls(unsupported.id).filter(item => item.label === '감정');
+  assert.strictEqual(matches.length, 1, '모드 전환 후 한국어 항목은 활성 버튼 한 개만 인식해야 합니다.');
+  assert.strictEqual(matches[0].roll.raw, sharedLabelRaw);
+}
+
 console.log('Sheet room recognition: ok');

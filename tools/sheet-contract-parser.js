@@ -2697,6 +2697,33 @@
     return result;
   }
 
+  function applySharedRollLabels(rolls) {
+    var groups = dictionary();
+    rolls.forEach(function (roll) {
+      if (!roll.name) return;
+      var key = JSON.stringify([roll.name, roll.raw, roll.repeating && roll.repeating.section || '']);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(roll);
+    });
+    Object.keys(groups).forEach(function (key) {
+      var group = groups[key];
+      var labels = group.map(function (roll) {
+        var alias = roll.label === roll.name ? normalizeText(roll.name.replace(/_/g, ' ')) : roll.label;
+        var candidates = uniqueTexts(group.filter(function (peer) {
+          return peer.label !== roll.label && ((peer.aliases || []).indexOf(roll.label) > -1 ||
+              (peer.aliases || []).indexOf(alias) > -1) &&
+            (roll.aliases || []).indexOf(peer.label) < 0;
+        }).map(function (peer) { return peer.label; }));
+        return candidates.length === 1 ? candidates[0] : '';
+      });
+      group.forEach(function (roll, index) {
+        if (!labels[index]) return;
+        roll.aliases = uniqueTexts([roll.label].concat(roll.aliases || []));
+        roll.label = labels[index];
+      });
+    });
+  }
+
   function collectRolls(nodes, controlScopes, translations, visibility) {
     var keys = dictionary();
     return nodes.map(function (node) {
@@ -2834,6 +2861,7 @@
     applyFieldVisibility(controlScopes, visibility.rolls);
     applySettingsControls(tree, controlScopes, opts.userOptions);
     var rolls = collectRolls(rollNodes, controlScopes, translations, visibility);
+    applySharedRollLabels(rolls);
     applyFieldRollLabels(controlScopes, rolls);
     applyResourceGroupLabels(controlScopes, translations);
     applyNamedResourcePairGroups(controlScopes, translations);
