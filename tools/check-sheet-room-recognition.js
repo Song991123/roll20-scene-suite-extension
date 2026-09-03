@@ -528,4 +528,44 @@ referencedNavigation.rolls[0].expressionRefs.push({name:'page', max:false});
 helper.registerContract(referencedNavigation);
 assert.strictEqual(helper.contractRolls(unsupported.id).length, 0, '굴림식에서 사용하는 값은 표시 전환으로 무시하면 안 됩니다.');
 
+const linkedCaptionSheet = parseSheetContract(`
+  <input name="attr_link_marker" value="link-marker"><input name="attr_link_version" value="one"><input name="attr_link_guard" value="guard">
+  <input type="hidden" name="attr_item_name"><input type="hidden" name="attr_action_caption">
+  <button name="roll_item" type="roll" value="&{template:test} {{name=@{character_name}}} {{title=@{item_name}}} {{footer=[@{action_caption}](~@{character_id}|bonus)}} {{roll=[[1d100]]}}"></button>
+  <button name="roll_appraise" type="roll" value="&{template:test} {{title=감정}} {{footer=[@{action_caption}](~@{character_id}|bonus)}} {{roll=[[1d100]]}}">감정</button>
+  <button name="roll_bonus" type="roll" value="&{template:test} {{title=@{action_caption}}} {{roll=[[1d10]]}}"></button>
+  <button name="roll_note" type="roll" value="&{template:test} {{title=설명 전송}} {{text=설명 본문}}">설명 전송</button>
+  <button name="roll_text_dice" type="roll" value="&{template:test} {{title=유효 주사위}} {{text=메모}} {{roll=[[1d6]]}}">유효 주사위</button>
+  <button name="roll_spell" type="roll" value="&{template:test} {{title=주문 설명}} {{text=주문 본문}}">주문 설명</button>
+`, {id:'linked-caption', sourceHash:'linked-caption'});
+runtime.KIBSheetContracts = [linkedCaptionSheet];
+attributes.length = 0;
+currentDefaults = Object.fromEntries(linkedCaptionSheet.fields.map(field => [field.name, field.default]));
+['link_marker', 'link_version', 'link_guard'].forEach(name => attribute(unsupported.id, name, currentDefaults[name]));
+attribute(unsupported.id, 'action_caption', '보너스');
+const linkedItemName = attribute(unsupported.id, 'item_name', '');
+helper.registerContract(linkedCaptionSheet);
+let linkedRolls = helper.contractRolls(unsupported.id);
+assert(!linkedRolls.filter(item => item.roll.name !== 'bonus').some(item => item.aliases.includes('보너스')),
+  '보조 실행 링크의 글자를 다른 항목의 이름이나 명령 별칭으로 읽으면 안 됩니다.');
+assert(linkedRolls.some(item => item.roll.name === 'bonus' && item.label === '보너스'),
+  '진짜 보너스 굴림의 제목까지 제외하면 안 됩니다.');
+for (const name of ['ㅇㄴ', '동물 다루기']) {
+  linkedItemName.set('current', name);
+  helper.refresh();
+  linkedRolls = helper.contractRolls(unsupported.id);
+  const item = linkedRolls.find(item => item.roll.name === 'item');
+  assert.strictEqual(item.label, name, '기능 이름 수정은 계속 즉시 반영해야 합니다.');
+  assert(!item.aliases.includes('보너스'));
+}
+statusMessages.length = 0;
+events['chat:message']({type:'api', playerid:'gm', content:'!!상태'});
+const linkedStatus = statusMessages.join('');
+assert(!linkedStatus.includes('설명 전송'), '본문 전송만 하는 버튼을 기타 주사위로 나열하면 안 됩니다.');
+assert(linkedStatus.includes('유효 주사위') && linkedStatus.includes('주문 설명'),
+  '본문이 함께 있는 진짜 주사위와 원본 주문 항목은 보존해야 합니다.');
+const noteRoll = helper.contractRolls(unsupported.id).find(item => item.roll.name === 'note');
+assert(noteRoll && helper.executeContract(unsupported.id, linkedCaptionSheet.id, noteRoll.roll.key, '', '', false, '').ok,
+  '목록에서 본문 버튼을 숨기더라도 명시적인 원본 실행 기능까지 삭제하면 안 됩니다.');
+
 console.log('Sheet room recognition: ok');
