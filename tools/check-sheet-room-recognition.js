@@ -280,4 +280,40 @@ assert(statusMessages.some(text => text.includes('특성치 8개') && text.inclu
 assert(!statusMessages.some(text => /(?:발|손|머리) <b>0<\/b>/.test(text)),
   '피해 보정값을 판정 기준값처럼 표시하면 안 됩니다.');
 
+// Sheet tooltips can document an ability reference; that is not a visible label
+// and must never be evaluated by sendChat while showing a status/error message.
+const referenceTitle = parseSheetContract([
+  '<input name="attr_reference_marker" value="reference-labels">',
+  '<input type="number" name="attr_dodge" value="25">',
+  '<button type="roll" name="roll_dodge" title="%{dodge}" value="&{template:test} {{subject=회피}} {{target=[[@{dodge}]]}} {{roll=[[1d100]]}}"></button>',
+].join('\n'), { id: 'reference-labels', sourceHash: 'reference-labels' });
+runtime.KIBSheetContracts = [referenceTitle];
+currentDefaults = Object.fromEntries(referenceTitle.fields.map(field => [field.name, field.default]));
+attributes.length = 0;
+attribute(unsupported.id, 'reference_marker', 'reference-labels');
+attribute(unsupported.id, 'dodge', 25);
+helper.registerContract(referenceTitle);
+const referenceRoll = helper.contractRolls(unsupported.id).find(item => item.roll.name === 'dodge');
+assert(referenceRoll && referenceRoll.label === '회피', '기술용 %{dodge} 툴팁은 실제 판정 이름을 가리면 안 됩니다.');
+assert.strictEqual(referenceRoll.roll.raw, referenceTitle.rolls[0].raw, '표시 필터는 원본 굴림을 바꾸면 안 됩니다.');
+statusMessages.length = 0;
+events['chat:message']({ type: 'api', playerid: 'gm', content: '!!없는항목%{dodge}' });
+assert(statusMessages.some(text => text.includes('&#37;{dodge}')),
+  '오류 안내의 굴림 참조는 실행되지 않도록 표시용으로 이스케이프해야 합니다.');
+assert(!statusMessages.some(text => /[@%]\{/.test(text)), '안내문에 실행 가능한 참조가 남으면 안 됩니다.');
+
+const achtung = embedded.KIBSheetContracts.find(sheet => sheet.id === 'sheet-cf240692b20596fc');
+runtime.KIBSheetContracts = [achtung];
+currentDefaults = Object.fromEntries(achtung.fields.filter(field => !field.section).map(field => [field.name, field.default]));
+attributes.length = 0;
+['str', 'con', 'siz', 'dex', 'app', 'edu', 'int', 'pow'].forEach(name => attribute(unsupported.id, name, 50));
+helper.registerContract(achtung);
+assert.strictEqual(helper.inspectContracts(unsupported.id).status, 'matched');
+assert(!helper.contractRolls(unsupported.id).some(item => /[@%]\{/.test(item.label)),
+  '실제 내장 Achtung 원본의 기술용 참조도 표시 이름으로 노출하면 안 됩니다.');
+statusMessages.length = 0;
+events['chat:message']({ type: 'api', playerid: 'gm', content: '!!상태' });
+assert(statusMessages.some(text => text.includes('시트 현황')), '부분 번역 시트에서도 상태 안내는 생성해야 합니다.');
+assert(!statusMessages.some(text => /[@%]\{/.test(text)), '실제 원본의 상태 안내에 실행 가능한 참조가 남으면 안 됩니다.');
+
 console.log('Sheet room recognition: ok');
