@@ -994,6 +994,43 @@ assert.strictEqual(visibleContract.rolls.find((roll) => roll.name === 'row').con
 const htmlOnlyContract = parseSheetContract(visibilityHtml, { name: 'HTML 전용', id: 'html-only' });
 assert(htmlOnlyContract.rolls.every((roll) => !Object.prototype.hasOwnProperty.call(roll, 'visibility')));
 
+const workerPanelHtml = `
+  <input type="checkbox" name="attr_combat_route" value="1">
+  <div class="current"><button type="roll" name="roll_unarmed" value="&{template:test} {{roll=[[1d100cs1cf100]]}}">비무장</button></div>
+  <div class="previous sheet-hidden"><button type="roll" name="roll_unarmed" value="&{template:test} {{roll=[[1d100]]}}">비무장</button></div>
+  <script type="text/worker">
+  on("sheet:opened change:combat_route", function() {
+    getAttrs(["combat_route"], function(values) {
+      var route = parseInt(values.combat_route);
+      if (route == 1) {
+        $20(".sheet-current").addClass("hidden");
+        $20(".sheet-previous").removeClass("sheet-hidden");
+      } else {
+        $20(".sheet-previous").addClass("sheet-hidden");
+        $20(".sheet-current").removeClass("hidden");
+      }
+    });
+  });
+  </script>`;
+const workerPanelCss = '.charsheet .sheet-hidden { display: none; }';
+const workerPanel = parseSheetContract(workerPanelHtml, { css: workerPanelCss, legacy: true });
+const workerRoute = { name: 'combat_route', op: 'eq', value: '1', scope: 'global', required: true };
+assert.deepStrictEqual(workerPanel.rolls.map((roll) => roll.visibility), [{ not: workerRoute }, workerRoute]);
+assert.strictEqual(workerPanel.rolls.length, 2, '다른 원본 굴림은 합치지 않고 현재 영역만 고릅니다.');
+assert(workerPanel.controls.combat_route, '워커 표시 컨트롤은 변경 감지와 현재값 읽기에 남아야 합니다.');
+const workerNested = parseSheetContract(workerPanelHtml.replace('if (route == 1)', 'if (route == 1 && anotherValue)'), { css: workerPanelCss, legacy: true });
+assert(workerNested.rolls.every((roll) => !roll.visibility), '해석하지 않은 조건은 임의로 숨기지 않습니다.');
+const workerComment = parseSheetContract(workerPanelHtml.replace('on("sheet:opened', '/* on("sheet:opened').replace('</script>', '*/</script>'), { css: workerPanelCss, legacy: true });
+assert(workerComment.rolls.every((roll) => !roll.visibility), '주석의 워커 코드는 실행 경로가 아닙니다.');
+const workerConflict = parseSheetContract(workerPanelHtml.replace('</script>', '$20(".sheet-current").addClass("hidden");</script>'), { css: workerPanelCss, legacy: true });
+assert(!workerConflict.rolls[0].visibility, '다른 곳에서도 쓰는 클래스는 단일 조건으로 단정하지 않습니다.');
+const workerTextValue = parseSheetContract(workerPanelHtml.replace('type="checkbox"', 'type="text"'), { css: workerPanelCss, legacy: true });
+assert(workerTextValue.rolls.every((roll) => !roll.visibility), '임의 문자열의 parseInt 결과를 문자열 동등성으로 바꾸지 않습니다.');
+const workerVisibleClass = parseSheetContract(workerPanelHtml, { css: '.hidden, .sheet-hidden { display: block; }', legacy: true });
+assert(workerVisibleClass.rolls.every((roll) => !roll.visibility), 'CSS가 표시하도록 정의한 클래스를 이름만 보고 숨김으로 단정하지 않습니다.');
+const workerCse = parseSheetContract(workerPanelHtml, { css: workerPanelCss, legacy: false });
+assert(workerCse.rolls.every((roll) => !roll.visibility), 'CSE 시트의 잘못된 선택자를 legacy 접두어로 임의 보정하지 않습니다.');
+
 // 열기 규칙은 있지만 그 규칙의 원본 형제 컨트롤이 없는 폐기된 탭만 확정 숨김입니다.
 const unreachablePanelHtml = `
   <input type="checkbox" class="sheet-route" name="attr_route" value="on">

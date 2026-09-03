@@ -53,8 +53,32 @@ const expectedEmbeddedIds = [
 ];
 assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expectedEmbeddedIds,
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
+// Keep the prior full-contract baseline: only the new worker visibility gates may differ.
+const preservationSheets = JSON.parse(JSON.stringify(embeddedSheets.slice(0, 34)));
+const workerUpdatedSheet = preservationSheets.find(sheet => sheet.id === 'sheet-c653c0852b277de6');
+function withoutWorkerGate(condition) {
+  if (!condition || condition.required) return null;
+  if (condition.not) {
+    const child = withoutWorkerGate(condition.not);
+    return child ? { not: child } : null;
+  }
+  for (const key of ['all', 'any']) {
+    if (!condition[key]) continue;
+    const children = condition[key].map(withoutWorkerGate).filter(Boolean);
+    const unique = [...new Map(children.map(child => [JSON.stringify(child), child])).values()];
+    return unique.length > 1 ? { [key]: unique } : unique[0] || null;
+  }
+  return condition;
+}
+delete workerUpdatedSheet.controls.oldcombatcheck;
+workerUpdatedSheet.rolls.forEach(roll => {
+  const visibility = withoutWorkerGate(roll.visibility);
+  if (visibility) roll.visibility = visibility;
+  else delete roll.visibility;
+});
+workerUpdatedSheet.fields.forEach(field => { field.visibility = withoutWorkerGate(field.visibility); });
 assert.strictEqual(
-  crypto.createHash('sha256').update(JSON.stringify(embeddedSheets.slice(0, 34))).digest('hex'),
+  crypto.createHash('sha256').update(JSON.stringify(preservationSheets)).digest('hex'),
   'd0ec1bfd5ee30e3c7373b9d1115938c35bc744f1c7ee8d36061893bd9f58c100',
   'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
 );
@@ -5437,5 +5461,40 @@ characters.splice(characters.indexOf(statusPairCharacter), 1);
 attributeObjects.splice(statusPairAttributeStart);
 useContracts(...embeddedSheets);
 useRoomCharacters(westernAutoCharacter);
+
+const workerSwitchSheet = parseSheetContract(`
+  <input type="checkbox" name="attr_route" value="1">
+  <select name="attr_bonus"><option value="0">보통</option><option value="1">보너스1</option><option value="-1">페널티1</option></select>
+  <div class="new"><button type="roll" name="roll_check" value="&{template:test} {{subject=검증 판정}} {{roll=[[1d6+@{bonus}]]}}">검증 판정</button></div>
+  <div class="old hidden"><button type="roll" name="roll_check" value="&{template:test} {{subject=검증 판정}} {{roll=[[1d8+@{bonus}]]}}">검증 판정</button></div>
+  <script type="text/worker">
+  on("sheet:opened change:route", function() {
+    getAttrs(["route"], function(v) {
+      var mode = parseInt(v.route);
+      if (mode == 1) {
+        $20(".new").addClass("hidden"); $20(".old").removeClass("hidden");
+      } else {
+        $20(".new").removeClass("hidden"); $20(".old").addClass("hidden");
+      }
+    });
+  });
+  </script>`, { id: 'worker-panel-switch' });
+const workerSwitchCharacter = addCharacter('worker-switch', '워커 전환 검증', 'player-1', { route: '0', bonus: '0' });
+useContracts(workerSwitchSheet);
+useRoomCharacters(workerSwitchCharacter);
+const workerRouteAttribute = attributeObjects.find(item => item.get('_characterid') === workerSwitchCharacter.id && item.get('name') === 'route');
+['0', '1', '0'].forEach(value => {
+  const before = workerRouteAttribute.get('current');
+  workerRouteAttribute.set('current', value);
+  events['change:attribute'](workerRouteAttribute, { current: before });
+  const expected = value === '1' ? '1d8' : '1d6';
+  const all = helper.scan(workerSwitchCharacter.id).contractAllRolls;
+  assert.strictEqual(all.length, 1, '명시 모드 후보에도 비활성 워커 영역은 남지 않아야 합니다.');
+  assert(all[0].roll.raw.includes(expected));
+  ['!!검증 판정', '!!검증 판정 보너스1', '!!검증 판정 페널티1'].forEach(command => {
+    const output = runApi(command, workerSwitchCharacter.get('name')).map(item => String(item.content || '')).join('\n');
+    assert(output.includes(expected) && !output.includes('어느 항목'), command + ': ' + output);
+  });
+});
 
 console.log('Sheet Helper check: PASS');

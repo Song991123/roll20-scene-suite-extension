@@ -17,7 +17,7 @@ const brotliLicensePath = path.resolve(
 );
 
 function readSheet(name, htmlPath, cssPath, translationPaths) {
-  const { source, translationInputs, stylesheet, sourceHash } =
+  const { source, translationInputs, stylesheet, sourceHash, legacy } =
     readSheetSourceInputs(htmlPath, cssPath, translationPaths);
   return parseSheetContract(source, {
     name,
@@ -25,6 +25,7 @@ function readSheet(name, htmlPath, cssPath, translationPaths) {
     sourceHash,
     translations: translationInputs.map((entry) => entry.messages),
     css: stylesheet,
+    legacy,
   });
 }
 

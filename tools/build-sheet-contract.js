@@ -73,15 +73,19 @@ function readSheetSourceInputs(inputPath, cssPath, translationPaths) {
   const translationInputs = readTranslationInputs(inputPath, translationPaths);
   const stylesheetPath = findCssInput(inputPath, cssPath);
   const stylesheet = stylesheetPath ? fs.readFileSync(stylesheetPath, 'utf8') : '';
+  const metadataPath = path.join(path.dirname(inputPath), 'sheet.json');
+  const legacy = fs.existsSync(metadataPath)
+    ? JSON.parse(fs.readFileSync(metadataPath, 'utf8').replace(/^\uFEFF/, '')).legacy === true
+    : false;
   const digest = crypto.createHash('sha256').update(source);
   translationInputs.forEach((entry) => digest.update(`\0${entry.relative}\0`).update(entry.source));
   if (stylesheetPath) digest.update('\0stylesheet\0').update(stylesheet);
   const sourceHash = digest.digest('hex');
-  return { source, translationInputs, stylesheetPath, stylesheet, sourceHash };
+  return { source, translationInputs, stylesheetPath, stylesheet, sourceHash, legacy };
 }
 
 function buildSheetContract(inputPath, outputPath, cssPath, translationPaths) {
-  const { source, translationInputs, stylesheetPath, stylesheet, sourceHash } =
+  const { source, translationInputs, stylesheetPath, stylesheet, sourceHash, legacy } =
     readSheetSourceInputs(inputPath, cssPath, translationPaths);
   const name = path.basename(inputPath, path.extname(inputPath));
   const contract = parseSheetContract(source, {
@@ -90,6 +94,7 @@ function buildSheetContract(inputPath, outputPath, cssPath, translationPaths) {
     sourceHash,
     translations: translationInputs.map((entry) => entry.messages),
     css: stylesheet,
+    legacy,
   });
   const target = outputPath || path.join(path.dirname(inputPath), 'sheet_contract.js');
   if (path.resolve(inputPath) === path.resolve(target)) throw new Error('Output path must differ from the sheet HTML path.');

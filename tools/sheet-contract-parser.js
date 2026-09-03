@@ -701,9 +701,8 @@
     return uncertain;
   }
 
-  function buildRollVisibility(root, rollNodes, externalCss) {
+  function buildRollVisibility(root, rollNodes, externalCss, legacy) {
     var sources = cssSources(root, externalCss);
-    if (!sources.length) return { rolls: dictionary(), controls: dictionary() };
     var nextId = 1;
     walk(root, function (node) { node._kibSheetNodeId = nextId++; });
     var targets = [];
@@ -826,6 +825,12 @@
         entry.paths.forEach(function (path) { path.forEach(function (atom) { usedControls[atom.name] = true; }); });
       });
     });
+    workerPanelVisibility(root, targets, sources, legacy).forEach(function (entry) {
+      var id = entry.node._kibSheetNodeId;
+      nodeConditions[id] = nodeConditions[id]
+        ? visibilityAll([nodeConditions[id], entry.condition]) : entry.condition;
+      usedControls[entry.condition.name || entry.condition.not.name] = true;
+    });
     var rollConditions = dictionary();
     rollNodes.forEach(function (roll) {
       var conditions = [];
@@ -840,6 +845,93 @@
       }) ? { never: true } : visibilityAll(conditions);
     });
     return { rolls: rollConditions, controls: usedControls };
+  }
+
+  function workerPanelVisibility(root, targets, sources, legacy) {
+    var result = [];
+    var fields = dictionary();
+    walk(root, function (node) {
+      if (/^attr_/i.test(node.attrs.name || '') && !repeatingSection(node)) {
+        var name = baseAttrName(node.attrs.name);
+        if (!fields[name]) fields[name] = [];
+        fields[name].push(node);
+      }
+    });
+    // Roll20 supplies .hidden; other hiding classes must be declared by the sheet CSS.
+    var hiding = dictionary({ hidden: true });
+    var showing = dictionary();
+    sources.forEach(function (source) {
+      cssDisplayRules(source).forEach(function (rule) {
+        var match = rule.selector.match(/^(?:\.charsheet\s+)?\.([\w-]+)$/);
+        if (match) {
+          if (rule.visible) showing[match[1]] = true;
+          else hiding[match[1]] = true;
+        }
+      });
+    });
+    walk(root, function (node) {
+      if (node.tag !== 'script' || normalizeText(node.attrs.type).toLowerCase() !== 'text/worker') return;
+      var source = node.children.filter(function (child) { return child.tag === '#text'; })
+        .map(function (child) { return child.text; }).join('\n');
+      // Mask comments and literals only for locating real calls, never execute sheet workers.
+      var code = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/g,
+        function (text) { return text.replace(/[^\r\n]/g, ' '); });
+      var calls = /\bgetAttrs\s*\(/g;
+      var call;
+      while ((call = calls.exec(code))) {
+        var head = source.slice(call.index).match(/^getAttrs\s*\(\s*\[\s*['"]([\w-]+)['"]\s*\]\s*,\s*function\s*\(\s*(\w+)\s*\)\s*\{/);
+        if (!head || !fields[baseAttrName(head[1])]) continue;
+        var event = source.slice(0, call.index).match(/\bon\(\s*['"]([^'"]+)['"]\s*,\s*function\s*\(\s*\)\s*\{\s*$/);
+        if (!event || event[1].split(/\s+/).indexOf('sheet:opened') < 0 ||
+            event[1].split(/\s+/).indexOf('change:' + head[1]) < 0) continue;
+        if (fields[baseAttrName(head[1])].some(function (field) {
+          return field.tag !== 'input' || !/^(?:checkbox|radio)$/.test(fieldNodeType(field)) ||
+            !/^(?:0|[1-9]\d*)$/.test(field.attrs.value || '');
+        })) continue;
+        var start = call.index + head[0].length - 1;
+        var end = jsObjectProperties(source, start).end;
+        var body = source.slice(start + 1, end).trim();
+        // ponytail: only complete, single-attribute if/else class switches are proven here.
+        // More complex workers remain available until a source-backed parser case is added.
+        var branch = body.match(/^(?:var|let|const)\s+(\w+)\s*=\s*parseInt\(\s*(\w+)\.([\w-]+)\s*\)\s*;\s*if\s*\(\s*(\w+)\s*==={0,1}\s*(\d+)\s*\)\s*\{([^{}]*)\}\s*else\s*\{([^{}]*)\}\s*;?$/);
+        if (!branch || branch[1] !== branch[4] || branch[2] !== head[2] || branch[3] !== head[1]) continue;
+        function mutations(text) {
+          var entries = [];
+          var rest = text.replace(/\$20\(\s*['"]([.#][\w-]+)['"]\s*\)\.(addClass|removeClass)\(\s*['"]([\w-]+)['"]\s*\)\s*;/g,
+            function (_all, selector, operation, className) {
+              entries.push({ selector: selector, hide: operation === 'addClass', className: className });
+              return '';
+            });
+          return rest.trim() ? [] : entries;
+        }
+        var yes = mutations(branch[6]);
+        var no = mutations(branch[7]);
+        if (!yes.length || yes.length !== no.length) continue;
+        yes.forEach(function (change) {
+          if (!hiding[change.className] || showing[change.className] || yes.filter(function (entry) { return entry.selector === change.selector; }).length !== 1 ||
+              no.filter(function (entry) { return entry.selector === change.selector && entry.className === change.className && entry.hide !== change.hide; }).length !== 1) return;
+          var writes = 0;
+          source.replace(/\$20\(\s*['"]([.#][\w-]+)['"]\s*\)\.(?:addClass|removeClass)\(\s*['"]([\w-]+)['"]\s*\)/g,
+            function (all, selector, className, offset) {
+              if (code.slice(offset, offset + 3) === '$20' && selector === change.selector && className === change.className) writes += 1;
+              return all;
+            });
+          if (writes !== 2) return;
+          var selector = cssSelector(change.selector);
+          var matches = targets.filter(function (target) { return cssSelectorPaths(target, selector).length; });
+          // Legacy Roll20 prefixes class/id selectors; prefer exact original matches.
+          if (!matches.length && legacy === true && /^[.#]sheet-/.test(change.selector)) {
+            selector = cssSelector(change.selector.replace(/^([.#])sheet-/, '$1'));
+            matches = targets.filter(function (target) { return cssSelectorPaths(target, selector).length; });
+          }
+          matches.forEach(function (target) {
+            var when = { name: baseAttrName(head[1]), op: 'eq', value: branch[5], scope: 'global', required: true };
+            result.push({ node: target, condition: change.hide ? visibilityNot(when) : when });
+          });
+        });
+      }
+    });
+    return result;
   }
 
   function repeatingFieldset(node) {
@@ -2681,7 +2773,7 @@
       });
     });
     var visibility = visibilityNodes.length
-      ? buildRollVisibility(tree, visibilityNodes, opts.css)
+      ? buildRollVisibility(tree, visibilityNodes, opts.css, opts.legacy)
       : { rolls: dictionary(), controls: dictionary() };
     applyFieldVisibility(controlScopes, visibility.rolls);
     var rolls = collectRolls(rollNodes, controlScopes, translations, visibility);
