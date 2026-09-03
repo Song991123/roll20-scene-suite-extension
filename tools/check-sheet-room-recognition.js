@@ -316,4 +316,54 @@ events['chat:message']({ type: 'api', playerid: 'gm', content: '!!상태' });
 assert(statusMessages.some(text => text.includes('시트 현황')), '부분 번역 시트에서도 상태 안내는 생성해야 합니다.');
 assert(!statusMessages.some(text => /[@%]\{/.test(text)), '실제 원본의 상태 안내에 실행 가능한 참조가 남으면 안 됩니다.');
 
+attributes.find(item => item.get('name') === 'app').set('current', '63');
+attribute(unsupported.id, 'app-half', 31);
+attribute(unsupported.id, 'app-fifth', 12);
+const showScores = attribute(unsupported.id, 'show-scores', 1);
+const difficultyFlags = ['roll-regular', 'roll-hard', 'roll-extreme'].map(name => attribute(unsupported.id, name, 0));
+attribute(unsupported.id, 'edit-mode', 0);
+helper.refresh();
+const nativeAppearance = helper.contractRolls(unsupported.id).find(item => item.roll.name === 'app');
+assert(nativeAppearance, '편집 모드가 꺼진 실제 APP 버튼이 검사 대상이어야 합니다.');
+[63, 31, 12].forEach((target, index) => {
+  difficultyFlags.forEach((flag, flagIndex) => flag.set('current', String(flagIndex === index ? 1 : 0)));
+  showScores.set('current', String(index === 1 ? 0 : 1));
+  helper.refresh();
+  statusMessages.length = 0;
+  events['chat:message']({ type: 'api', playerid: 'gm', content: '!!상태' });
+  assert(statusMessages.some(text => text.includes(nativeAppearance.label + ' <b>' + target + '</b>')),
+    '실제 내장 시트에서도 표시 옵션이 아닌 현재 난이도의 기준값이어야 합니다: ' + target);
+});
+
+const displayFlagContract = parseSheetContract([
+  '<input name="attr_display_marker" value="display-flag">',
+  '<input type="checkbox" name="attr_display" value="1" checked>',
+  '<input type="number" name="attr_current" value="63">',
+  '<button type="roll" name="roll_appearance" value="&{template:check} {{name=외모}} {{score=[[@{display}]]}} {{check=[[@{current}]]}} {{roll=[[1d100]]}}"></button>',
+  '<button type="roll" name="roll_intelligence" value="&{template:check} {{name=지능}} {{score=[[@{current}]]}} {{roll=[[1d100]]}}"></button>',
+  '<button type="roll" name="roll_scaled" value="&{template:check} {{name=배율}} {{target=[[@{display}]]}} {{stat=[[@{current}*2]]}} {{roll=[[1d100]]}}"></button>',
+  '<button type="roll" name="roll_dice_first" value="&{template:check} {{name=주사위구분}} {{check=[[1d100]]}} {{target=[[@{current}*3]]}}"></button>',
+].join('\n'), { id: 'display-flag', sourceHash: 'display-flag' });
+runtime.KIBSheetContracts = [displayFlagContract];
+currentDefaults = Object.fromEntries(displayFlagContract.fields.map(field => [field.name, field.default]));
+attributes.length = 0;
+attribute(unsupported.id, 'display_marker', 'display-flag');
+const displayFlag = attribute(unsupported.id, 'display', 1);
+const displayedTarget = attribute(unsupported.id, 'current', 63);
+helper.registerContract(displayFlagContract);
+function assertDisplayedTargets(value) {
+  helper.refresh();
+  statusMessages.length = 0;
+  events['chat:message']({ type: 'api', playerid: 'gm', content: '!!상태' });
+  [['외모', value], ['지능', value], ['배율', value * 2], ['주사위구분', value * 3]].forEach(([label, target]) => {
+    assert(statusMessages.some(text => text.includes(label + ' <b>' + target + '</b>')),
+      '표시용 체크박스가 아니라 원본 판정 기준을 표시해야 합니다: ' + label + '/' + target);
+  });
+}
+assertDisplayedTargets(63);
+displayFlag.set('current', '0');
+assertDisplayedTargets(63);
+displayedTarget.set('current', '0');
+assertDisplayedTargets(0);
+
 console.log('Sheet room recognition: ok');
