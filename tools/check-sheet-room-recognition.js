@@ -664,4 +664,62 @@ for (const mode of ['on', '0', 'on']) {
   assert.strictEqual(matches[0].roll.raw, sharedLabelRaw);
 }
 
+const hiddenListingSheet = parseSheetContract(`
+  <input name="attr_list_marker" value="list-hidden"><input name="attr_list_version" value="one"><input name="attr_list_guard" value="guard">
+  <input type="hidden" name="attr_list_gate" value="0">
+  <button type="roll" class="aux" name="roll_auxiliary" value="[[1d10]]">내부후속</button>
+  <button type="roll" style="display:none" name="roll_inline" value="[[1d8]]">인라인 후속</button>
+  <button type="roll" class="aux" name="roll_shared" value="[[1d6]]">공유 판정</button>
+  <button type="roll" name="roll_shared" value="[[1d6]]">공유 판정</button>
+  <button type="roll" class="conditional" name="roll_conditional" value="[[1d4]]">조건 판정</button>
+  <button type="roll" class="cascade" name="roll_cascade" value="[[1d12]]">우선 표시</button>
+  <button type="roll" class="uncertain" name="roll_uncertain" value="[[1d20]]">불확정 버튼</button>
+  <button type="roll" class="unspecified" name="roll_unspecified" value="[[1d20]]">미지원 표시</button>
+  <div class="storage"><button type="roll" name="roll_storage" value="[[1d2]]">기존 저장소</button></div>
+`, {id:'hidden-roll-listing', sourceHash:'hidden-roll-listing', css:`
+  button { display:unset; }
+  .aux, .conditional, .cascade, .uncertain, .storage { display:none; }
+  .aux:before { display:block; }
+  .aux::after { display:unset; }
+  input[name=attr_list_gate][value=on] ~ .conditional { display:block; }
+  .cascade { display:block !important; }
+  .state:has(.future) .uncertain { display:block; }
+  .unspecified { display:none; display:unset; }
+`});
+for (const name of ['auxiliary', 'inline']) {
+  const roll = hiddenListingSheet.rolls.find(roll => roll.name === name);
+  assert.strictEqual(roll.listHidden, true, '원본에서 버튼 자체가 고정 숨김이면 일반 목록에서만 제외해야 합니다.');
+  assert.strictEqual(roll.visibility, undefined, '목록 제외를 원본 실행 불가 조건으로 바꾸면 안 됩니다.');
+}
+for (const name of ['conditional', 'cascade', 'uncertain', 'unspecified', 'storage']) {
+  assert(!hiddenListingSheet.rolls.find(roll => roll.name === name).listHidden,
+    '조건부·불확정 표시와 조상 저장소의 실행을 고정 숨김 버튼으로 단정하면 안 됩니다: ' + name);
+}
+const hiddenListingRestored = {KIBSheetContracts:[]};
+vm.runInNewContext(require('./embed-sheet-recognition').render([hiddenListingSheet]), hiddenListingRestored);
+assert.strictEqual(JSON.stringify(hiddenListingRestored.KIBSheetContracts[0].rolls.map(roll => !!roll.listHidden)),
+  JSON.stringify(hiddenListingSheet.rolls.map(roll => !!roll.listHidden)), '목록 제외 정보는 배포용 압축/복원에서도 유지해야 합니다.');
+runtime.KIBSheetContracts = [hiddenListingRestored.KIBSheetContracts[0]];
+attributes.length = 0;
+currentDefaults = Object.fromEntries(hiddenListingSheet.fields.map(field => [field.name, field.default]));
+['list_marker', 'list_version', 'list_guard'].forEach(name => attribute(unsupported.id, name, currentDefaults[name]));
+const listingGate = attribute(unsupported.id, 'list_gate', '0');
+helper.registerContract(hiddenListingRestored.KIBSheetContracts[0]);
+for (const mode of ['0', 'on', '0']) {
+  listingGate.set('current', mode);
+  helper.refresh();
+  statusMessages.length = 0;
+  events['chat:message']({type:'api', playerid:'gm', content:'!!상태'});
+  const status = statusMessages.join('');
+  assert(!status.includes('내부후속') && !status.includes('인라인 후속'), '숨은 보조 버튼을 상태에 나열하면 안 됩니다.');
+  assert.strictEqual((status.match(/공유 판정/g) || []).length, 1, '숨은 복제본을 제외한 뒤 보이는 원본은 한 번 유지해야 합니다.');
+  assert.strictEqual(status.includes('조건 판정'), mode === 'on', '실제 조건부 버튼은 상태 변경을 계속 따라야 합니다.');
+}
+const retainedAuxiliary = helper.contractRolls(unsupported.id).find(item => item.roll.name === 'auxiliary');
+assert(retainedAuxiliary && helper.executeContract(unsupported.id, hiddenListingSheet.id, retainedAuxiliary.roll.key, '', '', false, '').ok,
+  '일반 목록에서 숨겨도 원본 보조 굴림의 명시적 실행은 유지해야 합니다.');
+statusMessages.length = 0;
+events['chat:message']({type:'api', playerid:'gm', content:'!!검색 내부후속'});
+assert(statusMessages.join('').includes('항목을 찾지 못했습니다'), '검색 목록에서도 내부 후속 굴림을 나열하면 안 됩니다.');
+
 console.log('Sheet room recognition: ok');

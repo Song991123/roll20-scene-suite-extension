@@ -166,7 +166,7 @@ function sharedPackedPayload(sheets) {
     sheet.rolls = (sheet.rolls || []).map((roll) => {
       const known = new Set([
         'key', 'name', 'label', 'aliases', 'raw', 'template', 'refs', 'repeating',
-        'staticLabels', 'labelRefs', 'expressionRefs', 'controls', 'modesIncomplete', 'm', 'v',
+        'staticLabels', 'labelRefs', 'expressionRefs', 'controls', 'modesIncomplete', 'listHidden', 'm', 'v',
       ]);
       const unknown = Object.keys(roll).filter((key) => !known.has(key));
       if (unknown.length) throw new Error(`Roll packer does not preserve: ${unknown.join(', ')}`);
@@ -186,6 +186,7 @@ function sharedPackedPayload(sheets) {
         roll.modesIncomplete ? 1 : 0,
         roll.m === undefined ? 0 : roll.m + 1,
         roll.v === undefined ? 0 : roll.v + 1,
+        roll.listHidden ? 1 : 0,
       ];
       while (values.length > 5 && !values[values.length - 1]) values.pop();
       return values;
@@ -314,6 +315,7 @@ ${renderBrotliDecoder()}
       if (roll[11]) restored.controls = roll[11];
       if (roll[12]) restored.modesIncomplete = true;
       if (roll[14]) restored.visibility = rollVisibilitySets[roll[14] - 1];
+      if (roll[15]) restored.listHidden = true;
       return restored;
     });
     delete sheet.M;
