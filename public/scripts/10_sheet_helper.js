@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.44
+ * Scene Suite 10 - Sheet Helper 0.6.45
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -336,7 +336,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.44';
+  var VERSION = '0.6.45';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -1862,8 +1862,11 @@ var sheet_helper_setting = {
         (Array.isArray(roll.labelRefs) ? roll.labelRefs : []).forEach(function (ref) {
           var refName = contractRefName(ref);
           var sourceField = sectionFields[refName] || index.fieldGlobal[refName] || scopedControls[refName];
+          var titleField = /^(?:name|subject|title|label|skill|skill_name|weapon_name|attribute)$/i.test(trim(ref && ref.field));
+          var editableTitle = titleField && /(?:^|[_-])(?:name|title|label)(?:[_-]|$)/i.test(refName);
+          if (!sourceField && refName !== 'character_name' && editableTitle && !roll.name && !staticLabels.length) titleRefs[refName] = true;
           if (expressionNames.indexOf(refName) < 0 && sourceField &&
-            /^(?:name|subject|title|label|skill|skill_name|attribute)$/i.test(trim(ref && ref.field)) &&
+            titleField &&
             /^(?:text|textarea)$/i.test(trim(sourceField.type)) && !sourceField.hidden &&
             !sourceField.readonly && !sourceField.disabled && !trim(sourceField.default) &&
             // ponytail: 이름칸은 굴림 4개까지만; 더 공유하면 상한 확대.
@@ -1873,8 +1876,6 @@ var sheet_helper_setting = {
             var refKey = normalize(refName).replace(/(?:name|check|roll)$/i, '');
             var machineNamed = (normalize(rawVisible) === normalize(roll.name) || normalize(rawVisible) === normalize(roll.key)) &&
               rawKey && refKey && (rawKey.indexOf(refKey) > -1 || refKey.indexOf(rawKey) > -1);
-            var editableTitle = /^(?:name|subject|title|label|skill|skill_name|attribute)$/i.test(trim(ref && ref.field)) &&
-              /(?:^|_)(?:name|title|label)(?:_|$)/i.test(refName);
             if (fieldLabels.indexOf(normalize(rawVisible)) > -1 || machineNamed || editableTitle) {
               titleRefs[refName] = true;
               fieldLabels.forEach(function (label) { sourceTitleLabels[label] = true; });
@@ -1891,7 +1892,7 @@ var sheet_helper_setting = {
             value: value,
             frequency: index.labelRefFrequency[refName] || 0,
             title: !!titleRefs[refName],
-            subject: /^(?:name|subject|title|label|skill|skill_name|attribute)$/i.test(trim(ref && ref.field)) &&
+            subject: titleField &&
               sourceField && /^(?:text|textarea)$/i.test(trim(sourceField.type)),
           });
         });
@@ -1904,7 +1905,9 @@ var sheet_helper_setting = {
         dynamic.sort(function (left, right) {
           return Number(!!right.title) - Number(!!left.title) || left.frequency - right.frequency;
         });
-        var usefulDynamic = dynamic.filter(function (entry) { return normalize(entry.value) !== characterName; });
+        var usefulDynamic = dynamic.filter(function (entry) {
+          return normalize(entry.value) !== characterName && entry.value !== characterId;
+        });
         var rowLabels = usefulDynamic.map(function (entry) { return contractDisplayLabel(entry.value); }).filter(Boolean);
         var subjectLabels = usefulDynamic.filter(function (entry) { return entry.subject; })
           .map(function (entry) { return contractDisplayLabel(entry.value); }).filter(Boolean);
@@ -2602,7 +2605,7 @@ var sheet_helper_setting = {
       var key = normalize(contractDisplayLabel(label));
       var stripped = key
         .replace(/^(?:현재|current)/i, '')
-        .replace(/(?:현재|current|값|수치|점수|value|score|체크|check|굴림|roll|판정)$/i, '');
+        .replace(/(?:현재|current|값|수치|점수|value|score|체크|check|굴림|roll|판정|치)$/i, '');
       [key, stripped].forEach(function (candidate) {
         if (!candidate || seen[candidate]) return;
         seen[candidate] = true;
@@ -2618,10 +2621,10 @@ var sheet_helper_setting = {
   }
 
   function uniqueDetectedItems(items, role) {
-    function collect(useToggleAliases) {
+    function collect(useAliases) {
       var seen = dictionary();
       return (items || []).filter(function (item) {
-        var labels = item && item.kind === 'toggle' && item.fieldLabel && !useToggleAliases
+        var labels = item && item.fieldLabel && !useAliases
           ? [item.fieldLabel] : item && item.sourceLabels;
         if (!item || item.automationVisible !== true || !matchesDetectedRole(labels, role) || seen[item.name]) return false;
         seen[item.name] = true;
@@ -2629,8 +2632,7 @@ var sheet_helper_setting = {
       });
     }
     var matches = collect(false);
-    if (!matches.length && (items || []).some(function (item) { return item && item.kind === 'toggle'; }))
-      matches = collect(true);
+    if (!matches.length) matches = collect(true);
     return { item: matches.length === 1 ? matches[0] : null, ambiguous: matches.length > 1, matches: matches };
   }
 
@@ -2648,10 +2650,9 @@ var sheet_helper_setting = {
     var items = kind === 'toggle'
       ? Object.keys(data.trackedFields || {}).map(function (name) { return data.trackedFields[name]; })
         .filter(function (item) { return item.kind === 'toggle'; })
-      : (data.resources || []).filter(function (item) {
-          return role === 'startingSanity' ||
-            !maximumFieldLabel(item.sourceLabels) &&
-            !/^(?:시작|start|초기|initial)/i.test(normalize(item.fieldLabel));
+      : (role === 'startingSanity' ? (data.resources || []).concat(data.fieldReferences || []) : data.resources || []).filter(function (item) {
+          return !maximumFieldLabel(item.sourceLabels) &&
+            (role === 'startingSanity' || !/^(?:시작|start|초기|initial)/i.test(normalize(item.fieldLabel)));
         });
     var detected = uniqueDetectedItems(items, role);
     if (role !== 'startingSanity' || detected.matches.length) return detected;
@@ -5246,6 +5247,8 @@ var sheet_helper_setting = {
   }
 
   function setResourceValue(characterId, item, value) {
+    if (item.writable === false)
+      return { attribute: item.attribute || null, changed: false, error: '원본 시트의 읽기 전용 계산 수치는 명령으로 변경할 수 없습니다.' };
     var text = String(value);
     if (item.radioRange && (!isFinite(value) || Math.floor(Number(value)) !== Number(value) ||
         Number(value) < item.radioRange[0] || Number(value) > item.radioRange[1]))

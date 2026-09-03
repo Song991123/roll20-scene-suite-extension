@@ -196,9 +196,14 @@ const resourceContract = parseSheetContract([
   '<input type="number" name="attr_mp_max" value="10" readonly>',
   '<label>이성<input type="number" name="attr_sanity" value="50"></label>',
   '<input type="number" name="attr_sanity_max" value="99" readonly>',
+  '<label>초기 이성치<input type="number" name="attr_initSanity" value="50" readonly></label>',
+  '<label>무기<input type="text" name="attr_weapon-name"></label>',
+  '<input type="text" name="attr_damage" value="1d6">',
+  '<button type="roll" value="&{template:test} {{name=@{character_name}}} {{character_id=@{character_id}}} {{weapon_name=@{weapon-name}}} {{damage_roll=[[@{damage}]]}}"></button>',
   '<input type="number" name="attr_strength" value="60" readonly>',
   '<button type="roll" name="roll_strength" value="&{template:test} {{subject=힘}} {{target=[[@{strength}]]}} {{roll=[[1d100]]}}"></button>',
 ].join('\n'), { id: 'resource-pair-source', sourceHash: 'resource-pair-source' });
+resourceContract.fields.find(field => field.name === 'sanity').aliases.push('초기 이성치', 'initial-sanity');
 runtime.KIBSheetContracts = [resourceContract];
 currentDefaults = Object.fromEntries(resourceContract.fields.map(field => [field.name, field.default]));
 helper.registerContract(resourceContract);
@@ -214,5 +219,54 @@ const resourceScan = helper.scan(unsupported.id, true);
 });
 assert(!resourceScan.resources.some(item => /_max$/.test(item.name)),
   '계산 전용 최대치 입력을 별도 편집 가능한 현재 수치로 추가하면 안 됩니다.');
+
+const initialSanity = attribute(unsupported.id, 'initSanity', 50);
+attribute(unsupported.id, 'character_id', unsupported.id);
+const statusMessages = [];
+const originalGetObj = runtime.getObj;
+runtime.getObj = (type, id) => type === 'player'
+  ? object(id, { speakingas: 'character|' + unsupported.id, _displayname: '검증 GM' })
+  : originalGetObj(type, id);
+runtime.sendChat = (_who, content) => statusMessages.push(String(content));
+helper.refresh();
+events['chat:message']({ type: 'api', playerid: 'gm', content: '!!상태' });
+assert(statusMessages.some(text => text.includes('50 / 시작 50 (100%)')),
+  '읽기 전용 계산값인 초기 이성치도 현재 이성의 기준으로 표시해야 합니다.');
+initialSanity.set('current', '60');
+helper.refresh();
+events['chat:message']({ type: 'api', playerid: 'gm', content: '!!상태' });
+assert(statusMessages.some(text => text.includes('50 / 시작 60 (83%)')),
+  '워커가 갱신한 읽기 전용 시작값을 이전 값으로 표시하면 안 됩니다.');
+initialSanity.set('current', '50');
+helper.refresh();
+events['chat:message']({ type: 'general', playerid: 'gm', content: ':시작이성=80' });
+assert.strictEqual(initialSanity.get('current'), '50', '읽기 전용 시작값을 명령으로 덮어쓰면 안 됩니다.');
+assert(statusMessages.some(text => /읽기 전용/.test(text)), '계산값 편집 거절 이유를 알려야 합니다.');
+assert(!helper.contractRolls(unsupported.id).some(item => item.label === unsupported.id),
+  '캐릭터 ID는 무기나 기능 이름으로 표시하면 안 됩니다.');
+assert(!helper.contractRolls(unsupported.id).some(item => /weapon_name/.test(item.roll.raw)),
+  '아직 이름을 입력하지 않은 무기 틀을 목록에 넣으면 안 됩니다.');
+attribute(unsupported.id, 'weapon-name', '검증 무기');
+helper.refresh();
+assert(helper.contractRolls(unsupported.id).some(item => item.label === '검증 무기'),
+  '이름을 입력하면 하이픈 속성명을 사용하는 무기도 즉시 인식해야 합니다.');
+
+// The distributed Korean CoC6 source contains two unnamed skill templates whose
+// label reference does not match either declared input. Do not invent a binding.
+const embedded = { KIBSheetContracts: [] };
+vm.runInNewContext(source.slice(source.indexOf('/* SCENE_SUITE_SHEET_RECOGNITION_START */'),
+  source.indexOf('/* SCENE_SUITE_SHEET_RECOGNITION_END */')), embedded);
+const coc6 = embedded.KIBSheetContracts.find(sheet => sheet.id === 'sheet-c236bcff42e9a873');
+assert(coc6, '기존 한국어 CoC6 원본 보존');
+runtime.KIBSheetContracts = [coc6];
+currentDefaults = Object.fromEntries(coc6.fields.filter(field => !field.section).map(field => [field.name, field.default]));
+attributes.length = 0;
+coc6.fields.filter(field => !field.section && field.numericCandidate).forEach(field => attribute(unsupported.id, field.name, 47));
+attribute(unsupported.id, 'character_id', unsupported.id);
+attribute(unsupported.id, 'initSanity', 50);
+helper.registerContract(coc6);
+assert.strictEqual(helper.inspectContracts(unsupported.id).status, 'matched');
+assert.strictEqual(helper.contractRolls(unsupported.id).filter(item => item.label === '예술 문화').length, 1,
+  '원본에서 이름 참조가 비어 있는 두 기능 틀을 고정 기능과 같은 이름으로 나열하면 안 됩니다.');
 
 console.log('Sheet room recognition: ok');
