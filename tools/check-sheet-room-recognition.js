@@ -261,12 +261,23 @@ assert(coc6, '기존 한국어 CoC6 원본 보존');
 runtime.KIBSheetContracts = [coc6];
 currentDefaults = Object.fromEntries(coc6.fields.filter(field => !field.section).map(field => [field.name, field.default]));
 attributes.length = 0;
-coc6.fields.filter(field => !field.section && field.numericCandidate).forEach(field => attribute(unsupported.id, field.name, 47));
+coc6.fields.filter(field => !field.section && field.numericCandidate)
+  .forEach(field => attribute(unsupported.id, field.name, field.name === 'impact' ? field.default : 47));
 attribute(unsupported.id, 'character_id', unsupported.id);
 attribute(unsupported.id, 'initSanity', 50);
 helper.registerContract(coc6);
 assert.strictEqual(helper.inspectContracts(unsupported.id).status, 'matched');
 assert.strictEqual(helper.contractRolls(unsupported.id).filter(item => item.label === '예술 문화').length, 1,
   '원본에서 이름 참조가 비어 있는 두 기능 틀을 고정 기능과 같은 이름으로 나열하면 안 됩니다.');
+['발', '손', '머리'].forEach(label => assert(helper.contractRolls(unsupported.id).some(item => item.label === label),
+  '번역된 원본 무기 이름을 수식으로 바꾸면 안 됩니다: ' + label));
+statusMessages.length = 0;
+events['chat:message']({ type: 'api', playerid: 'gm', content: '!!상태' });
+assert(statusMessages.some(text => text.includes('특성치 8개') && text.includes('기능 / 판정 43개')),
+  '공통 characteristic_threshold를 쓰더라도 원본 이성 판정은 특성치와 분리해야 합니다.');
+['1d6+0', '1d3+0', '1d4+0'].forEach(damage => assert(statusMessages.some(text => text.includes(damage)),
+  '피해 전용 원본 굴림은 보정값 0이 아니라 실제 피해식을 표시해야 합니다: ' + damage));
+assert(!statusMessages.some(text => /(?:발|손|머리) <b>0<\/b>/.test(text)),
+  '피해 보정값을 판정 기준값처럼 표시하면 안 됩니다.');
 
 console.log('Sheet room recognition: ok');

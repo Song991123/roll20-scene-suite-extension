@@ -53,7 +53,9 @@ const expectedEmbeddedIds = [
 ];
 assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expectedEmbeddedIds,
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
-// Keep the prior full-contract baseline except the explicitly verified visibility/settings fixes.
+// CoC6 translated titles were rebuilt from its unchanged source; all other 34
+// embedded contracts and all CoC6 raw roll expressions were verified unchanged.
+// Keep that baseline except the explicitly verified visibility/settings fixes.
 const preservationSheets = JSON.parse(JSON.stringify(embeddedSheets.slice(0, 34)));
 const workerUpdatedSheet = preservationSheets.find(sheet => sheet.id === 'sheet-c653c0852b277de6');
 function withoutWorkerGate(condition) {
@@ -86,7 +88,7 @@ settingsOnlyFields.forEach(name => {
 });
 assert.strictEqual(
   crypto.createHash('sha256').update(JSON.stringify(preservationSheets)).digest('hex'),
-  'd0ec1bfd5ee30e3c7373b9d1115938c35bc744f1c7ee8d36061893bd9f58c100',
+  '84afe561ed93bc3410896112fb7d42e870ed203aa53d3a2fb7828b0e51119d6b',
   'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
 );
 assert(!/\brequire\s*\(/.test(recognitionBlock) &&

@@ -1520,7 +1520,7 @@
         (node.attrs.type || '').toLowerCase() !== 'roll') return;
       templateFields(node.attrs.value || '').forEach(function (field) {
         if (!/^(?:subject|name|title|label|skill|attribute)$/i.test(field.field) ||
-          /[@%?&]\{|\[\[|\$\[\[/.test(field.value)) return;
+          /[@%?&^]\{|\[\[|\$\[\[/.test(field.value)) return;
         var label = normalizeText(field.value);
         if (searchableLabelText(label) && !valueLikePlaceholder(label) &&
           !resourceQualifier({ label: label, aliases: [] }))
@@ -2455,7 +2455,7 @@
       cursor = equals + 1;
       var valueEnd = -1;
       while (cursor < raw.length - 1) {
-        if (/[@%?&]\{/.test(raw.slice(cursor, cursor + 2))) {
+        if (/[@%?&^]\{/.test(raw.slice(cursor, cursor + 2))) {
           var tokenEnd = findBraceEnd(raw, cursor);
           if (tokenEnd > cursor) { cursor = tokenEnd; continue; }
         }
@@ -2735,6 +2735,17 @@
       var labelRefSeen = dictionary();
       var staticLabels = [];
       fields.forEach(function (field) {
+        var translated = field.value.match(/^\^\{([^{}]+)\}$/);
+        var translatedLabels = translated ? uniqueTexts(translations.map(function (messages) {
+          return typeof messages[translated[1]] === 'string' ? messages[translated[1]] : '';
+        })) : [];
+        if (translatedLabels.length) {
+          field.value = translatedLabels[0];
+          if (!ownLabel.label && /^(?:name|subject|title|label|skill|skill_name|weapon_name|attribute|header)$/i.test(field.field)) {
+            labelInfo.aliases = uniqueTexts([label].concat(labelInfo.aliases, translatedLabels.slice(1)));
+            label = field.value;
+          }
+        }
         var ref = directRef(field.value);
         var refs = ref ? [ref] : publicRefs(field.value.replace(/\[\[[\s\S]*?\]\]/g, ' '));
         refs.forEach(function (item) {
@@ -2744,7 +2755,7 @@
             labelRefs.push({ field: field.field, name: item.name, max: item.max });
           }
         });
-        if (!refs.length && field.value && !/[@%?&]\{|\[\[|\$\[\[/.test(field.value))
+        if (!refs.length && field.value && !/[@%?&^]\{|\[\[|\$\[\[/.test(field.value))
           staticLabels.push({ field: field.field, value: normalizeText(field.value) });
       });
       var expressionNames = inlineExpressionRefs(raw);

@@ -1282,4 +1282,20 @@ try {
   fs.rmSync(translationRoot, { recursive: true, force: true });
 }
 
+const translatedTemplateTitle = parseSheetContract([
+  '<input type="number" name="attr_impact" value="0">',
+  '<span data-i18n="feet">Feet</span> : 1D6',
+  '<button type="roll" value="&{template:test} {{weapon_name=^{feet}}} {{damage_roll=[[1d6+@{impact}]]}}"></button>',
+].join('\n'), { translations: [{ feet: '발' }, { feet: 'Feet' }] });
+assert.strictEqual(translatedTemplateTitle.rolls[0].staticLabels[0].value, '발',
+  '번역 참조의 닫는 괄호를 템플릿 종료로 오인하지 않고 실제 이름을 읽어야 합니다.');
+assert.strictEqual(translatedTemplateTitle.rolls[0].label, '발');
+assert(translatedTemplateTitle.rolls[0].aliases.includes('Feet'));
+assert(translatedTemplateTitle.rolls[0].raw.includes('{{weapon_name=^{feet}}}'),
+  '표시 이름을 번역해도 실행하는 원본 굴림 식은 그대로 보존해야 합니다.');
+const unknownTemplateTitle = parseSheetContract(
+  '<button type="roll" value="&{template:test} {{weapon_name=^{unknown}}} {{roll=[[1d6]]}}"></button>');
+assert(!unknownTemplateTitle.rolls[0].staticLabels.some(entry => entry.value.includes('^{')),
+  '번역이 없는 기계 참조를 사용자에게 판정 이름으로 노출하면 안 됩니다.');
+
 console.log('Sheet contract parser: ok');
