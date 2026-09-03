@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.46
+ * Scene Suite 10 - Sheet Helper 0.6.47
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -336,7 +336,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.46';
+  var VERSION = '0.6.47';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -1742,6 +1742,7 @@ var sheet_helper_setting = {
   function humanContractLabel(value) {
     var label = trim(value);
     return !!label && label.length <= 100 &&
+      !/[@%]\{/.test(label) &&
       !!label.replace(/[\s!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]+/g, '') &&
       !/^(?:true|false|on|off|null|none)$/i.test(label);
   }
@@ -4994,7 +4995,9 @@ var sheet_helper_setting = {
   }
 
   function safeWhisperText(text) {
-    return String(text == null ? '' : text).replace(/@\{/g, '&#64;{');
+    return String(text == null ? '' : text).replace(/([@%])\{/g, function (_, prefix) {
+      return '&#' + prefix.charCodeAt(0) + ';{';
+    });
   }
 
   function switchSpeaker(msg, query) {
