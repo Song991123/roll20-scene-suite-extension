@@ -568,4 +568,46 @@ const noteRoll = helper.contractRolls(unsupported.id).find(item => item.roll.nam
 assert(noteRoll && helper.executeContract(unsupported.id, linkedCaptionSheet.id, noteRoll.roll.key, '', '', false, '').ok,
   '목록에서 본문 버튼을 숨기더라도 명시적인 원본 실행 기능까지 삭제하면 안 됩니다.');
 
+const oneWayVisibilitySheet = parseSheetContract(`
+  <input name="attr_hide_marker" value="one-way"><input name="attr_hide_version" value="one"><input name="attr_hide_guard" value="guard">
+  <input type="hidden" name="attr_rule_toggle">
+  <label>선택 규칙<input type="checkbox" name="attr_rule_toggle" value="on"></label>
+  <div class="extra"><label>추가 수치<input name="attr_extra_value" type="number" value="37"></label><button type="roll" name="roll_extra" value="&{template:test} {{title=추가 판정}} {{roll=[[1d100]]}}">추가 판정</button></div>
+  <div class="basic"><button type="roll" name="roll_basic" value="&{template:test} {{title=기본 판정}} {{roll=[[1d100]]}}">기본 판정</button></div>
+  <div class="always"><button type="roll" name="roll_always" value="[[1d6]]">항상 표시</button></div>
+  <fieldset class="repeating_subskill"><input type="hidden" name="attr_rule_toggle"><div class="row-panel"><input name="attr_row_name"><button type="roll" name="roll_row" value="&{template:test} {{title=@{row_name}}} {{roll=[[1d100]]}}"></button></div></fieldset>
+`, {id:'one-way-visibility', sourceHash:'one-way-visibility', css:`
+  input[name=attr_rule_toggle]:not([value=on]) ~ .extra { display:none; }
+  input[name=attr_rule_toggle][value=on] ~ .basic { display:none; }
+  input[name=attr_rule_toggle][value=on] ~ .always { display:none; }
+  .always { display:block !important; }
+  .repeating_subskill input[name=attr_rule_toggle]:not([value=on]) ~ .row-panel { display:none; }
+`});
+assert(oneWayVisibilitySheet.rolls.find(roll => roll.name === 'extra').visibility,
+  '짝이 되는 표시 CSS가 없어도 원본의 단방향 숨김 조건은 읽어야 합니다.');
+assert(oneWayVisibilitySheet.fields.find(field => field.name === 'extra_value').visibility,
+  '같은 조건 아래의 수치도 원본 표시 조건을 보존해야 합니다.');
+runtime.KIBSheetContracts = [oneWayVisibilitySheet];
+attributes.length = 0;
+currentDefaults = Object.fromEntries(oneWayVisibilitySheet.fields.map(field => [field.name, field.default]));
+['hide_marker', 'hide_version', 'hide_guard'].forEach(name => attribute(unsupported.id, name, currentDefaults[name]));
+const oneWayToggle = attribute(unsupported.id, 'rule_toggle', '0');
+const oneWayRowToggle = attribute(unsupported.id, 'repeating_subskill_-row1_rule_toggle', 'on');
+attribute(unsupported.id, 'repeating_subskill_-row1_row_name', '행 판정');
+helper.registerContract(oneWayVisibilitySheet);
+for (const mode of ['0', 'on', '0']) {
+  oneWayToggle.set('current', mode);
+  helper.refresh();
+  const labels = Array.from(helper.contractRolls(unsupported.id), item => item.label);
+  assert.strictEqual(labels.includes('추가 판정'), mode === 'on', '선택 기능은 실제 활성화 상태만 따라야 합니다: ' + mode);
+  assert.strictEqual(labels.includes('기본 판정'), mode !== 'on', '반대 방향 숨김 조건도 반영해야 합니다: ' + mode);
+  assert(labels.includes('항상 표시'), '우선순위가 높은 원본 표시 선언은 유지해야 합니다.');
+  assert(labels.includes('행 판정'), '반복 행의 같은 이름 컨트롤을 전역 값과 혼동하면 안 됩니다.');
+}
+oneWayToggle.set('current', 'on');
+oneWayRowToggle.set('current', '0');
+helper.refresh();
+assert(!helper.contractRolls(unsupported.id).some(item => item.label === '행 판정'),
+  '반복 행의 독립적인 비활성 조건도 즉시 반영해야 합니다.');
+
 console.log('Sheet room recognition: ok');
