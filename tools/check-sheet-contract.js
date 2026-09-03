@@ -973,6 +973,20 @@ const visibilityCss = `
   .sheet-row-route[value="row-on"]:checked ~ .sheet-row-panel { display: block; }
 `;
 const visibleContract = parseSheetContract(visibilityHtml, { name: '가시성 합성 시트', id: 'visibility', css: visibilityCss });
+const classNegationVisibility = parseSheetContract(`
+  <input type="hidden" name="attr_npc"><input type="hidden" name="attr_edit">
+  <div class="sheet-npc"><button type="roll" name="roll_npc" value="[[1d100]]">외모</button></div>
+  <div class="sheet-pc"><button type="roll" name="roll_pc" value="[[1d100]]">외모</button></div>
+`, { css: `
+  .charsheet .sheet-npc { display: none; }
+  .charsheet input[name=attr_npc][value=on] ~ div.sheet-npc { display: block; }
+  .charsheet input[name=attr_npc][value=on] ~ div.sheet-pc { display: none; }
+  .charsheet input[name=attr_edit][value="0"] ~ *:not(.sheet-npc) .sheet-edit-enable[value=on] + div { display: none; }
+` });
+const npcVisibility = { name: 'npc', op: 'eq', value: 'on', scope: 'global' };
+assert.deepStrictEqual(classNegationVisibility.rolls.map(roll => roll.visibility),
+  [npcVisibility, { not: npcVisibility }],
+  '관계없는 :not(.class) 편집 CSS가 모든 div의 PC/NPC 표시 조건을 무효화하면 안 됩니다.');
 assert.deepStrictEqual(visibleContract.rolls.find((roll) => roll.name === 'left').visibility, { name: 'route', op: 'eq', value: 'left', scope: 'global' });
 assert.deepStrictEqual(visibleContract.rolls.find((roll) => roll.name === 'right').visibility, { name: 'route', op: 'eq', value: 'right', scope: 'global' });
 assert.strictEqual(Object.prototype.hasOwnProperty.call(visibleContract.rolls.find((roll) => roll.name === 'uncertain'), 'visibility'), false);

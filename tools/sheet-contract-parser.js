@@ -365,7 +365,7 @@
 
   function cssCompound(value) {
     var source = value.trim();
-    var result = { tag: '', classes: [], id: '', attributes: [], checked: false, specificity: 0 };
+    var result = { tag: '', classes: [], notClasses: [], id: '', attributes: [], checked: false, specificity: 0 };
     var tag = source.match(/^(\*|[a-z][a-z0-9_-]*)/i);
     var i = 0;
     if (tag) {
@@ -405,6 +405,12 @@
         var end = source.indexOf(')', i + 5);
         if (end < 0) return null;
         var inner = source.slice(i + 5, end).trim();
+        if (/^\.[a-z0-9_-]+$/i.test(inner)) {
+          result.notClasses.push(inner.slice(1));
+          result.specificity += 10;
+          i = end + 1;
+          continue;
+        }
         if (inner.charAt(0) !== '[' || inner.charAt(inner.length - 1) !== ']') return null;
         var negated = cssAttribute(inner.slice(1, -1));
         if (!negated) return null;
@@ -505,13 +511,14 @@
 
   function cssCompoundMatch(node, compound) {
     if (node.tag === '#root') {
-      return !compound.tag && !compound.id && !compound.attributes.length && !compound.checked &&
+      return !compound.tag && !compound.id && !compound.attributes.length && !compound.checked && !compound.notClasses.length &&
         compound.classes.length === 1 && compound.classes[0] === 'charsheet' ? { ok: true, atoms: [] } : { ok: false };
     }
     if (compound.tag && compound.tag !== '*' && compound.tag !== node.tag) return { ok: false };
     if (compound.id && compound.id !== (node.attrs.id || '')) return { ok: false };
     var classes = (node.attrs['class'] || '').split(/\s+/).filter(Boolean);
     if (!compound.classes.every(function (name) { return classes.indexOf(name) > -1; })) return { ok: false };
+    if (compound.notClasses.some(function (name) { return classes.indexOf(name) > -1; })) return { ok: false };
     var type = (node.attrs.type || '').toLowerCase();
     var optionControl = node.tag === 'input' && (type === 'checkbox' || type === 'radio');
     var namedControl = /^attr_/i.test(node.attrs.name || '');
