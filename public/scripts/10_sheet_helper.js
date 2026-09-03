@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.52
+ * Scene Suite 10 - Sheet Helper 0.6.53
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -336,7 +336,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.52';
+  var VERSION = '0.6.53';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -4074,7 +4074,7 @@ var sheet_helper_setting = {
       if (!/[&?]\{|\{\{/.test(String(value || ''))) return reference;
       var fragment = Object.assign({}, instance, { roll: Object.assign({}, instance.roll, { raw: reference }) });
       var qualified = qualifyContractMacro(instance.characterId, fragment);
-      return qualified.ok ? qualified.content : reference;
+      return qualified.ok || qualified.reason === 'query' ? qualified.content : reference;
     });
   }
 
@@ -4394,8 +4394,11 @@ var sheet_helper_setting = {
 
   function rollHasPercentileThreshold(item) {
     var raw = String(item && (item.sourceRaw || item.roll && item.roll.raw) || '');
-    if (!/\b(?:\d+)?d100/i.test(raw) || !/@\{[^}]+\}/.test(raw)) return false;
-    return sourceTemplateFieldNames(raw).some(function (name) {
+    var fields = sourceTemplateFieldNames(raw);
+    var splitPercentile = /\b(?:\d+)?d10(?!\d)/i.test(raw) &&
+      fields.indexOf('roll_half') > -1 && fields.indexOf('roll_fifth') > -1;
+    if (!/\b(?:\d+)?d100/i.test(raw) && !splitPercentile) return false;
+    return fields.some(function (name) {
       return /(?:^|[_-])(?:stat|threshold|target|success|skill|ability|characteristic|score)(?:$|[_-])/i.test(name);
     });
   }
@@ -4442,7 +4445,7 @@ var sheet_helper_setting = {
     var repeating = contractRepeating(instance.roll);
     var sourceFields = repeating && runtimeIndex.fieldSections[repeating.section] || runtimeIndex.fieldGlobal;
     var tr = /\{\{\s*(?:[^={}]*?(?:threshold|target)[^={}]*|stat|s(?:core|uccess|kill)|check|ability|characteristic)\s*=\s*\[\[([\s\S]*?)\]\]\s*\}\}/i;
-    var targets = (String(instance.roll.raw).match(new RegExp(tr.source, 'gi')) || []).map(function (candidate) {
+    var targets = (contractRollStructure(instance).match(new RegExp(tr.source, 'gi')) || []).map(function (candidate) {
       return candidate.match(tr);
     }).filter(function (candidate) {
       var ref = candidate[1].match(/^\s*@\{([^{}|]+)\}\s*$/);
@@ -4508,7 +4511,7 @@ var sheet_helper_setting = {
 
   function contractRollDamageText(characterId, instance) {
     var qualified = qualifyContractMacro(characterId, instance, null);
-    if (!qualified.ok) return '';
+    if (!qualified.ok && qualified.reason !== 'query') return '';
     var fields = messageTemplateFields({ content: qualified.content });
     var name = Object.keys(fields).filter(function (key) {
       return /^(?:피해|damage|dmg)(?:[_-]roll)?$/i.test(trim(key));
