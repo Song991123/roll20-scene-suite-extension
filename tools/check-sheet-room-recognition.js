@@ -325,6 +325,9 @@ attribute(unsupported.id, 'edit-mode', 0);
 helper.refresh();
 const nativeAppearance = helper.contractRolls(unsupported.id).find(item => item.roll.name === 'app');
 assert(nativeAppearance, '편집 모드가 꺼진 실제 APP 버튼이 검사 대상이어야 합니다.');
+assert.strictEqual(nativeAppearance.label, 'Appearance', '원본 번역 문자열을 잘린 ^{app 토큰보다 우선해야 합니다.');
+assert(!helper.contractRolls(unsupported.id).some(item => /\^\{/.test(item.label)),
+  '내장 인식 자료에 잘린 번역 토큰이 표시 이름으로 남으면 안 됩니다.');
 [63, 31, 12].forEach((target, index) => {
   difficultyFlags.forEach((flag, flagIndex) => flag.set('current', String(flagIndex === index ? 1 : 0)));
   showScores.set('current', String(index === 1 ? 0 : 1));
@@ -333,6 +336,9 @@ assert(nativeAppearance, '편집 모드가 꺼진 실제 APP 버튼이 검사 �
   events['chat:message']({ type: 'api', playerid: 'gm', content: '!!상태' });
   assert(statusMessages.some(text => text.includes(nativeAppearance.label + ' <b>' + target + '</b>')),
     '실제 내장 시트에서도 표시 옵션이 아닌 현재 난이도의 기준값이어야 합니다: ' + target);
+  assert(statusMessages.some(text => text.includes('특성치 8개')), '번역된 특성치는 기능과 분리되어야 합니다.');
+  assert.strictEqual((statusMessages.join('').match(/Dodge <b>/g) || []).length, 1,
+    '같은 이름과 원본 굴림식의 회피 버튼은 상태 목록에 한 번만 표시해야 합니다.');
 });
 
 const displayFlagContract = parseSheetContract([
