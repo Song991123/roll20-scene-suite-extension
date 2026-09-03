@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.49
+ * Scene Suite 10 - Sheet Helper 0.6.50
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -336,7 +336,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.49';
+  var VERSION = '0.6.50';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -760,8 +760,10 @@ var sheet_helper_setting = {
             // 수치 보정은 중립으로 두되, 서로 다른 원본 굴림/템플릿 조각은 구별합니다.
             var alternatives = [record.defaults[name]];
             (record.contract.fields || []).forEach(function (field) {
-              if (!field.section && field.name === name)
+              if (!field.section && field.name === name) {
                 alternatives = alternatives.concat(field.defaultVariants || []);
+                if (field.type === 'checkbox') alternatives.push('0');
+              }
             });
             alternatives = alternatives.concat(contractOptionValues((record.contract.controls || {})[name]));
             if (!alternatives.some(function (value) { return normalizedDefault(value) === actual; }))

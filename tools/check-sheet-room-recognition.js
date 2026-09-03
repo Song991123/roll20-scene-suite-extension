@@ -372,4 +372,30 @@ assertDisplayedTargets(63);
 displayedTarget.set('current', '0');
 assertDisplayedTargets(0);
 
+const checkboxSource = parseSheetContract([
+  '<input name="attr_checkbox_source" value="checkbox-source">',
+  '<input name="attr_checkbox_version" value="version-one">',
+  '<input name="attr_checkbox_guard" value="guard">',
+  '<input type="checkbox" name="attr_mode_fragment" value="{{mode=enabled}}" checked>',
+  '<button type="roll" name="roll_native" value="&{template:test} @{mode_fragment} {{roll=[[1d100]]}}">검증 굴림</button>',
+].join('\n'), { id: 'checkbox-source-default', sourceHash: 'checkbox-source-default' });
+runtime.KIBSheetContracts = [checkboxSource];
+attributes.length = 0;
+['checkbox_source', 'checkbox_version', 'checkbox_guard'].forEach(name =>
+  attribute(unsupported.id, name, checkboxSource.fields.find(field => field.name === name).default));
+currentDefaults = Object.fromEntries(checkboxSource.fields.map(field => [field.name, field.default]));
+currentDefaults.mode_fragment = '0';
+helper.registerContract(checkboxSource);
+assert.strictEqual(helper.inspectContracts(unsupported.id).status, 'matched',
+  '굴림 조각을 값으로 쓰는 체크박스도 정상 해제값 0을 다른 원본의 증거로 오인하면 안 됩니다.');
+currentDefaults.mode_fragment = '{{mode=unrelated}}';
+helper.refresh();
+assert.strictEqual(helper.inspectContracts(unsupported.id).status, 'none',
+  '실제로 다른 원본의 굴림 조각은 계속 인식에서 제외해야 합니다.');
+checkboxSource.fields.find(field => field.name === 'mode_fragment').type = 'text';
+currentDefaults.mode_fragment = '0';
+helper.registerContract(checkboxSource);
+assert.strictEqual(helper.inspectContracts(unsupported.id).status, 'none',
+  '체크박스가 아닌 굴림 조각의 0값까지 원본 불일치 검사에서 제외하면 안 됩니다.');
+
 console.log('Sheet room recognition: ok');
