@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.42
+ * Scene Suite 10 - Sheet Helper 0.6.43
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -336,7 +336,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.42';
+  var VERSION = '0.6.43';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -795,7 +795,9 @@ var sheet_helper_setting = {
     var candidates = records.filter(function (record) {
       return missingContradictions[record.ordinal] === 0 && sourceContradictions[record.ordinal] === 0;
     });
-    if (!candidates.length) candidates = records.filter(function (record) {
+    // Only the saved-attribute fallback may lack fields that the sheet declares.
+    // An authoritative missing sheet default must keep that candidate excluded.
+    if (!candidates.length && typeof getSheetDefaultValue !== 'function') candidates = records.filter(function (record) {
       return sourceContradictions[record.ordinal] === 0;
     });
     if (!candidates.length) return { record: null, survivors: [],

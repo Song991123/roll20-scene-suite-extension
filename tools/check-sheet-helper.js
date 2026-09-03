@@ -1960,8 +1960,8 @@ function sourceDefaults(sheet) {
 
 // 기본 필드가 아직 Attribute 객체로 생성되지 않은 새 캐릭터도, 특정 시트명이나
 // 캐릭터명을 박지 않고 원본 HTML에서 읽은 비어 있지 않은 기본값으로 판별합니다.
-// Roll20은 없는 필드와 빈 기본값을 모두 ''로 돌려주므로 그 둘만 다른 시트는
-// 안전하게 구별할 수 없으며, 이 경우 임의 선택하지 않는 것이 정상입니다.
+// getSheetDefaultValue는 없는 필드(undefined)와 존재하는 빈 기본값('')을
+// 구분합니다. 기본값 증거가 충돌하거나 부족하면 임의 선택하지 않습니다.
 let safelyMatchedEmptySheets = 0;
 embeddedSheets.forEach((sheet, index) => {
   useContracts(...embeddedSheets);
@@ -2143,6 +2143,10 @@ assert(sparsePublicTarget,
 const sparsePublicCharacter = addCharacter(
   'sparse-public-runtime-character', '희소 공식 시트 반례', 'player-1', sparsePublicValues);
 sheetFieldDefaults[sparsePublicCharacter.id] = sharedPublicDefaults;
+// This partial-data case models the legacy saved-attribute reader, not an
+// authoritative sheet-default lookup declaring every omitted field absent.
+const savedSheetDefaultReader = runtime.getSheetDefaultValue;
+delete runtime.getSheetDefaultValue;
 useContracts(...embeddedSheets);
 useRoomCharacters(sparsePublicCharacter);
 const sparsePublicInspection = helper.inspectContracts(sparsePublicCharacter.id);
@@ -2166,6 +2170,7 @@ assert(sparsePublicAction.handled && sparsePublicAction.result.ok,
   JSON.stringify(sparsePublicAction.result));
 assert.strictEqual(sent.length, sparsePublicSentBefore + 1,
   '희소한 공식 시트의 단일 판정 명령은 채팅 굴림을 정확히 한 번만 보내야 합니다.');
+runtime.getSheetDefaultValue = savedSheetDefaultReader;
 
 // 시트를 교체한 방에서는 과거 시트의 저장값이 남아 있어도 현재 시트의 기본값을
 // 우선합니다. 저장된 이름 자체는 기본값 probe에서 다시 읽지 않습니다.
@@ -2654,6 +2659,8 @@ Object.assign(sparseDefaults, sourceDefaults(sparseEvidenceSheet), {
 });
 
 useContracts(...embeddedSheets);
+// These saved-field-only cases exercise the legacy path without a sheet-default API.
+delete runtime.getSheetDefaultValue;
 const singleEvidenceCharacter = addCharacter(
   'single-evidence-character', '단일 증거 조사원', 'player-1',
   { [actualUniqueAttributes[0]]: '1' },
@@ -2746,6 +2753,7 @@ const sparseCharacter = addCharacter(
   'sparse-sheet-character', '테스트 조사원', 'player-1', sparseValues);
 useRoomCharacters(sparseCharacter);
 sheetFieldDefaults[sparseCharacter.id] = sparseDefaults;
+runtime.getSheetDefaultValue = savedSheetDefaultReader;
 const sparseCallsBefore = getAttrByNameCalls.length;
 const sparseInspection = helper.inspectContracts(sparseCharacter.id);
 const sparseCalls = getAttrByNameCalls.slice(sparseCallsBefore).filter((call) =>
@@ -2786,6 +2794,7 @@ publicSheet.signature.forEach((entry) => {
 });
 const publicResourceCharacter = addCharacter(
   'public-resource-sheet', '공개 시트 자원 시험', 'player-1', publicResourceValues);
+sheetFieldDefaults[publicResourceCharacter.id] = sourceDefaults(publicSheet);
 useContracts(publicSheet);
 useRoomCharacters(publicResourceCharacter);
 const publicResourceData = helper.scan(publicResourceCharacter.id, true);
@@ -3049,6 +3058,7 @@ function addSourceCharacter(sheet, id, name) {
       satisfySimpleVisibility(roll.visibility, values);
   });
   const character = addCharacter(id, name, 'player-1', values);
+  sheetFieldDefaults[character.id] = sourceDefaults(sheet);
   useContracts(sheet);
   useRoomCharacters(character);
   return { character, values };
@@ -3657,6 +3667,7 @@ const actualCharacter = addCharacter(
   'player-1',
   actualValues,
 );
+sheetFieldDefaults[actualCharacter.id] = sourceDefaults(actualSheet);
 useContracts(actualSheet);
 const actualRow = [
   addAttribute(actualCharacter.id, 'repeating_science_rowTest_science_title', '테스트'),
@@ -3781,6 +3792,7 @@ const sparseMod = addAttribute(actualCharacter.id,
 const sparseOrder = addAttribute(actualCharacter.id,
   '_reporder_repeating_science', sparseRowId);
 sheetFieldDefaults[actualCharacter.id] = {
+  ...sourceDefaults(actualSheet),
   'repeating_science_$0_science_base': '1',
   'repeating_science_$0_science': 'floor(@{science_base} + @{science_mod})',
 };
@@ -3864,9 +3876,10 @@ assert(bloodyPulpSummary[0].content.includes('{{madness_type=[[4]]}}') &&
 const crossRollMode = helper.resolveContractAction(bloodyRuntime.character, '1개 -2', false);
 assert(crossRollMode.handled && !crossRollMode.result.ok && crossRollMode.result.reason === 'conflict',
   '서로 다른 보너스·패널티 굴림을 첫 후보의 현재 방식으로 임의 선택하면 안 됩니다.');
+// Native sheet defaults supply the authored weapon name, not the nameless fallback.
 assert.strictEqual(crossRollMode.result.choices.map((choice) => choice.label).sort().join('\n'), [
-  '시트 굴림 / 보너스 주사위 1개',
-  '시트 굴림 / 패널티 주사위 1개',
+  '비무장 / 보너스 주사위 1개',
+  '비무장 / 패널티 주사위 1개',
 ].sort().join('\n'), '서로 다른 control/visibility 소유 굴림은 두 선택지를 모두 남겨야 합니다.');
 const crossGroupModeRuntime = addSourceCharacter(
   marenHyeyoomSheet,
@@ -4100,6 +4113,7 @@ nativeSlotSheet.signature.forEach((entry) => {
 Object.assign(nativeSlotValues, { hp: '11', mp: '12', san: '50', san_start: '50', luck: '0' });
 ['hp_max', 'mp_max', 'san_max'].forEach((name) => { delete nativeSlotValues[name]; });
 const nativeSlotCharacter = addCharacter('native-max-slots', '원본 최대값 저장 슬롯 시험', 'player-1', nativeSlotValues);
+sheetFieldDefaults[nativeSlotCharacter.id] = sourceDefaults(nativeSlotSheet);
 useContracts(nativeSlotSheet);
 useRoomCharacters(nativeSlotCharacter);
 [['hp', 11], ['mp', 12], ['san', 99]].forEach(([name, maximum]) => {

@@ -153,4 +153,40 @@ const residueMatch = afterResidue.matches.find((item) => item.id === second.id);
 assert(firstMatch && residueMatch && firstMatch.supportCount > residueMatch.supportCount,
   '현재 시트와 과거 잔재를 구분할 캐릭터별 증거 범위를 유지해야 합니다.');
 
+// A real sheet-default lookup distinguishes an absent field (undefined) from
+// a present but blank input (''). Do not resurrect candidates rejected by it.
+const candidate = (id, ownField) => parseSheetContract([
+  '<input name="attr_common_base" value="5">',
+  '<input name="attr_' + ownField + '" value="1">',
+  '<input name="attr_old_appearance" value="50">',
+  '<button type="roll" name="roll_appearance" value="&{template:test} {{subject=외모}} {{success=[[@{old_appearance}]]}} {{roll=[[1d100]]}}"></button>',
+].join('\n'), { id, sourceHash: id });
+const missingA = candidate('missing-source-a', 'only_a');
+const missingB = candidate('missing-source-b', 'only_b');
+const unrelated = parseSheetContract(
+  '<input name="attr_unrelated" value="7"><button type="roll" value="[[1d6]]">다른 굴림</button>',
+  { id: 'unrelated-source', sourceHash: 'unrelated-source' },
+);
+characters.length = 0;
+attributes.length = 0;
+const unsupported = character('unsupported', '실제 원본에 없는 후보 반례');
+attribute(unsupported.id, 'appearance', 63);
+runtime.KIBSheetContracts = [missingA, missingB, unrelated];
+helper.registerContract(missingA);
+let currentDefaults = { common_base: '5', appearance: '63' };
+runtime.getSheetDefaultValue = name => currentDefaults[name];
+assert.strictEqual(helper.inspectContracts(unsupported.id).status, 'none',
+  '현재 원본에 없다는 증거로 탈락한 후보를 공통 기본값만으로 다시 살리면 안 됩니다.');
+assert.strictEqual(helper.contractRolls(unsupported.id).length, 0,
+  '지원 원본이 없을 때 다른 시트의 외모 50을 제공하면 안 됩니다.');
+
+currentDefaults = { common_base: '5', only_a: '1', old_appearance: '50' };
+helper.refresh();
+assert(helper.contractRolls(unsupported.id).some(item => item.contract.id === missingA.id),
+  '실제로 존재하는 원본의 기본값 굴림은 보존해야 합니다.');
+currentDefaults.only_a = '';
+helper.refresh();
+assert(helper.contractRolls(unsupported.id).some(item => item.contract.id === missingA.id),
+  '존재하는 빈 입력은 없는 필드와 구별하여 보존해야 합니다.');
+
 console.log('Sheet room recognition: ok');
