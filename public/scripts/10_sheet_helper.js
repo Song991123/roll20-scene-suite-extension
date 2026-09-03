@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.51
+ * Scene Suite 10 - Sheet Helper 0.6.52
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -336,7 +336,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.51';
+  var VERSION = '0.6.52';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -1696,6 +1696,7 @@ var sheet_helper_setting = {
     Object.keys(index.presentationControls).forEach(function (name) {
       var polarity = rollVisibilityPolarity[name];
       var field = index.fieldGlobal[name];
+      var navigation = contract.controls && contract.controls[name] && contract.controls[name].navigation === true;
       var positiveValues = polarity ? Object.keys(polarity.positiveValues || {}) : [];
       var onValue = field && own(field, 'onValue') ? String(field.onValue) : '';
       var positiveCollapsedPanel = polarity && polarity.positive && !polarity.negative &&
@@ -1704,7 +1705,7 @@ var sheet_helper_setting = {
         field && trim(field.default) === '' && onValue !== '' && positiveValues[0] === onValue;
       if ((polarity && polarity.negative && !polarity.positive &&
           (index.rollVisibilityReach[name] || 0) * 2 > contract.rolls.length) ||
-          positiveCollapsedPanel)
+          positiveCollapsedPanel || navigation)
         index.presentationRollGates[name] = true;
     });
     Object.keys(index.fieldSections).forEach(function (section) {

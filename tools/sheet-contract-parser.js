@@ -1288,6 +1288,13 @@
           }),
           default: checked ? (hasAttr(checked, 'value') ? checked.attrs.value : 'on') : null
         };
+        if (radios.every(function (radio) {
+          for (var parent = radio.parent; parent; parent = parent.parent) {
+            if (parent.tag === 'nav' || /^(?:navigation|tablist)$/.test(parent.attrs.role || '') ||
+                /(?:^|\s)(?:sheet-)?(?:navigation|tabs|tab-bar)(?:\s|$|__)/.test(parent.attrs['class'] || '')) return true;
+          }
+          return false;
+        })) controls[name].navigation = true;
       } else if (nodes.some(function (node) { return node.tag === 'input' && (node.attrs.type || '').toLowerCase() === 'checkbox'; })) {
         var checkboxes = nodes.filter(function (node) { return node.tag === 'input' && (node.attrs.type || '').toLowerCase() === 'checkbox'; });
         var checkedBox = checkboxes.filter(function (checkbox) { return hasAttr(checkbox, 'checked'); })[0];
