@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.47
+ * Scene Suite 10 - Sheet Helper 0.6.48
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -336,7 +336,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.47';
+  var VERSION = '0.6.48';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -4434,24 +4434,32 @@ var sheet_helper_setting = {
 
   function contractRollDisplayValue(data, instance) {
     var characterId = data.characterId;
-    var tr = /\{\{\s*(?:[^={}]*?(?:threshold|target)[^={}]*|stat|s(?:core|uccess|kill)|ability|characteristic)\s*=\s*\[\[([\s\S]*?)\]\]\s*\}\}/i;
-    var tm = String(instance.roll.raw).match(tr);
-    var m = tm ? qualifyContractMacro(characterId, Object.assign({}, instance, {
-      roll: Object.assign({}, instance.roll, { raw: tm[0] }),
-    }), null) : null;
-    if (m && m.ok) {
-      var v = m.content.match(tr);
-      var n = v && resolvedResourceValue(characterId, v[1].replace(/\[\[/g, '(').replace(/\]\]/g, ')'));
-      if (n && n.number !== null) return n.text;
+    var runtimeIndex = contractRuntimeIndex(instance.contract);
+    var repeating = contractRepeating(instance.roll);
+    var sourceFields = repeating && runtimeIndex.fieldSections[repeating.section] || runtimeIndex.fieldGlobal;
+    var tr = /\{\{\s*(?:[^={}]*?(?:threshold|target)[^={}]*|stat|s(?:core|uccess|kill)|check|ability|characteristic)\s*=\s*\[\[([\s\S]*?)\]\]\s*\}\}/i;
+    var targets = (String(instance.roll.raw).match(new RegExp(tr.source, 'gi')) || []).map(function (candidate) {
+      return candidate.match(tr);
+    }).filter(function (candidate) {
+      var ref = candidate[1].match(/^\s*@\{([^{}|]+)\}\s*$/);
+      var field = ref && (sourceFields[trim(ref[1])] || runtimeIndex.fieldGlobal[trim(ref[1])]);
+      return !field || !/^checkbox$/i.test(trim(field.type));
+    });
+    for (var targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+      var m = qualifyContractMacro(characterId, Object.assign({}, instance, {
+        roll: Object.assign({}, instance.roll, { raw: targets[targetIndex][0] }),
+      }), null);
+      if (m && m.ok) {
+        var v = m.content.match(tr);
+        var n = v && resolvedResourceValue(characterId, v[1].replace(/\[\[/g, '(').replace(/\]\]/g, ')'));
+        if (n && n.number !== null) return n.text;
+      }
     }
-    if (!tm && contractRollDamageText(characterId, instance)) return '';
+    if (!targets.length && contractRollDamageText(characterId, instance)) return '';
     var values = [];
     var seenRefs = dictionary();
     var seenValues = dictionary();
     var ignored = dictionary();
-    var runtimeIndex = contractRuntimeIndex(instance.contract);
-    var repeating = contractRepeating(instance.roll);
-    var sourceFields = repeating && runtimeIndex.fieldSections[repeating.section] || runtimeIndex.fieldGlobal;
     var sourceControls = runtimeIndex.rollControls[instance.roll.key] || runtimeIndex.controls;
     var savedAttributes = data.attributeByName || dictionary();
     contractControls(instance.contract, instance.roll).forEach(function (control) {
