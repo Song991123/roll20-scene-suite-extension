@@ -189,4 +189,30 @@ helper.refresh();
 assert(helper.contractRolls(unsupported.id).some(item => item.contract.id === missingA.id),
   '존재하는 빈 입력은 없는 필드와 구별하여 보존해야 합니다.');
 
+const resourceContract = parseSheetContract([
+  '<label>체력<input type="number" name="attr_hp" value="12"></label>',
+  '<input type="number" name="attr_hp_max" value="12" readonly>',
+  '<label>마력<input type="number" name="attr_mp" value="10"></label>',
+  '<input type="number" name="attr_mp_max" value="10" readonly>',
+  '<label>이성<input type="number" name="attr_sanity" value="50"></label>',
+  '<input type="number" name="attr_sanity_max" value="99" readonly>',
+  '<input type="number" name="attr_strength" value="60" readonly>',
+  '<button type="roll" name="roll_strength" value="&{template:test} {{subject=힘}} {{target=[[@{strength}]]}} {{roll=[[1d100]]}}"></button>',
+].join('\n'), { id: 'resource-pair-source', sourceHash: 'resource-pair-source' });
+runtime.KIBSheetContracts = [resourceContract];
+currentDefaults = Object.fromEntries(resourceContract.fields.map(field => [field.name, field.default]));
+helper.registerContract(resourceContract);
+assert.strictEqual(helper.resolveContractAction(unsupported, '외모', false).handled, false,
+  '분류용 characteristic 묶음을 명령 별칭으로 써서 외모를 유일한 힘 굴림에 연결하면 안 됩니다.');
+assert(helper.resolveContractAction(unsupported, '힘', false).result.ok,
+  '원본 한국어 판정 이름은 그대로 실행되어야 합니다.');
+const resourceScan = helper.scan(unsupported.id, true);
+[['hp', 12], ['mp', 10], ['sanity', 99]].forEach(([name, max]) => {
+  const item = resourceScan.resources.find(field => field.name === name);
+  assert(item && item.statusResource, '라벨 없는 최대치 입력과 연결된 현재 수치 누락: ' + name);
+  assert.strictEqual(item.max, max, '원본의 실제 최대치 연결: ' + name);
+});
+assert(!resourceScan.resources.some(item => /_max$/.test(item.name)),
+  '계산 전용 최대치 입력을 별도 편집 가능한 현재 수치로 추가하면 안 됩니다.');
+
 console.log('Sheet room recognition: ok');

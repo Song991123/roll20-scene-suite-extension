@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.43
+ * Scene Suite 10 - Sheet Helper 0.6.44
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -336,7 +336,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.43';
+  var VERSION = '0.6.44';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -2098,7 +2098,8 @@ var sheet_helper_setting = {
   function maximumFieldLabel(labels) {
     return (labels || []).some(function (label) {
       return /^(?:최대|maximum|max)(?:값|수치|점수)?$/i.test(normalize(label)) ||
-        /^(?:최대|maximum|max).+$/i.test(normalize(label));
+        /^(?:최대|maximum|max).+$/i.test(normalize(label)) ||
+        /[_-](?:max|maximum)$/i.test(trim(label));
     });
   }
 
@@ -2323,7 +2324,7 @@ var sheet_helper_setting = {
     var valueContext = { scopes: [], values: dictionary(), resolveAttribute: sourceFieldValue };
     function add(match, attribute, fallback) {
       var field = match.field;
-      if (!userFacingField(field)) return;
+      if (!userFacingField(field) && !liveFields[field.name]) return;
       var visible = fieldVisibility(match);
       if (visible === false) return;
       var fullName = match.name;
@@ -4262,7 +4263,7 @@ var sheet_helper_setting = {
       return { handled: true, result: contractConflict(deferredModeConflict, secret) };
     if (partial.length > 1) return { handled: true, result: contractConflict(partial, secret) };
     var roleNames = Object.keys(DETECTED_ROLE_LABELS).filter(function (role) {
-      return (DETECTED_ROLE_LABELS[role] || []).indexOf(normalize(query)) > -1;
+      return role !== 'characteristic' && (DETECTED_ROLE_LABELS[role] || []).indexOf(normalize(query)) > -1;
     });
     if (roleNames.length === 1) {
       var detected = detectedRollRole(scan(character.id), roleNames[0]);
