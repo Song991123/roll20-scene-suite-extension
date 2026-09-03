@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.54
+ * Scene Suite 10 - Sheet Helper 0.6.55
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -285,6 +285,7 @@ var KIBSheetContracts = KIBSheetContracts || [];
       if (roll[11]) restored.controls = roll[11];
       if (roll[12]) restored.modesIncomplete = true;
       if (roll[14]) restored.visibility = rollVisibilitySets[roll[14] - 1];
+      if (roll[15]) restored.listHidden = true;
       return restored;
     });
     delete sheet.M;
@@ -336,7 +337,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.54';
+  var VERSION = '0.6.55';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -2571,9 +2572,11 @@ var sheet_helper_setting = {
     return (includeHidden ? data.contractAllRolls : data.contractRolls) || [];
   }
 
-  function preferredContractRolls(data) {
+  function preferredContractRolls(data, forListing) {
     // 일반/보너스 짝을 먼저 고른 뒤 시트 후보 간 동등화를 해야 짝이 유실되지 않습니다.
-    var instances = actionableContractRolls(data.characterId, data.contractMatch, false);
+    var instances = actionableContractRolls(data.characterId, data.contractMatch, false).filter(function (instance) {
+      return !forListing || !instance.roll.listHidden;
+    });
     var preferred = dictionary();
     collapseEquivalentContractCandidates(data.characterId, preferSingleInlineRollActions(
       uniqueContractCandidates(instances.map(function (instance) {
@@ -4534,7 +4537,7 @@ var sheet_helper_setting = {
   function recognizedRollItems(data) {
     var result = [];
     if (usableContractInspection(data.contractMatch)) {
-      var rolls = preferredContractRolls(data);
+      var rolls = preferredContractRolls(data, true);
       var counts = dictionary();
       rolls.forEach(function (instance) {
         var key = normalize(instance.label);
@@ -4640,7 +4643,7 @@ var sheet_helper_setting = {
     var seenLabels = dictionary();
     if (!usableContractInspection(data.contractMatch)) return result;
     // 같은 행이 원본 정렬에 여러 번 있으면 유지하고, 그 행의 보조 버튼만 제외합니다.
-    var instances = includeEveryInstance ? data.contractRolls : preferredContractRolls(data);
+    var instances = includeEveryInstance ? data.contractRolls : preferredContractRolls(data, true);
     instances.forEach(function (instance) {
       var key = normalize(instance.label);
       if (key) counts[key] = (counts[key] || 0) + 1;
@@ -5664,7 +5667,7 @@ var sheet_helper_setting = {
         var inspection = inspectContracts(character.id);
         if (!usableContractInspection(inspection))
           return { ok: false, error: inspection.error || SHEET_NOT_RECOGNIZED };
-        var matches = preferredContractRolls(scan(character.id)).filter(function (instance) {
+        var matches = preferredContractRolls(scan(character.id), true).filter(function (instance) {
           return normalize(instance.label) === normalize(listLabel.value);
         }).map(function (instance) {
           instance.characterId = character.id;

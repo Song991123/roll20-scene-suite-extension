@@ -337,20 +337,25 @@
     return result;
   }
 
-  function cssDisplayRules(source) {
+  function cssDisplayRules(source, includeUnknown) {
     var rules = [];
     var order = 0;
     String(source || '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/@(?:import|charset)[^;]*;/gi, '').replace(/([^{}]+)\{([\s\S]*?)\}/g, function (_all, header, body) {
       if (/^\s*@/.test(header)) return _all;
       var display = null;
-      String(body).replace(/(?:^|;)\s*display\s*:\s*([a-z-]+)\s*(!important)?\s*(?=;|$)/gi, function (_match, value, important) {
+      var knownDisplay = null;
+      String(body).replace(/(?:^|;)\s*display\s*:\s*([^;]+)(?=;|$)/gi, function (_match, declaration) {
+        var important = /!important\s*$/i.test(declaration);
+        var value = declaration.replace(/!important\s*$/i, '').trim();
         if (/^(?:none|block|inline|inline-block|flex|inline-flex|grid|inline-grid|table|table-row|table-cell|list-item|contents)$/.test(value.toLowerCase()))
-          display = { visible: value.toLowerCase() !== 'none', important: !!important };
+          display = knownDisplay = { visible: value.toLowerCase() !== 'none', important: !!important };
+        else if (includeUnknown) display = { visible: null, important: !!important };
         return _match;
       });
       if (!display) return _all;
       cssList(header).forEach(function (selector) {
-        rules.push({ selector: selector, visible: display.visible, important: display.important, order: order++ });
+        rules.push({ selector: selector, visible: display.visible, important: display.important, order: order++,
+          fallback: display.visible === null ? knownDisplay : null });
       });
       return _all;
     });
@@ -723,18 +728,41 @@
       }
     });
     var programs = dictionary();
+    var listHidden = dictionary();
+    var uncertainListingNodes = dictionary();
+    var uncertainListing = false;
     var globalOrder = 0;
     var tainted = dictionary();
     var unreachableShows = dictionary();
     var uncertainPermanentNodes = dictionary();
     var uncertainPermanent = sources.some(uncertainDisplaySource);
     sources.forEach(function (source) {
-      cssDisplayRules(source).forEach(function (rule) {
+      cssDisplayRules(source, true).forEach(function (rule) {
         var selector = cssSelector(rule.selector);
+        var pseudoElement = /::?(?:before|after)\s*$/i.test(rule.selector);
         rule.order = globalOrder++;
+        if (rule.visible === null) {
+          if (pseudoElement) return;
+          var uncertainTarget = rightmostCssCompound(rule.selector);
+          if (!selector && !uncertainTarget) uncertainListing = true;
+          targets.forEach(function (target) {
+            if (selector ? cleanVisibilityPaths(cssSelectorPaths(target, selector)).length :
+                uncertainTarget && cssCompoundMatch(target, uncertainTarget).ok) {
+              var id = target._kibSheetNodeId;
+              if (!uncertainListingNodes[id]) uncertainListingNodes[id] = [];
+              uncertainListingNodes[id].push({ important: rule.important,
+                specificity: selector ? selector.specificity : Infinity, order: rule.order });
+            }
+          });
+          if (!rule.fallback) return;
+          rule = Object.assign({}, rule, rule.fallback);
+        }
         if (!selector) {
           var rightmost = rightmostCssCompound(rule.selector);
-          if (!rightmost && rule.visible) uncertainPermanent = true;
+          if (!rightmost && rule.visible) {
+            uncertainPermanent = true;
+            if (!pseudoElement) uncertainListing = true;
+          }
           if (rightmost) targets.forEach(function (target) {
             if (cssCompoundMatch(target, rightmost).ok) tainted[target._kibSheetNodeId] = true;
           });
@@ -787,9 +815,17 @@
       if (base.visible || conditional.some(function (entry) { return entry.visible; }))
         selected = conditional.slice();
       if (!selected.length) {
+        var target = targets.find(function (node) { return String(node._kibSheetNodeId) === id; });
+        var uncertainDefault = (uncertainListingNodes[id] || []).some(function (entry) {
+          return cssPriority(entry) > cssPriority(base) ||
+            cssPriority(entry) === cssPriority(base) && entry.order >= base.order;
+        });
+        // Source-hidden roll buttons stay callable; this flag only affects ordinary listings.
+        if (!base.visible && !uncertainListing && !uncertainDefault && !uncertainPermanentNodes[id] &&
+            target && /^(?:button|input)$/.test(target.tag) && (target.attrs.type || '').toLowerCase() === 'roll')
+          listHidden[id] = true;
         // A missing opening control proves only an unreachable panel, not a hidden auxiliary roll.
         if (!uncertainPermanent && !uncertainPermanentNodes[id] && !base.visible && unreachableShows[id]) {
-          var target = targets.find(function (node) { return String(node._kibSheetNodeId) === id; });
           if (target && /^(?:div|fieldset|section|article|aside|main|table|tbody|thead|tfoot|tr|td|th|ul|ol|li|form)$/.test(target.tag))
             nodeConditions[id] = { never: true };
         }
@@ -835,7 +871,7 @@
         return condition.never === true;
       }) ? { never: true } : visibilityAll(conditions);
     });
-    return { rolls: rollConditions, controls: usedControls };
+    return { rolls: rollConditions, controls: usedControls, listHidden: listHidden };
   }
 
   function workerPanelVisibility(root, targets, sources, legacy) {
@@ -2820,6 +2856,7 @@
         modes: modes
       };
       if (modes.incomplete) result.modesIncomplete = true;
+      if (visibility && visibility.listHidden && visibility.listHidden[node._kibSheetNodeId]) result.listHidden = true;
       var condition = visibility && visibility.rolls && visibility.rolls[node._kibSheetNodeId];
       if (condition) {
         result.visibility = condition;
