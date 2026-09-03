@@ -739,6 +739,24 @@ assert(check.modes.some((mode) => mode.overrides.visibility === 'secret'));
 assert(!check.modes.some((mode) => mode.overrides.dice_mode && mode.overrides.visibility));
 
 const query = contract.rolls.find((roll) => roll.label === '질의');
+// Official sheet worker formulas nest a numeric question using an escaped closing brace.
+const escapedQuery = '?{방식|일반,1d10|보너스,?{개수&#125;d10kl1|패널티,?{개수&#125;d10kh1}';
+const escapedQueryRoll = parseSheetContract('<button type="roll" value="' +
+  ('&{template:test} {{roll=[[' + escapedQuery + '+1]]}} {{target=[[63]]}}').replace(/&/g, '&amp;') +
+  '">원본 질문</button>').rolls[0];
+assert.deepStrictEqual(escapedQueryRoll.modes.map(mode => mode.labelPath), [['일반'], ['보너스'], ['패널티']],
+  '중첩 질문의 HTML 닫는 괄호 때문에 패널티 선택지를 잃으면 안 됩니다.');
+assert.deepStrictEqual(escapedQueryRoll.modes.map(mode => mode.queries['방식'].raw), [escapedQuery, escapedQuery, escapedQuery],
+  '질문 뒤의 실제 주사위/목표치 식을 질문 범위로 삼키면 안 됩니다.');
+assert.deepStrictEqual(escapedQueryRoll.modes.map(mode => mode.queries['방식'].value),
+  ['1d10', '?{개수}d10kl1', '?{개수}d10kh1'],
+  'Roll20처럼 질문 선택값의 HTML 엔티티는 한 단계만 풀어야 합니다.');
+const deeperQuery = '?{외부|A,?{안쪽&#124;B&#44;?{깊이&amp;#125;&#124;C&#44;2&#125;|D,0}';
+const deeperQueryRoll = parseSheetContract('<button type="roll" value="' + deeperQuery.replace(/&/g, '&amp;') + '">중첩</button>').rolls[0];
+assert.deepStrictEqual(deeperQueryRoll.modes.map(mode => mode.labelPath), [['A', 'B'], ['A', 'C'], ['D']]);
+assert.strictEqual(deeperQueryRoll.modes[0].queries['외부'].value, '?{안쪽|B,?{깊이&#125;|C,2}',
+  '다음 질문에서 풀 엔티티까지 미리 해제하면 안 됩니다.');
+assert.strictEqual(deeperQueryRoll.modes[0].queries['안쪽'].value, '?{깊이}');
 const numericContextContract = parseSheetContract(`
   <span>보너스 <select name="attr_extra_count"><option value="1">1</option><option value="2">2</option></select> 개</span>
   <span>패널티 <select name="attr_less_count"><option value="-1">1</option><option value="-2">2</option></select> 개</span>

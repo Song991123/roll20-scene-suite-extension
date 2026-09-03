@@ -2127,10 +2127,17 @@
     }, []);
   }
 
+  function escapedClosingBrace(text, index) {
+    var match = text.charAt(index) === '&' && text.slice(index).match(/^&(?:amp;)*(?:#(?:0*125|x0*7d)|rbrace);/i);
+    return match ? match[0].length : 0;
+  }
+
   function findBraceEnd(text, start) {
     var depth = 1;
     for (var i = start + 2; i < text.length; i += 1) {
-      if (text.charAt(i) === '{') depth += 1;
+      var escaped = depth > 1 && escapedClosingBrace(text, i);
+      if (escaped) { depth -= 1; i += escaped - 1; }
+      else if (text.charAt(i) === '{') depth += 1;
       else if (text.charAt(i) === '}' && --depth === 0) return i + 1;
     }
     return -1;
@@ -2144,7 +2151,9 @@
     var brackets = 0;
     for (var i = 0; i < text.length; i += 1) {
       var ch = text.charAt(i);
-      if (ch === '{') braces += 1;
+      var escaped = braces && escapedClosingBrace(text, i);
+      if (escaped) { braces -= 1; i += escaped - 1; }
+      else if (ch === '{') braces += 1;
       else if (ch === '}' && braces) braces -= 1;
       else if (ch === '(') parens += 1;
       else if (ch === ')' && parens) parens -= 1;
@@ -2174,7 +2183,7 @@
           var pair = splitTopLevel(parts[p], ',', true);
           var label = normalizeText(pair[0]);
           if (!label) continue;
-          options.push({ label: label, value: pair.length > 1 ? pair[1].trim() : pair[0].trim() });
+          options.push({ label: label, value: decodeEntities(pair.length > 1 ? pair[1].trim() : pair[0].trim()) });
         }
       }
       queries.push({
