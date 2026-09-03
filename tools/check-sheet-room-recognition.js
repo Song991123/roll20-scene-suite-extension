@@ -398,4 +398,48 @@ helper.registerContract(checkboxSource);
 assert.strictEqual(helper.inspectContracts(unsupported.id).status, 'none',
   '체크박스가 아닌 굴림 조각의 0값까지 원본 불일치 검사에서 제외하면 안 됩니다.');
 
+const dynamicQuerySheet = parseSheetContract([
+  '<input name="attr_query_source" value="dynamic-query">',
+  '<input name="attr_query_version" value="one"><input name="attr_query_guard" value="guard">',
+  '<input type="hidden" name="attr_generated_roll">',
+  '<button type="roll" name="roll_appearance" value="&{template:check} {{name=외모}} @{generated_roll}">외모</button>',
+].join('\n'), {id:'dynamic-query', sourceHash:'dynamic-query'});
+runtime.KIBSheetContracts = [dynamicQuerySheet];
+attributes.length = 0;
+currentDefaults = Object.fromEntries(dynamicQuerySheet.fields.map(field => [field.name, field.default]));
+['query_source', 'query_version', 'query_guard'].forEach(name => attribute(unsupported.id, name, currentDefaults[name]));
+const generatedRoll = attribute(unsupported.id, 'generated_roll',
+  '{{roll=[[((?{보너스/페널티?|보통,1d10|보너스,?{개수&#125;d10kl1|페널티,?{개수&#125;d10kh1}-1)*10)+1d10]]}} {{roll_target=[[63]]}}');
+helper.registerContract(dynamicQuerySheet);
+assert.strictEqual(helper.inspectContracts(unsupported.id).status, 'matched');
+statusMessages.length = 0;
+events['chat:message']({type:'api', playerid:'gm', content:'!!외모'});
+const questionButton = statusMessages.find(text => text.includes('href="!/&#13;'));
+assert(questionButton, '워커가 만든 질문도 기본값으로 생략하지 않고 원본 질문 버튼을 제공해야 합니다.');
+assert(questionButton.includes('template&#58;check'), '템플릿의 콜론 때문에 Roll20이 버튼 주소를 제거하면 안 됩니다.');
+assert(questionButton.includes('&#63;{보너스/페널티?') === false,
+  '원본 질문의 모든 물음표는 사전 처리되지 않도록 인코딩해야 합니다.');
+assert(questionButton.includes('d10kl1') && questionButton.includes('d10kh1') && questionButton.includes('&amp;#125;'),
+  '보너스, 페널티, 중첩 질문의 원본 값을 보존해야 합니다.');
+assert(!questionButton.includes('[['), '버튼을 보여줄 때 먼저 주사위를 굴리면 안 됩니다.');
+assert(questionButton.includes('&#42;10') && questionButton.includes('&#95;'),
+  '곱셈과 템플릿 필드명이 채팅 마크다운으로 바뀌지 않도록 보호해야 합니다.');
+statusMessages.length = 0;
+events['chat:message']({type:'api', playerid:'gm', content:'!!비밀 외모'});
+assert(statusMessages.some(text => text.includes('href="!/&#13;&#47;w gm ')), '비밀 명령은 줄 시작에 공백 없이 있어야 합니다.');
+for (const unsafe of ['?{실행|선택,!unsafe}', '&#10;!unsafe ?{입력}', '&amp;#10;!unsafe ?{입력}', '&#37;{other|ability} ?{입력}',
+  '&percnt;{other|ability} ?{입력}', '?{입력|선택,&nbsp;#OtherMacro}', '&#37;&#0;{other|ability} ?{입력}']) {
+  generatedRoll.set('current', unsafe);
+  helper.refresh();
+  statusMessages.length = 0;
+  events['chat:message']({type:'api', playerid:'gm', content:'!!외모'});
+  assert(!statusMessages.some(text => text.includes('href="!/&#13;')), '숨은 명령/외부 참조를 실행 버튼으로 전달하면 안 됩니다: '+unsafe);
+}
+generatedRoll.set('current', '{{roll=[[1d100]]}} {{target=[[63]]}}');
+helper.refresh();
+statusMessages.length = 0;
+events['chat:message']({type:'api', playerid:'gm', content:'!!외모'});
+assert(statusMessages.some(text => text.includes('{{roll=[[1d100]]}}')) && !statusMessages.some(text => text.includes('href="!/&#13;')),
+  '질문 없는 기존 굴림은 그대로 즉시 실행해야 합니다.');
+
 console.log('Sheet room recognition: ok');

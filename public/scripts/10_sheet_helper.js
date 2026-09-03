@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.50
+ * Scene Suite 10 - Sheet Helper 0.6.51
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -336,7 +336,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.50';
+  var VERSION = '0.6.51';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -3649,7 +3649,7 @@ var sheet_helper_setting = {
       return { ok: false, error: '다른 능력 또는 API 명령을 불러오는 롤은 안전하게 재생할 수 없습니다.' };
     if (/(?:\{\{|<!--)\s*kib_sheet_result\s*=/i.test(content)) return { ok: false, error: '시트 헬퍼 예약 필드가 들어간 롤은 실행하지 않습니다.' };
     if (content.indexOf('?{') > -1)
-      return { ok: false, reason: 'query', error: '이 굴림은 시트에서 고르는 값이 더 필요합니다.' };
+      return { ok: false, reason: 'query', content: content, error: '이 굴림은 시트에서 고르는 값이 더 필요합니다.' };
     return { ok: true, content: content };
   }
 
@@ -3689,9 +3689,8 @@ var sheet_helper_setting = {
           return executeContractInstance(character, instance, choices[0].id, secret, expression, modeLabelOverride);
         if (choices.length > 1)
           return contractConflict(choices.map(function (candidate) { return { instance: instance, mode: candidate }; }), secret, expression);
-        return { ok: false, error: '현재 시트에서 같은 굴림 방식을 찾지 못했습니다.' };
       }
-      return qualified;
+      if (qualified.reason !== 'query' || !qualified.content) return qualified;
     }
     var label = instance.label;
     var modeLabels = mode ? contractUserModeLabels(mode) : [];
@@ -3713,6 +3712,8 @@ var sheet_helper_setting = {
       modeLabel: trim(modeLabelOverride) || modeLabels[0] || '',
       secret: !!secret,
     };
+    if (!qualified.ok) return { ok: false, reason: 'query', error: qualified.error,
+      queryContent: content, queryLabel: label };
     if (/&\{\s*template\s*:/i.test(content)) return sendSheet(character, content, payload);
     try {
       sendChat('character|' + character.id, content);
@@ -5109,9 +5110,33 @@ var sheet_helper_setting = {
       '</div>';
   }
 
+  function nativeQueryButton(label, content) {
+    // Keep Roll20's nested questions; do not execute encoded commands on the client.
+    var checked = String(content || '');
+    var entities = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+    for (var depth = 0; depth < 8; depth++) {
+      var decoded = checked.replace(/&(amp|lt|gt|quot|apos|nbsp);|&#(x[0-9a-f]+|\d+);/gi, function (token, name, code) {
+        return name ? entities[name.toLowerCase()] : String.fromCharCode(parseInt(code.replace(/^x/i, ''), /^x/i.test(code) ? 16 : 10));
+      });
+      if (decoded === checked) break;
+      checked = decoded;
+    }
+    if (!checked || /[\x00-\x1f!]|[@%]\{|(?:^|[\s,|])#\S|&(?:[a-z][a-z0-9]+|#(?:x[0-9a-f]+|\d+));/i.test(checked)) return '';
+    var command = escapeHtml(content).replace(/[\/:\?@%\[\]()*_~\x60]/g, function (character) {
+      return '&#' + character.charCodeAt(0) + ';';
+    });
+    return button(label + ' · 질문 열기', '!', '#111').replace('href="!"', function () {
+      // Slash in the no-op API line prevents template colons being treated as a URL scheme.
+      return 'href="!/&#13;' + command + '"';
+    });
+  }
+
   function reportResult(msg, result) {
     if (result && result.ok === false)
-      whisper(msg, result.reason === 'conflict' && result.choices ? bangBangChoiceHtml(result.choices) : escapeHtml(result.error));
+      whisper(msg, result.reason === 'conflict' && result.choices ? bangBangChoiceHtml(result.choices)
+        : result.reason === 'query' && result.queryContent
+          ? nativeQueryButton(result.queryLabel, result.queryContent) || escapeHtml(result.error)
+          : escapeHtml(result.error));
     else if (result && result.queryOnly)
       whisper(msg, '<b>' + escapeHtml(result.weapon.label) + '</b> 탄약: ' + escapeHtml(result.value === '' ? '-' : result.value));
     return result;

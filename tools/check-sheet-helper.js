@@ -202,9 +202,9 @@ embeddedSheets.forEach((sheet) => {
   sheet.id + '의 시작 수치 입력은 내부 변수명이 아니라 원본 표시명으로 구분되어야 합니다.');
 });
 const distributedBytes = Buffer.byteLength(distributedSource.replace(/\r\n/g, '\n'), 'utf8');
-// 35번째 원본 추가분을 포함한 상한. 기존 34종 데이터는 위 해시로 별도 보존합니다.
-assert(distributedBytes <= 675000,
-  '10번 임베드 데이터가 다시 비대해졌습니다: ' + distributedBytes + ' bytes');
+// 35종 원본과 질문 버튼 전달 코드를 포함한 상한. 기존 원본은 위 해시로 별도 보존합니다.
+assert(distributedBytes <= 677000,
+  '10번 배포 코드가 다시 비대해졌습니다: ' + distributedBytes + ' bytes');
 
 // 생성된 인식 정보 안에는 원본 변수명이 있을 수 있지만 런타임은 이를
 // 별도 고정 목록이나 대체 공식으로 다시 만들면 안 됩니다.
