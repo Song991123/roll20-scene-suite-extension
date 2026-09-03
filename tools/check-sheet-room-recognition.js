@@ -442,4 +442,68 @@ events['chat:message']({type:'api', playerid:'gm', content:'!!외모'});
 assert(statusMessages.some(text => text.includes('{{roll=[[1d100]]}}')) && !statusMessages.some(text => text.includes('href="!/&#13;')),
   '질문 없는 기존 굴림은 그대로 즉시 실행해야 합니다.');
 
+const navigationSheet = parseSheetContract(`
+  <input name="attr_navigation_source" value="navigation-source">
+  <input name="attr_navigation_version" value="one"><input name="attr_navigation_guard" value="guard">
+  <input name="attr_sheet_npc" type="checkbox">
+  <div class="sheet-navigation">
+    <label><input name="attr_page" type="radio" value="skills" checked>기능</label>
+    <label><input name="attr_page" type="radio" value="combat">전투</label>
+    <label><input name="attr_page" type="radio" value="settings">설정</label>
+  </div>
+  <div class="pc"><input name="attr_page" type="hidden">
+    <div class="skills"><button type="roll" value="&{template:test} {{title=감정}} {{roll=[[1d100]]}}">감정</button></div>
+    <div class="combat"><button type="roll" value="&{template:test} {{title=비무장}} {{roll=[[1d3]]}}">비무장</button></div>
+  </div>
+  <div class="npc"><button type="roll" value="&{template:test} {{title=NPC}} {{roll=[[1d20]]}}">NPC</button></div>
+  <input name="attr_mode" type="radio" value="normal" checked><input name="attr_mode" type="radio" value="pulp">
+  <div class="pulp"><button type="roll" value="&{template:test} {{title=펄프}} {{roll=[[1d6]]}}">펄프</button></div>
+`, {id:'navigation-sheet', sourceHash:'navigation-sheet', css:`
+  .skills, .combat, .npc, .pulp { display: none; }
+  input[name="attr_page"][value="skills"] ~ .skills { display: block; }
+  input[name="attr_page"][value="combat"] ~ .combat { display: block; }
+  input[name="attr_sheet_npc"]:checked ~ .pc { display: none; }
+  input[name="attr_sheet_npc"]:checked ~ .npc { display: block; }
+  input[name="attr_mode"][value="pulp"]:checked ~ .pulp { display: block; }
+`});
+runtime.KIBSheetContracts = [navigationSheet];
+attributes.length = 0;
+currentDefaults = Object.fromEntries(navigationSheet.fields.map(field => [field.name, field.default]));
+['navigation_source', 'navigation_version', 'navigation_guard'].forEach(name => attribute(unsupported.id, name, currentDefaults[name]));
+const navigationPage = attribute(unsupported.id, 'page', 'settings');
+const navigationNpc = attribute(unsupported.id, 'sheet_npc', '0');
+const navigationMode = attribute(unsupported.id, 'mode', 'normal');
+helper.registerContract(navigationSheet);
+assert.strictEqual(navigationSheet.controls.page.navigation, true, '원본 내비게이션 영역의 라디오만 표시 전환으로 분류해야 합니다.');
+assert(!navigationSheet.controls.mode.navigation, '일반 모드 라디오는 내비게이션이 아닙니다.');
+for (const page of ['settings', 'skills', 'combat']) {
+  navigationPage.set('current', page);
+  helper.refresh();
+  const labels = helper.contractRolls(unsupported.id).map(item => item.label);
+  assert(labels.includes('감정') && labels.includes('비무장'), '화면 탭 선택이 명령어를 숨기면 안 됩니다: ' + page);
+  assert(!labels.includes('NPC') && !labels.includes('펄프'), '실제 PC/NPC 및 규칙 모드 조건은 유지해야 합니다.');
+}
+navigationNpc.set('current', 'on');
+navigationMode.set('current', 'pulp');
+helper.refresh();
+assert.deepStrictEqual(Array.from(helper.contractRolls(unsupported.id), item => item.label).sort(), ['NPC', '펄프'],
+  '내비게이션 필터 해제가 실제 모드의 숨김 조건까지 무시하면 안 됩니다.');
+navigationNpc.set('current', '0');
+navigationMode.set('current', 'normal');
+navigationPage.set('current', 'settings');
+const requiredNavigation = JSON.parse(JSON.stringify(navigationSheet));
+function requirePage(condition) {
+  if (!condition) return;
+  if (condition.name === 'page') condition.required = true;
+  (condition.all || condition.any || []).forEach(requirePage);
+  requirePage(condition.not);
+}
+requiredNavigation.rolls.forEach(roll => requirePage(roll.visibility));
+helper.registerContract(requiredNavigation);
+assert.strictEqual(helper.contractRolls(unsupported.id).length, 0, '워커가 요구한 활성 조건은 내비게이션 안에서도 유지해야 합니다.');
+const referencedNavigation = JSON.parse(JSON.stringify(navigationSheet));
+referencedNavigation.rolls[0].expressionRefs.push({name:'page', max:false});
+helper.registerContract(referencedNavigation);
+assert.strictEqual(helper.contractRolls(unsupported.id).length, 0, '굴림식에서 사용하는 값은 표시 전환으로 무시하면 안 됩니다.');
+
 console.log('Sheet room recognition: ok');
