@@ -55,7 +55,7 @@ assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expected
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
 assert.strictEqual(
   crypto.createHash('sha256').update(JSON.stringify(embeddedSheets.slice(0, 34))).digest('hex'),
-  'c196a2a7f1e37cb6bff9a43927ad574d7c5db4f43971dc147a1dcfb2d8de8485',
+  'd0ec1bfd5ee30e3c7373b9d1115938c35bc744f1c7ee8d36061893bd9f58c100',
   'Brotli 교체 뒤 34개 시트의 전체 굴림·선택지·수치 구조가 달라졌습니다.',
 );
 assert(!/\brequire\s*\(/.test(recognitionBlock) &&
@@ -4104,6 +4104,82 @@ const nativeLimitResources = helper.scan(nativeLimitRuntime.character.id, true).
 });
 assert(!nativeLimitResources.some((item) => item.name === 'Damage-Bonus'),
   '인접 별칭이 섞인 피해 보너스를 현재/최대 자원 묶음으로 오인하면 안 됩니다.');
+// 실제 원본 숫자 라디오 자원: 전체 임베드 유지, 선택 범위와 캐릭터 최대값은 분리합니다.
+{
+  const previousContracts = runtime.KIBSheetContracts.slice();
+  const previousRoom = Array.from(roomCharacterIds || []);
+  const previousTracking = runtime.state.KIBSheetHelper.trackingMode;
+  const modeField = embeddedSheets[17].fields.find((field) => field.name === 'dice_type' && !field.section);
+  assert(modeField && modeField.type === 'radio' && !modeField.numericCandidate && !modeField.radioRange,
+    '실제 Blue29 1/2/3 기본·보너스·패널티 라디오는 숫자 자원이 아닙니다.');
+  try {
+    runtime.state.KIBSheetHelper.trackingMode = 'public';
+    [[24, 0, 99], [31, -2, null], [32, -2, 99]].forEach(([sourceIndex, minimum, sanityMaximum]) => {
+      const sheet = embeddedSheets[sourceIndex];
+      const setup = addSourceCharacter(sheet, 'numeric-radio-' + sourceIndex, '숫자 라디오 ' + sourceIndex);
+      const character = setup.character;
+      sheetFieldDefaults[character.id] = sourceDefaults(sheet);
+      function attribute(name) {
+        return attributeObjects.find((item) => item.get('_characterid') === character.id && item.get('name') === name) ||
+          addAttribute(character.id, name, '0');
+      }
+      ['HP', 'MP', 'Sanity'].forEach((name, index) => attribute(name).set('current', ['15', '9', '45'][index]));
+      const untouched = attributeObjects.filter((item) => item.get('_characterid') === character.id &&
+        !['HP', 'MP', 'Sanity'].includes(item.get('name')))
+        .map((item) => [item, item.get('current'), item.get('max')]);
+      useContracts(...embeddedSheets);
+      useRoomCharacters(character);
+      let data = helper.scan(character.id, true);
+      assert.strictEqual(data.contractMatch.contract.id, sheet.id, '실제 원본과 다른 시트로 우회하면 안 됩니다.');
+      ['HP', 'MP', 'Sanity'].forEach((name, index) => {
+        const source = sheet.fields.find((field) => field.name === name && !field.section);
+        const item = data.resourcesByAttribute[name];
+        assert(item && item.statusResource && item.value === [15, 9, 45][index],
+          sourceIndex + '/' + name + ': 숫자 라디오 현재값과 상태 항목이 필요합니다.');
+        assert.deepStrictEqual(Array.from(item.radioRange), name === 'HP' ? [minimum, 37] : [0, name === 'MP' ? 37 : 99]);
+        assert.strictEqual(item.max, name === 'Sanity' ? sanityMaximum : null,
+          '라디오의 마지막 선택값을 자원 최대값으로 쓰면 안 됩니다: ' + name);
+        const messages = runGeneral(':' + name + '-1', character.get('name'));
+        assert.strictEqual(attribute(name).get('current'), String([14, 8, 44][index]));
+        assert(messages.some((message) => (message.content || '').includes(item.label) &&
+          (message.content || '').includes('→')), '현재값 변경 로그에 원본 자원 이름이 필요합니다.');
+        assert.strictEqual(source.default, ['15', '9', '45'][index], '원본 초기 선택값 메타데이터를 수정하면 안 됩니다.');
+      });
+      data = helper.scan(character.id);
+      assert.strictEqual(data.resources.filter((item) => item.statusResource).length, 3,
+        '실제 자원 3개 외에 초기값/최대값을 독립 현재 자원으로 추가하면 안 됩니다.');
+      const status = runApi('!!상태', character.get('name')).find((item) => item.who === '시트 헬퍼').content;
+      assert(status.includes('현재 수치 3개'), 'PL 상태에서 숫자 라디오 자원 세 개를 보여야 합니다.');
+      runGeneral(':HP=0', character.get('name'));
+      assert.strictEqual(attribute('HP').get('current'), '0', '0은 체크 해제가 아니라 유효한 숫자 선택값입니다.');
+      if (minimum < 0) {
+        runGeneral(':HP-2', character.get('name'));
+        assert.strictEqual(attribute('HP').get('current'), '-2', '원본에 있는 음수 HP는 0으로 clamp하면 안 됩니다.');
+      }
+      [':HP-1', ':HP=38', ':MP=1.5', ':MP=38'].forEach((command) => {
+        const before = ['HP', 'MP', 'Sanity'].map((name) => attribute(name).get('current'));
+        const messages = runGeneral(command, character.get('name'));
+        assert.strictEqual(messages.filter((message) =>
+          (message.content || '').includes('원본 시트에 없는 숫자 선택값')).length, 1,
+        '저장 domain 오류는 삼키지 않고 사용자에게 한 번 반환해야 합니다: ' + command);
+        assert.deepStrictEqual(['HP', 'MP', 'Sanity'].map((name) => attribute(name).get('current')), before);
+        assert(!messages.some((message) => (message.content || '').includes('→')),
+          '거부된 숫자 선택값을 성공 변경 로그로 남기면 안 됩니다.');
+      });
+      assert.strictEqual(attributeObjects.filter((item) => item.get('_characterid') === character.id).length,
+        untouched.length + 3, '원본에 없는 자동화/최대/worker 속성을 새로 만들면 안 됩니다.');
+      untouched.forEach(([item, current, maximum]) => {
+        assert.strictEqual(item.get('current'), current, '초기값/checkbox/계산 의존값이 변경되었습니다: ' + item.get('name'));
+        assert.strictEqual(item.get('max'), maximum, '기존 Attribute.max를 덮어쓰면 안 됩니다.');
+      });
+    });
+  } finally {
+    runtime.state.KIBSheetHelper.trackingMode = previousTracking;
+    useContracts(...previousContracts);
+    useRoomCharacters(...previousRoom);
+  }
+}
+
 const nativeLimitStatus = runApi('!!상태', nativeLimitRuntime.character.get('name'))
   .find((item) => item.who === '시트 헬퍼').content;
 ['Idea', 'Luck'].forEach((label) => {

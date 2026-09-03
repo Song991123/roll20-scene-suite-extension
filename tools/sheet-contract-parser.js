@@ -1833,6 +1833,72 @@
     });
   }
 
+  function applyNumericRadioFields(controlScopes, translations, visibility) {
+    (controlScopes.fields || []).forEach(function (field) {
+      if (field.section || field.type !== 'radio' || field.hidden || field.readonly || field.disabled ||
+          visibility.controls[field.name]) return;
+      var nodes = controlScopes.nodes.global[field.name] || [];
+      var control = controlScopes.global[field.name];
+      if (nodes.length < 3 || !control || control.options.length !== nodes.length ||
+          nodes.some(function (node) {
+            for (var ancestor = node; ancestor && ancestor.tag !== '#root'; ancestor = ancestor.parent) {
+              if (hiddenFieldNode(ancestor) || suppressedDefaultNode(ancestor)) return true;
+            }
+            return node.tag !== 'input' || fieldNodeType(node) !== 'radio' ||
+              hasAttr(node, 'readonly') || hasAttr(node, 'disabled');
+          })) return;
+      var numbers = [];
+      if (control.options.some(function (option) {
+        var value = String(option.value);
+        var number = Number(value);
+        if (!/^-?(?:0|[1-9]\d*)$/.test(value) || !isFinite(number) ||
+            Math.abs(number) > 9007199254740991 || String(number) !== value ||
+            !/^[+-]?\d+$/.test(normalizeText(option.label)) ||
+            Number(normalizeText(option.label)) !== number) return true;
+        numbers.push(number);
+        return false;
+      })) return;
+      numbers.sort(function (left, right) { return left - right; });
+      if (numbers.some(function (number, index) { return index && number !== numbers[index - 1] + 1; })) return;
+      var container = nodes[0].parent;
+      for (var depth = 0; container && container.tag !== '#root' && depth < 4;
+        depth += 1, container = container.parent) {
+        var members = [];
+        var companions = [];
+        var unsupported = false;
+        walk(container, function (node) {
+          if (hiddenFieldNode(node) || suppressedDefaultNode(node)) unsupported = true;
+          if (node.tag === 'button' || node.tag === 'input' && fieldNodeType(node) === 'roll') {
+            if (fieldNodeType(node) !== 'roll') unsupported = true;
+            return;
+          }
+          if (!/^(?:input|select|textarea)$/.test(node.tag)) return;
+          if (nodes.indexOf(node) >= 0) members.push(node);
+          else if (node.tag === 'input' && /^(?:number|range)$/.test(fieldNodeType(node)) &&
+              !hiddenFieldNode(node) && /^attr_/i.test(node.attrs.name || ''))
+            companions.push(node);
+          else unsupported = true;
+        });
+        if (members.length !== nodes.length || unsupported || companions.length !== 1) continue;
+        var companionName = baseAttrName(companions[0].attrs.name).toLowerCase();
+        var name = field.name.toLowerCase();
+        // A unique same-group scalar with the exact attribute suffix is related evidence, not a maximum.
+        if (companionName.length <= name.length || companionName.slice(-name.length) !== name) continue;
+        var headings = elementChildren(container).filter(function (node) {
+          return /^(?:h[1-6]|legend|caption)$/.test(node.tag) && resourceHeadingBranch(node);
+        }).map(function (node) { return resourceHeadingDetails(node, translations); })
+          .filter(function (details) { return !!details.label; });
+        if (headings.length !== 1) continue;
+        field.label = headings[0].label;
+        field.aliases = headings[0].aliases.slice();
+        field.groupLabel = headings[0].label;
+        field.numericCandidate = true;
+        field.radioRange = [numbers[0], numbers[numbers.length - 1]];
+        return;
+      }
+    });
+  }
+
   function collectControls(root, translations) {
     var labelsByFor = dictionary();
     var globalGroups = dictionary();
@@ -2623,6 +2689,7 @@
     applyResourceGroupLabels(controlScopes, translations);
     applyNamedResourcePairGroups(controlScopes, translations);
     applyResourcePairLabels(controlScopes);
+    applyNumericRadioFields(controlScopes, translations, visibility);
     var resultTemplates = collectResultTemplates(tree, rolls);
     var signature = compactSignature(globalControls, rolls, controlScopes.fields);
     controlScopes.fields.forEach(function (field) { delete field.persistCandidate; });

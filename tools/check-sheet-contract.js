@@ -660,6 +660,71 @@ assert.strictEqual(fieldContract.fields.find((field) => field.name === 'durabili
     `${name} 필드는 실제로 저장할 수 없는 값이므로 시트 인식 기준이 아니어야 합니다.`);
 });
 
+// 숫자 라디오 자원은 원본 숫자 표시와 유일한 같은 묶음 수치 근거가 있을 때만 허용합니다.
+{
+  function radioGroup(values, options) {
+    options = options || {};
+    const radios = values.map((value) => '<label>' + (options.labels ? options.labels[value] : value) +
+      '<input type="radio" name="attr_pool" value="' + value + '"' +
+      (String(value) === '0' ? ' checked' : '') + (options.radioAttrs || '') + '></label>')
+      .map((radio) => options.table ? radio.replace('<label>', '<td>').replace('</label>', '</td>') : radio).join('');
+    const companion = '<label>기준 수치<input type="number" name="attr_base_pool" value="7"></label>';
+    return '<div' + (options.containerAttrs || '') + '><h3>잔여 수치</h3>' +
+      (options.table ? '<table><tr><td>' + companion + '</td></tr></table><table><tr>' + radios + '</tr></table>' :
+        companion + '<div>' + radios + '</div>') + (options.extra || '') + '</div>';
+  }
+  const scalarRadioHtml = radioGroup([-1, 0, 1]);
+  const scalarRadio = parseSheetContract(scalarRadioHtml, { id: 'numeric-radio-div' });
+  const scalar = scalarRadio.fields.find((field) => field.name === 'pool');
+  assert(scalar.numericCandidate && scalar.type === 'radio');
+  assert.deepStrictEqual(scalar.radioRange, [-1, 1]);
+  assert.strictEqual(scalar.default, '0');
+  assert.strictEqual(scalar.label, '잔여 수치');
+  assert.strictEqual(scalar.max, '', '라디오 선택 범위 끝은 캐릭터 최대값이 아닙니다.');
+  assert(!scalar.aliases.some((alias) => /^[+-]?\d+$/.test(alias)),
+    '라디오의 숫자 선택지를 자원 이름 별칭으로 만들면 안 됩니다.');
+  const scalarTable = parseSheetContract(radioGroup([0, 1, 2], { table: true }), { id: 'numeric-radio-table' });
+  assert.deepStrictEqual(scalarTable.fields.find((field) => field.name === 'pool').radioRange, [0, 2],
+    '표로 나뉜 원본 자원도 같은 h3/수치 묶음 경계를 사용해야 합니다.');
+  [
+    ['hidden 속성', radioGroup([0, 1, 2], { radioAttrs: ' hidden' })],
+    ['disabled 입력', radioGroup([0, 1, 2], { radioAttrs: ' disabled' })],
+    ['readonly 입력', radioGroup([0, 1, 2], { radioAttrs: ' readonly' })],
+    ['inline 숨은 입력', radioGroup([0, 1, 2], { radioAttrs: ' style="display:none"' })],
+    ['inline 숨은 묶음', radioGroup([0, 1, 2], { containerAttrs: ' style="display:none"' })],
+    ['더 먼 숨은 조상', '<div style="display:none">' + scalarRadioHtml + '</div>'],
+    ['숨은 관련 수치', scalarRadioHtml.replace('name="attr_base_pool"', 'name="attr_base_pool" style="display:none"')],
+    ['숨은 동명 mirror', radioGroup([0, 1, 2], { extra: '<input type="hidden" name="attr_pool" value="1">' })],
+    ['중복 숫자', radioGroup([0, 1, 1, 2])],
+    ['누락 숫자', radioGroup([0, 2, 3])],
+    ['소수 선택지', radioGroup([0, 0.5, 1])],
+    ['모호한 선행 0', radioGroup(['00', 1, 2])],
+    ['동시 다른 입력', radioGroup([0, 1, 2], { extra: '<input name="attr_other">' })],
+    ['동시 다른 선택', radioGroup([0, 1, 2], { extra: '<select name="attr_other"><option>하나</option></select>' })],
+    ['경쟁 제목', radioGroup([0, 1, 2], { extra: '<h3>다른 제목</h3>' })],
+    ['관련 없는 수치', scalarRadioHtml.replace('attr_base_pool', 'attr_unrelated')],
+    ['반복행 범위', '<fieldset class="repeating_pool">' + scalarRadioHtml + '</fieldset>'],
+    ['숫자 모드', radioGroup([1, 2, 3], { labels: { 1: '기본', 2: '보너스', 3: '패널티' } })],
+  ].forEach(([reason, source]) => {
+    const field = parseSheetContract(source).fields.find((candidate) => candidate.name === 'pool');
+    assert(!field.radioRange && !field.numericCandidate, reason + '는 숫자 자원 opt-in이 아니어야 합니다.');
+  });
+  const presentationRadio = parseSheetContract('<div><h3>화면 선택</h3><input type="number" name="attr_base_pool">' +
+    [0, 1, 2].map((value) => '<input type="radio" name="attr_pool" value="' + value + '" title="' + value + '">').join('') +
+    '<div class="panel"><button type="roll" value="&{template:test} {{roll=[[1d100]]}}"></button></div></div>',
+    { css: '.panel{display:none}input[name="attr_pool"][value="1"]:checked ~ .panel{display:block}' });
+  assert(!presentationRadio.fields.find((field) => field.name === 'pool').radioRange,
+    '원본 CSS의 화면 열기 제어는 연속 숫자여도 자원으로 만들면 안 됩니다.');
+  const roundTrip = { KIBSheetContracts: [] };
+  vm.runInNewContext(render([scalarRadio, scalarTable]), roundTrip);
+  const restored = roundTrip.KIBSheetContracts.map((sheet) => sheet.fields.find((field) => field.name === 'pool'));
+  assert.deepStrictEqual(Array.from(restored[0].radioRange), [-1, 1]);
+  assert.deepStrictEqual(Array.from(restored[1].radioRange), [0, 2]);
+  assert.strictEqual(restored[0].default, '0');
+  restored[0].radioRange[0] = -99;
+  assert.strictEqual(restored[1].radioRange[0], 0, '압축 복원한 선택 범위 배열을 다른 필드와 공유하면 안 됩니다.');
+}
+
 const madness = contract.rolls.find((roll) => roll.name === 'madness');
 assert.strictEqual(madness.raw.startsWith('&{template:test}'), true);
 assert(madness.staticLabels.some((entry) => entry.field === 'name' && entry.value === '광기'));

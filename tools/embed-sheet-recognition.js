@@ -127,6 +127,7 @@ function packModes(sheet) {
       visibilityId,
       field.groupLabel || 0,
       defaultVariants.length ? defaultVariants : 0,
+      field.radioRange || 0,
     ];
     while (values.length > 4 && !values[values.length - 1]) values.pop();
     return values;
@@ -338,6 +339,7 @@ ${renderBrotliDecoder()}
         numericCandidate: !!(flags & 1), trackCandidate: !!(flags & 2), readonly: !!(flags & 4),
         disabled: !!(flags & 8), hidden: !!(flags & 16) };
       if (field[11]) restored.defaultVariants = [restored.default].concat(field[11]);
+      if (field[12]) restored.radioRange = field[12].slice();
       return restored;
     });
     delete sheet.f;
