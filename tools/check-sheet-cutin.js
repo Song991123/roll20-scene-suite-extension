@@ -665,6 +665,91 @@ check(
 );
 runtime.KIBScene.adapters.sheet = sheetAdapter;
 
+// 실제 내장 French 2e의 jetGM 원본 설정과 명시 비밀 명령을 구분합니다.
+// 10의 공개 실행/채팅 이벤트 경로를 거쳐 같은 08 listener가 그래픽을 만드는지 검사합니다.
+const privacyCharacter = roll20Object('character', 'privacy-character', { name: 'Privacy Fixture' });
+const privacySetting = roll20Object('attribute', 'privacy-setting', {
+  _characterid: privacyCharacter.id, name: 'jetGM', current: '', max: '',
+});
+objects.push(privacyCharacter, privacySetting, roll20Object('attribute', 'privacy-score', {
+  _characterid: privacyCharacter.id, name: 'Chance-of-Success', current: '50', max: '',
+}));
+const privacySends = [];
+const privacyResults = [];
+let privacyDefaults = {};
+runtime.getSheetDefaultValue = (name) => privacyDefaults[name] ?? '';
+runtime.getAttrByName = (characterId, name, type = 'current') => {
+  const attribute = runtime.findObjs({ _type: 'attribute', _characterid: characterId, name })[0];
+  return attribute ? attribute.get(type) : type === 'current' ? privacyDefaults[name] ?? '' : '';
+};
+let privacyToken = 0;
+runtime.randomInteger = () => ++privacyToken;
+runtime.sendChat = (speaker, content) => privacySends.push({ speaker, content });
+runtime.KIBScene.broadcast = (event, payload) => {
+  if (event !== 'sheet:result') return;
+  privacyResults.push(payload);
+  listener(payload);
+};
+vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../public/scripts/10_sheet_helper.js'), 'utf8'),
+  runtime, { filename: '10_sheet_helper.js' });
+const privacyHelper = runtime.KIBSheetHelper;
+const privacySheets = privacyHelper.sheetContracts();
+const privacySheet = privacySheets.find((sheet) => sheet.id === 'sheet-982a8cbae9128aea');
+const privacyRoll = privacySheet && privacySheet.rolls.find((roll) => roll.name === 'Resistance');
+check('비밀 전파 검사도 실제 35개 내장 원본 유지', privacySheets.length === 35 &&
+  privacyRoll && privacyRoll.raw.startsWith('@{jetGM}') && privacyRoll.template === 'jets',
+'French 2e 원본의 공개/비밀 선택 굴림을 찾지 못했습니다.');
+if (privacyRoll) {
+  privacyDefaults = Object.fromEntries(privacySheet.fields.filter((field) => !field.section &&
+    Object.prototype.hasOwnProperty.call(field, 'default')).map((field) => [field.name, field.default]));
+  privacySheet.signature.filter((name) => name !== 'jetGM').forEach((name, index) =>
+    objects.push(roll20Object('attribute', 'privacy-source-' + index, {
+      _characterid: privacyCharacter.id, name, current: privacyDefaults[name] ?? '', max: '',
+    })));
+  (events['add:character'] || []).forEach((callback) => callback(privacyCharacter));
+  const privacyCases = [
+    { name: '공개 원본', nativePrivate: false, explicit: false, expected: false },
+    { name: '원본 whisper', nativePrivate: true, explicit: false, expected: true },
+    { name: '명시 비밀', nativePrivate: false, explicit: true, expected: true },
+    { name: '원본 whisper와 명시 비밀', nativePrivate: true, explicit: true, expected: true },
+    { name: '기존 표식의 원본 whisper', nativePrivate: true, explicit: false, expected: true, legacy: true },
+    // gmrollresult는 전송 경계 검사이며, jets 원본이 이 메시지 유형을 만든다고 가정하지 않습니다.
+    { name: 'gmrollresult 전송', nativePrivate: false, explicit: false, expected: true, type: 'gmrollresult' },
+    { name: '공개 이벤트도 명시 비밀 유지', nativePrivate: false, explicit: true, expected: true, type: 'general' },
+    { name: '비밀 이후 공개 원본', nativePrivate: false, explicit: false, expected: false },
+  ];
+  privacyCases.forEach((test) => {
+    privacySetting.set('current', test.nativePrivate ? '/w gm ' : '');
+    const beforeSends = privacySends.length;
+    const beforeResults = privacyResults.length;
+    const beforeCues = cueCalls.length;
+    const beforeGraphics = graphicCount();
+    const sent = privacyHelper.executeContract(privacyCharacter.id, privacySheet.id, privacyRoll.key, '', '', test.explicit);
+    const wire = privacySends[beforeSends];
+    check(test.name + ' 원본 식 한 번 전송', sent.ok && privacySends.length === beforeSends + 1 &&
+      wire && wire.speaker === 'character|' + privacyCharacter.id &&
+      /^\s*\/w\s+gm\b/.test(wire.content) === (test.nativePrivate || test.explicit), JSON.stringify(sent));
+    if (!sent.ok || !wire) return;
+    const inlinerolls = [];
+    let content = wire.content.replace(/\[\[([\s\S]*?)\]\]/g, (_whole, expression) => {
+      const index = inlinerolls.length;
+      inlinerolls.push({ expression, results: { total: expression === '1d100' ? 21 : Number(expression) } });
+      return '$[[' + index + ']]';
+    });
+    if (test.legacy) content = content.replace(/<!--kib_sheet_result=([A-Za-z0-9_-]+)-->/, '{{kib_sheet_result=$1}}');
+    const message = { type: test.type || (/^\s*\/w\b/.test(wire.content) ? 'whisper' : 'general'),
+      playerid: 'API', who: privacyCharacter.get('name'), content, rolltemplate: 'jets', inlinerolls };
+    (events['chat:message'] || []).forEach((callback) => callback(message));
+    const result = privacyResults[beforeResults];
+    check(test.name + ' 결과 비밀 전파 및 실제 08 컷인', privacyResults.length === beforeResults + 1 &&
+      result === sent.payload && result.message === message && result.secret === test.expected &&
+      cueCalls.length === beforeCues + (test.expected ? 0 : 1) &&
+      (test.expected ? graphicCount() === beforeGraphics : graphicCount() > beforeGraphics),
+    JSON.stringify({ messageType: message.type, secret: result && result.secret,
+      cues: cueCalls.length - beforeCues, graphics: graphicCount() - beforeGraphics }));
+  });
+}
+
 if (failures.length) {
   console.error(`\n${failures.length}개 계약 검사 실패`);
   failures.forEach((failure) => console.error(`- ${failure}`));
