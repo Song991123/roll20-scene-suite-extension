@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.53
+ * Scene Suite 10 - Sheet Helper 0.6.54
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -336,7 +336,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.53';
+  var VERSION = '0.6.54';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -1806,6 +1806,7 @@ var sheet_helper_setting = {
     contract.rolls.forEach(function (roll) {
       if (!roll || !roll.key || !roll.raw) return;
       if (roll.visibility && roll.visibility.never === true) return;
+      var templateFields = messageTemplateFields({ content: String(roll.raw).replace(/([@%^])\{[^{}]*\}/g, '$1') });
       var repeating = contractRepeating(roll);
       var rows = repeating && repeating.section
         ? rowsBySection[repeating.section] || []
@@ -1864,6 +1865,7 @@ var sheet_helper_setting = {
         var titleValue = '';
         var expressionLabels = [];
         (Array.isArray(roll.labelRefs) ? roll.labelRefs : []).forEach(function (ref) {
+          if (/\]\(\s*(?:~|!|%)/.test(templateFields[trim(ref && ref.field).toLowerCase()] || '')) return;
           var refName = contractRefName(ref);
           var sourceField = sectionFields[refName] || index.fieldGlobal[refName] || scopedControls[refName];
           var titleField = /^(?:name|subject|title|label|skill|skill_name|weapon_name|attribute)$/i.test(trim(ref && ref.field));
@@ -4667,6 +4669,10 @@ var sheet_helper_setting = {
         roll: instance.roll,
       };
       if (!label && (!modeEntries.length || rollStatusCategory(item) !== 'madness')) return;
+      if (rollStatusCategory(item) === 'other' && !/\[\[|\/(?:r|roll)\b/i.test(context.sourceRaw) &&
+          sourceTemplateFieldNames(context.sourceRaw).some(function (name) {
+            return /^(?:text|description|content|body)$/.test(name);
+          })) return;
       if (rollStatusCategory(item) === 'combat')
         item.damage = contractRollDamageText(data.characterId, instance);
       if (!seen[key]) seen[key] = item;
