@@ -402,7 +402,10 @@ const dynamicQuerySheet = parseSheetContract([
   '<input name="attr_query_source" value="dynamic-query">',
   '<input name="attr_query_version" value="one"><input name="attr_query_guard" value="guard">',
   '<input type="hidden" name="attr_generated_roll">',
+  '<input type="hidden" name="attr_generated_damage">',
   '<button type="roll" name="roll_appearance" value="&{template:check} {{name=외모}} @{generated_roll}">외모</button>',
+  '<button type="roll" name="roll_appraise" value="&{template:check} {{name=감정}} @{generated_roll}">감정</button>',
+  '<button type="roll" name="roll_unarmed" value="&{template:check} {{name=비무장}} @{generated_damage}">비무장</button>',
 ].join('\n'), {id:'dynamic-query', sourceHash:'dynamic-query'});
 runtime.KIBSheetContracts = [dynamicQuerySheet];
 attributes.length = 0;
@@ -410,6 +413,8 @@ currentDefaults = Object.fromEntries(dynamicQuerySheet.fields.map(field => [fiel
 ['query_source', 'query_version', 'query_guard'].forEach(name => attribute(unsupported.id, name, currentDefaults[name]));
 const generatedRoll = attribute(unsupported.id, 'generated_roll',
   '{{roll=[[((?{보너스/페널티?|보통,1d10|보너스,?{개수&#125;d10kl1|페널티,?{개수&#125;d10kh1}-1)*10)+1d10]]}} {{roll_target=[[63]]}}');
+const generatedDamage = attribute(unsupported.id, 'generated_damage',
+  '{{roll=[[?{주사위|1d100}]]}}{{target=[[25]]}}{{damage=[[1d3+0]]}}');
 helper.registerContract(dynamicQuerySheet);
 assert.strictEqual(helper.inspectContracts(unsupported.id).status, 'matched');
 statusMessages.length = 0;
@@ -441,6 +446,23 @@ statusMessages.length = 0;
 events['chat:message']({type:'api', playerid:'gm', content:'!!외모'});
 assert(statusMessages.some(text => text.includes('{{roll=[[1d100]]}}')) && !statusMessages.some(text => text.includes('href="!/&#13;')),
   '질문 없는 기존 굴림은 그대로 즉시 실행해야 합니다.');
+
+for (const target of [63, 67, 0]) {
+  generatedRoll.set('current', '{{roll=[[((?{보너스/페널티?|보통,1d10|보너스,?{개수&#125;d10kl1|페널티,?{개수&#125;d10kh1}-1)*10)+1d10]]}}' +
+    '{{roll_target=[[floor(' + target + '/1)]]}}{{roll_half=[[floor(' + target + '/2)]]}}{{roll_fifth=[[floor(' + target + '/5)]]}}');
+  helper.refresh();
+  statusMessages.length = 0;
+  events['chat:message']({type:'api', playerid:'gm', content:'!!상태'});
+  const status = statusMessages.join('');
+  for (const label of ['외모', '감정']) assert(status.includes(label + ' <b>' + target + '</b>'),
+    '질문이 있는 동적 굴림도 현재 기준값을 읽어야 합니다: ' + label + '/' + target);
+  assert(status.includes('기능 / 판정 1개') && !status.includes('기타 주사위'),
+    '원본의 d10 백분위 굴림과 반값/5분의1 기준을 가진 기능은 판정으로 분류해야 합니다.');
+}
+helper.refresh();
+statusMessages.length = 0;
+events['chat:message']({type:'api', playerid:'gm', content:'!!상태'});
+assert(statusMessages.join('').includes('1d3+0'), '주사위 질문과 무관하게 확정된 원본 피해식은 표시해야 합니다.');
 
 const navigationSheet = parseSheetContract(`
   <input name="attr_navigation_source" value="navigation-source">
