@@ -40,8 +40,19 @@ The original Korean notification says “영구적 광기”; this text is `indi
 
 ## Next work (no automatic reset to the beginning)
 
-1. Complete pending index-27 action-weapon/ammunition, lifecycle, persistent-log and cutin checks.
+1. Address the documented index-27 action-weapon gap, ammunition-label issue and source/platform SAN-worker limitation without one-sheet formula substitutions or disabled recalculation. Lifecycle/persistent-log/cutin checks below are completed; do not repeat them on context restoration.
 2. Resume parked Winter index 5 and remaining Korean targets. Earlier six completed workflow inspections and their explicit limitations remain in the local checkpoint/evidence.
 3. Finish the second-pass coverage and live 00–09 preservation checklist; do not infer completion from local PASS.
 
 No test child processes remain from the completed umbrella run. No agents were spawned for this change.
+
+## Additional live findings after the settings fix
+
+- New-combat action weapons are not supported by the current roll-button parser (`tools/sheet-contract-parser.js` collects `type="roll"`, not `type="action"`). Original melee `검증근접` produced thresholds 25/12/5, roll 62, failure, 1d6 damage 1. Original `검증권총` produced 20/10/4, malfunction 100, roll 43, failure, damage 4 and ammunition 5 → 4. Both matching Korean helper commands returned “굴림을 찾지 못했습니다”. This is not a translation failure and is NOT marked passed. The source builds these actions in the worker at HTML 17522–17798; no one-sheet raw formula replacement was added.
+- Ammunition tracking observed the correct 5/5 (100%) → 4/5 (80%) decrement, but its label was incorrectly “사격(권총)” (message `-P0_ABeK314vu4SHPLiC`). This label-selection issue remains unresolved.
+- Temporary melee/gun input values were cleared back to their original blanks; original skill selections and ammunition-count checkbox were preserved.
+- 08 integration: public Korean `!!외모` (50/25/10, roll 63, failure) visibly displayed the green/yellow full-canvas cutin. `!!비밀 외모` (roll 2, extreme success) was a whisper and did not display a new full-canvas cutin. The left canvas stayed white grid; the translucent GM-layer source at right remained. This is GM-view proof only, not a separate player-account test.
+- Test cutin binding was removed and original duration 4 seconds restored; final list read “연결 없음”. No production 08 code was changed.
+- Detail: `.playwright-cli/korean-public-coc7-actions-cutin-0.6.42.json`.
+- Actual reconnection: direct editor/generic campaign-details entry stalled, but the observed `/sheetsandbox/settings/14742251` → “게임 시작” route recovered. Use the sandbox-specific route on resume. No authentication workaround or browser switch was used.
+- After reconnection, both MP log IDs `-P0_AlT7YugcB2ulELnI` and `-P0_AlbcPSZN6olbPG-J` remained with class `message desc` and identical 9/12 → 8/12 → 9/12 contents. Korean `!!외모` then returned 50/25/10, roll 7, extreme success. `!!상태` listed 8 characteristics, 43 skill/check entries, 1 unarmed weapon and 2 madness commands; MP 9/12, SAN 45/start 50 and HP 3/13 matched restored values. Do not count the unresolved action weapons as recognized.
