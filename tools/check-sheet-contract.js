@@ -1031,6 +1031,35 @@ assert(workerVisibleClass.rolls.every((roll) => !roll.visibility), 'CSS가 표�
 const workerCse = parseSheetContract(workerPanelHtml, { css: workerPanelCss, legacy: false });
 assert(workerCse.rolls.every((roll) => !roll.visibility), 'CSE 시트의 잘못된 선택자를 legacy 접두어로 임의 보정하지 않습니다.');
 
+const settingsHtml = `
+  <input type="checkbox" class="HideConfig" name="attr_navigation" value="1">
+  <div class="sheet-settings">
+    <select name="attr_edition"><option value="normal">일반</option><option value="hero">영웅</option></select>
+    <input type="checkbox" name="attr_style" value="1">
+    <label>최대값 배율<input type="checkbox" name="attr_capacity_rule" value="5"></label>
+    <input type="checkbox" name="attr_shared_state" value="1">
+  </div>
+  <label>중상<input type="checkbox" name="attr_major" value="1"></label>
+  <label>공용 상태<input type="checkbox" name="attr_shared_state" value="1"></label>
+  <input type="number" name="attr_health" value="10">
+  <input type="number" name="attr_limit" value="20" readonly>
+  <button type="roll" name="roll_test" value="&{template:test} {{roll=[[1d100]]}}">판정</button>`;
+const settingsOptions = [{ attribute: 'edition' }, { attribute: 'style' }];
+const settingsContract = parseSheetContract(settingsHtml, { userOptions: settingsOptions });
+['navigation', 'style', 'capacity_rule'].forEach(name => {
+  const field = settingsContract.fields.find(f => f.name === name);
+  assert.strictEqual(field.trackCandidate, false, '설정 UI를 상태 알림으로 보내면 안 됩니다: ' + name);
+  assert(settingsContract.globalAttributes.includes(name), '설정의 원본 속성/변경 감지는 보존해야 합니다.');
+});
+['major', 'shared_state', 'health'].forEach(name => assert(settingsContract.fields.find(f => f.name === name).trackCandidate));
+assert.strictEqual(settingsContract.fields.find(f => f.name === 'capacity_rule').onValue, '5');
+const settingsNoMetadata = parseSheetContract(settingsHtml);
+assert(settingsNoMetadata.fields.find(f => f.name === 'capacity_rule').trackCandidate,
+  '설정 선언 없이 CSS 클래스만으로 상태 항목을 제거하지 않습니다.');
+const settingsWithGameplay = parseSheetContract(settingsHtml.replace('<div class="sheet-settings">', '<div class="sheet-settings"><input name="attr_game_value" type="number" value="10">'), { userOptions: settingsOptions });
+assert(settingsWithGameplay.fields.find(f => f.name === 'capacity_rule').trackCandidate,
+  '설정과 실제 수치가 섞인 영역의 미선언 체크박스는 임의로 제외하지 않습니다.');
+
 // 열기 규칙은 있지만 그 규칙의 원본 형제 컨트롤이 없는 폐기된 탭만 확정 숨김입니다.
 const unreachablePanelHtml = `
   <input type="checkbox" class="sheet-route" name="attr_route" value="on">

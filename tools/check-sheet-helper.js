@@ -53,7 +53,7 @@ const expectedEmbeddedIds = [
 ];
 assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expectedEmbeddedIds,
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
-// Keep the prior full-contract baseline: only the new worker visibility gates may differ.
+// Keep the prior full-contract baseline except the explicitly verified visibility/settings fixes.
 const preservationSheets = JSON.parse(JSON.stringify(embeddedSheets.slice(0, 34)));
 const workerUpdatedSheet = preservationSheets.find(sheet => sheet.id === 'sheet-c653c0852b277de6');
 function withoutWorkerGate(condition) {
@@ -77,6 +77,13 @@ workerUpdatedSheet.rolls.forEach(roll => {
   else delete roll.visibility;
 });
 workerUpdatedSheet.fields.forEach(field => { field.visibility = withoutWorkerGate(field.visibility); });
+const settingsOnlyFields = ['agemovemod', 'clog', 'hptemp', 'initpow', 'is_config', 'mixedbom',
+  'oldcombatcheck', 'pulp_bomtoggle', 'pulp_hp_mod', 'showpulp', 'toggledr', 'toggletalents'];
+settingsOnlyFields.forEach(name => {
+  const field = workerUpdatedSheet.fields.find(item => item.name === name);
+  assert.strictEqual(field.trackCandidate, false, '원본 설정 컨트롤의 추적 제외: ' + name);
+  field.trackCandidate = true;
+});
 assert.strictEqual(
   crypto.createHash('sha256').update(JSON.stringify(preservationSheets)).digest('hex'),
   'd0ec1bfd5ee30e3c7373b9d1115938c35bc744f1c7ee8d36061893bd9f58c100',
@@ -5496,5 +5503,45 @@ const workerRouteAttribute = attributeObjects.find(item => item.get('_characteri
     assert(output.includes(expected) && !output.includes('어느 항목'), command + ': ' + output);
   });
 });
+
+const settingsTrackingSheet = parseSheetContract(`
+  <input type="checkbox" class="HideConfig" name="attr_navigation" value="1">
+  <section class="sheet-settings">
+    <select name="attr_edition"><option value="normal">일반</option><option value="hero">영웅</option></select>
+    <input type="checkbox" name="attr_style" value="1">
+    <label>최대값 배율<input type="checkbox" name="attr_capacity_rule" value="5"></label>
+  </section>
+  <label>체력<input name="attr_health" type="number" value="10" max="@{limit}"></label>
+  <label>최대 체력<input name="attr_limit" type="number" value="20" readonly></label>
+  <label>중상<input name="attr_wound" type="checkbox" value="1"></label>
+  <button type="roll" value="&{template:test} {{subject=체력 판정}} {{roll=[[1d100]]}}">체력 판정</button>`,
+{ id: 'settings-tracking', userOptions: [{ attribute: 'edition' }, { attribute: 'style' }] });
+const settingsTrackingCharacter = addCharacter('settings-tracking', '설정 분리 검증', 'player-1', {
+  edition: 'normal', style: '0', navigation: '0', capacity_rule: '0', health: '10', limit: '20', wound: '0',
+});
+useContracts(settingsTrackingSheet);
+useRoomCharacters(settingsTrackingCharacter);
+runtime.state.KIBSheetHelper.trackingMode = 'public';
+const settingsAttributes = Object.fromEntries(attributeObjects.filter(item => item.get('_characterid') === settingsTrackingCharacter.id).map(item => [item.get('name'), item]));
+const settingsScan = helper.scan(settingsTrackingCharacter.id);
+assert.strictEqual(settingsScan.resourcesByAttribute.health.max, 20);
+['navigation', 'style', 'capacity_rule'].forEach(name => assert(!settingsScan.trackedFields[name]));
+assert(settingsScan.trackedFields.wound, '원본 중상 체크는 추적해야 합니다.');
+const settingsLogStart = sent.length;
+Object.entries({ navigation: '1', style: '1', capacity_rule: '5', limit: '40' }).forEach(([name, value]) => {
+  const previous = settingsAttributes[name].get('current');
+  settingsAttributes[name].set('current', value);
+  events['change:attribute'](settingsAttributes[name], { current: previous });
+});
+assert(!sent.slice(settingsLogStart).some(item => String(item.content || '').includes('→')), '설정 변경은 상태 로그로 보내지 않습니다.');
+assert.strictEqual(helper.scan(settingsTrackingCharacter.id).resourcesByAttribute.health.max, 40,
+  '설정 추적을 꺼도 변경 감지와 실제 최대 수치 갱신은 유지해야 합니다.');
+const settingsResourceLog = runGeneral(':체력+1', settingsTrackingCharacter.get('name'));
+assert.strictEqual(settingsAttributes.health.get('current'), '11');
+assert(settingsResourceLog.some(item => String(item.content || '').includes('40')), '실제 수치 로그는 갱신된 최대값을 써야 합니다.');
+const settingsStateStart = sent.length;
+settingsAttributes.wound.set('current', '1');
+events['change:attribute'](settingsAttributes.wound, { current: '0' });
+assert(sent.slice(settingsStateStart).some(item => /중상/.test(String(item.content || ''))), '상태 체크 알림까지 꺼지면 안 됩니다.');
 
 console.log('Sheet Helper check: PASS');

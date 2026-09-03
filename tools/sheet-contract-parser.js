@@ -2026,6 +2026,44 @@
     };
   }
 
+  function applySettingsControls(root, controlScopes, userOptions) {
+    var options = dictionary();
+    (Array.isArray(userOptions) ? userOptions : []).forEach(function (option) {
+      var name = baseAttrName(option && option.attribute || '');
+      if (name && controlScopes.global[name]) options[name] = true;
+    });
+    if (!Object.keys(options).length) return;
+    function settingsClass(node) {
+      return /(?:^|[\s_-])(?:config|configuration|settings|options)(?:$|[\s_-])/i.test(
+        String(node.attrs['class'] || '').replace(/([a-z])([A-Z])/g, '$1-$2'));
+    }
+    var panels = new Set();
+    walk(root, function (node) {
+      if (!/^(?:div|fieldset|section|aside)$/.test(node.tag) || !settingsClass(node)) return;
+      var declared = dictionary();
+      var gameplay = false;
+      walk(node, function (child) {
+        var name = baseAttrName(child.attrs.name || '');
+        if (options[name]) declared[name] = true;
+        if (child.tag === 'button' && /^(?:roll|action)$/.test(child.attrs.type || '') ||
+            /^repeating_/.test(child.attrs['class'] || '') ||
+            child.tag === 'input' && !hiddenFieldNode(child) && !/^(?:checkbox|radio)$/.test(fieldNodeType(child))) gameplay = true;
+      });
+      // Author-declared options anchor a settings-only panel; do not infer from a class alone.
+      if (!gameplay && Object.keys(declared).length >= 2) panels.add(node);
+    });
+    controlScopes.fields.forEach(function (field) {
+      if (field.section || !/^(?:checkbox|radio)$/.test(field.type)) return;
+      var nodes = controlScopes.nodes.global[field.name] || [];
+      if (options[field.name] || nodes.length && nodes.every(function (node) {
+        if (panels.size && settingsClass(node)) return true;
+        for (var ancestor = node.parent; ancestor; ancestor = ancestor.parent)
+          if (panels.has(ancestor)) return true;
+        return false;
+      })) field.trackCandidate = false;
+    });
+  }
+
   function applyFieldVisibility(controlScopes, conditions) {
     (controlScopes.fields || []).forEach(function (field) {
       if (!field.trackCandidate) return;
@@ -2776,6 +2814,7 @@
       ? buildRollVisibility(tree, visibilityNodes, opts.css, opts.legacy)
       : { rolls: dictionary(), controls: dictionary() };
     applyFieldVisibility(controlScopes, visibility.rolls);
+    applySettingsControls(tree, controlScopes, opts.userOptions);
     var rolls = collectRolls(rollNodes, controlScopes, translations, visibility);
     applyFieldRollLabels(controlScopes, rolls);
     applyResourceGroupLabels(controlScopes, translations);
