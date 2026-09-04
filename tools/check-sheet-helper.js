@@ -318,6 +318,8 @@ let roomCharacterIds = null;
 let deferAttributeTimers = false;
 let nextTimerId = 1;
 const attributeTimers = [];
+let nextSheetCallbackId = 1;
+const sheetCallbacks = {};
 const players = {
   gm: roll20Object('gm', { _displayname: '테스터 GM', speakingas: 'player|gm' }),
   'player-1': roll20Object('player-1', {
@@ -404,8 +406,10 @@ const runtime = {
     return object;
   },
   sendChat(who, content, callback, options) {
-    sent.push({ who, content, options });
-    if (callback) callback([{ content }]);
+    if (!callback) return sent.push({ who, content, options });
+    const token = 'test' + nextSheetCallbackId++;
+    sheetCallbacks[token] = callback;
+    sent.push({ who, content: content + ' <!--kib_sheet_result=' + token + '-->', rawContent: content, options });
   },
   playerIsGM(playerId) {
     return playerId === 'gm';
@@ -436,6 +440,19 @@ vm.createContext(runtime);
 // 설정 문자열을 바꾸거나 구형 기능을 강제로 켜지 않고 배포 파일을 그대로 실행합니다.
 vm.runInContext(distributedSource, runtime);
 const helper = runtime.KIBSheetHelper;
+const sheetChatHandler = events['chat:message'];
+events['chat:message'] = (message) => {
+  const matched = String(message && message.content || '').match(
+    /(?:<!--|\{\{)\s*kib_sheet_result\s*=\s*([A-Za-z0-9_-]+?)(?:-->|\}\})/i,
+  );
+  if (matched && sheetCallbacks[matched[1]]) {
+    const callback = sheetCallbacks[matched[1]];
+    delete sheetCallbacks[matched[1]];
+    callback([message]);
+    return;
+  }
+  return sheetChatHandler(message);
+};
 assert(helper && typeof helper.registerContract === 'function',
   '배포용 10번을 그대로 실행하지 못했습니다.');
 assert.strictEqual(helper.sheetContracts().length, expectedEmbeddedIds.length,
@@ -676,13 +693,17 @@ function intelligenceRolls(messages) {
 function finishIntelligence(messages, total) {
   const pending = intelligenceRolls(messages);
   assert.strictEqual(pending.length, 1, '자동 지능 판정은 정확히 한 번만 실행해야 합니다.');
-  const token = pending[0].content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  assert(/ <!--kib_sheet_result=[A-Za-z0-9_-]+-->$/.test(pending[0].content),
+    '검증 하네스의 결과 콜백 표식이 필요합니다.');
+  assert(!pending[0].rawContent.includes('kib_sheet_result') && /\{\{roll=\[\[1d100\]\]\}\}$/.test(pending[0].rawContent),
+    'Roll20에 보내는 원본 굴림 문자열을 변경하면 안 됩니다.');
+  const token = pending[0].content.match(/kib_sheet_result=([A-Za-z0-9_-]+?)(?:-->|\}\})/)[1];
   setPlayerSpeakingAs(fixtureCharacter.get('name'), 'player-1');
   const start = sent.length;
   events['chat:message']({
     type: 'general',
     content: '&{template:fixture} {{subject=지능}} {{success=$[[0]]}} {{hard=$[[1]]}} ' +
-      '{{extreme=$[[2]]}} {{roll=$[[3]]}} {{kib_sheet_result=' + token + '}}',
+      '{{extreme=$[[2]]}} {{roll=$[[3]]}} <!--kib_sheet_result=' + token + '-->',
     inlinerolls: [60, 30, 12, total].map((value) => ({ results: { total: value } })),
     who: fixtureCharacter.get('name'),
     playerid: 'player-1',
@@ -1429,7 +1450,7 @@ assert(pending.result.ok);
 const pendingMessage = sent.slice(rollBefore).find((item) =>
   item.content && item.content.includes('kib_sheet_result='));
 assert(pendingMessage, '원본 굴림에 결과 추적 토큰이 없습니다.');
-const token = pendingMessage.content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+const token = pendingMessage.content.match(/kib_sheet_result=([A-Za-z0-9_-]+?)(?:-->|\}\})/)[1];
 const resultBefore = sent.length;
 events['chat:message']({
   type: 'general',
@@ -1513,7 +1534,7 @@ function captureSourceBoundary(total, target) {
   assert(started.handled && started.result.ok);
   const message = sent.slice(beforeRoll).find((item) =>
     item.content && item.content.includes('kib_sheet_result='));
-  const sourceToken = message.content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  const sourceToken = message.content.match(/kib_sheet_result=([A-Za-z0-9_-]+?)(?:-->|\}\})/)[1];
   const beforeResult = sent.length;
   events['chat:message']({
     type: 'general',
@@ -2148,7 +2169,7 @@ assert.strictEqual(blue29SanLossMessages.filter((item) =>
   '공통 이성이 한 번에 5 감소하면 공통 지능 판정을 정확히 한 번 실행해야 합니다.');
 const blue29IntelligenceToken = blue29SanLossMessages.find((item) =>
   String(item.content || '').includes('kib_sheet_result=') && String(item.content || '').includes('지능'))
-  .content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  .content.match(/kib_sheet_result=([A-Za-z0-9_-]+?)(?:-->|\}\})/)[1];
 setPlayerSpeakingAs(blue29AfterBloody.get('name'), 'player-1');
 events['chat:message']({
   type: 'general',
@@ -2788,7 +2809,7 @@ const newsIntelligenceRolls = newsTemporaryMessages.filter((item) => item.conten
 assert.strictEqual(newsIntelligenceRolls.length, 1,
   '장기 기준 미만인 5 이성 손실은 원본 지능 판정을 한 번 실행해야 합니다.');
 const newsIntelligenceToken = newsIntelligenceRolls[0].content
-  .match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  .match(/kib_sheet_result=([A-Za-z0-9_-]+?)(?:-->|\}\})/)[1];
 setPlayerSpeakingAs(newsCharacter.get('name'), 'player-1');
 events['chat:message']({
   type: 'general',
@@ -3094,7 +3115,7 @@ function captureActualSheetResult(mode, fields) {
   assert(started.ok);
   const message = sent.slice(beforeRoll).find((item) =>
     item.content && item.content.includes('kib_sheet_result='));
-  const sourceToken = message.content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  const sourceToken = message.content.match(/kib_sheet_result=([A-Za-z0-9_-]+?)(?:-->|\}\})/)[1];
   const entries = Object.entries(fields);
   const beforeResult = sent.length;
   events['chat:message']({
@@ -3331,7 +3352,7 @@ function capturePublicOldResult(fields) {
   assert(started.ok);
   const message = sent.slice(beforeRoll).find((item) =>
     item.content && item.content.includes('kib_sheet_result='));
-  const sourceToken = message.content.match(/kib_sheet_result=([A-Za-z0-9_-]+)/)[1];
+  const sourceToken = message.content.match(/kib_sheet_result=([A-Za-z0-9_-]+?)(?:-->|\}\})/)[1];
   const entries = Object.entries(fields);
   const beforeResult = sent.length;
   events['chat:message']({
