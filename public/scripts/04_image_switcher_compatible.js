@@ -66,7 +66,7 @@ on('chat:message', function (msg) {
       ) {
         sendChat(
           '이미지 전환',
-          '/w gm <b>이미지 전환</b><br><code>!#image이름 카드 이름</code> 카드 이미지로 변경<br><code>!#image이름 이미지 주소</code> 주소 이미지로 변경<br><code>!... 대사 @이미지 image이름|카드 이름</code> 나레이터 스크립트와 동시에 변경<br>덱과 토큰은 같은 이름으로 만들고 이름 앞에 <code>image</code>를 붙여 주세요.',
+          '/w gm <b>이미지 전환</b><br><code>!#image이름 카드 이름</code> 카드 이미지로 변경<br><code>!#image이름 이미지 주소</code> 주소 이미지로 변경<br><code>!... 대사 @이미지 image이름|카드 이름</code> 나레이터 스크립트와 동시에 변경<br>Roll20 보드에 이미지 토큰을 놓고 토큰 이름을 덱 이름과 같게 지정해 주세요. 이름 앞에는 <code>image</code>를 붙입니다. 토큰 이름은 업로드 파일명이 아닙니다.',
           null,
           { noarchive: true },
         );
@@ -83,13 +83,13 @@ on('chat:message', function (msg) {
         if (bg_background.length == 0) {
           isProblem(
             '현재 페이지에 <b>' + isEscape(deck_name) + '</b> 토큰이 없습니다.',
-            '덱과 같은 이름의 토큰을 놓아 주세요.',
+            'Roll20 보드에 이미지 토큰을 놓고 토큰 이름을 덱 이름과 같게 지정해 주세요.',
           );
           return;
         } else if (bg_deck.length == 0) {
           isProblem(
             '<b>' + isEscape(deck_name) + '</b> 덱이 없습니다.',
-            '토큰과 같은 이름의 덱을 만들어 주세요.',
+            '이미지 토큰 이름과 같은 이름의 덱을 만들어 주세요.',
           );
           return;
         } else if (bg_deck.length > 1) {

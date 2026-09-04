@@ -1483,7 +1483,7 @@ on('chat:message', function (msg) {
     ) {
       if (playerIsGM(msg.playerid))
         vdWhisperExclude(
-          '<b>비주얼 노벨 도움말</b><br><code>!@배경 장면명</code> 배경 전환<br><code>!@표정명</code> 현재 화자의 표정 변경<br><code>!대사 본문 @표정명</code> 명령 글자를 숨기고 대사와 표정 변경<br><code>!비주얼 설정|창구성|패널 하나 또는 분리</code> 창 구성 변경<br>패널 하나: <code>vd_panel</code><br>분리: <code>vd_panel</code> 스크립트창, <code>vd_dialogue_box</code> 대사창<br><code>!비주얼 설정|항목|값</code> 글꼴, 크기, 색, 스탠딩 설정<br><code>!비주얼 순서|상태</code> 화면 앞뒤 순서 확인<br><code>!비주얼 비율|등록|카드명|가로|세로</code> 스탠딩 비율 등록<br><code>!비주얼 제외|추가|화자명</code> 특정 화자 숨김',
+          '<b>비주얼 노벨 도움말</b><br>토큰 이름은 업로드 파일명이 아니라 Roll20 보드의 이미지 토큰 설정에 입력합니다.<br><code>!@배경 장면명</code> 배경 전환<br><code>!@표정명</code> 현재 화자의 표정 변경<br><code>!대사 본문 @표정명</code> 명령 글자를 숨기고 대사와 표정 변경<br><code>!비주얼 설정|창구성|패널 하나 또는 분리</code> 창 구성 변경<br>패널 하나: 이미지 토큰 이름 <code>vd_panel</code><br>분리: 스크립트창 이미지 토큰 이름 <code>vd_panel</code>, 대사창 이미지 토큰 이름 <code>vd_dialogue_box</code><br><code>!비주얼 설정|항목|값</code> 글꼴, 크기, 색, 스탠딩 설정<br><code>!비주얼 순서|상태</code> 화면 앞뒤 순서 확인<br><code>!비주얼 비율|등록|카드명|가로|세로</code> 스탠딩 비율 등록<br><code>!비주얼 제외|추가|화자명</code> 특정 화자 숨김',
         );
       return;
     }
@@ -1574,7 +1574,7 @@ on('chat:message', function (msg) {
         } else {
           vdWhisperProblem(
             vdPageName(current_page_id) + ' 페이지에 vd_name 토큰이 없습니다.',
-            'GM 레이어에 이름표 영역인 <code>vd_name</code>을 놓아 주세요.',
+            'GM 레이어에 이미지 토큰을 놓고 토큰 이름을 <code>vd_name</code>으로 지정해 주세요.',
           );
           return;
         }
@@ -1584,7 +1584,7 @@ on('chat:message', function (msg) {
           vdWhisperProblem(
             vdPageName(current_page_id) +
               ' 페이지에 vd_dialogue 토큰이 없습니다.',
-            'GM 레이어에 대사 영역인 <code>vd_dialogue</code>를 놓아 주세요.',
+            'GM 레이어에 이미지 토큰을 놓고 토큰 이름을 <code>vd_dialogue</code>로 지정해 주세요.',
           );
           return;
         }
@@ -1662,7 +1662,7 @@ on('chat:message', function (msg) {
           vdWhisperProblem(
             vdPageName(current_page_id) +
               ' 페이지에 vd_background 토큰이 없습니다.',
-            'GM 레이어에 배경 영역인 <code>vd_background</code>를 놓아 주세요.',
+            '맵 레이어에 배경 이미지 토큰을 놓고 토큰 이름을 <code>vd_background</code>로 지정해 주세요.',
           );
           return;
         }
@@ -2134,7 +2134,7 @@ const showDialogue = function () {
   } else {
     vdWhisperProblem(
       vdPageName(current_page_id) + ' 페이지에 vd_area 토큰이 없습니다.',
-      'GM 레이어에 비주얼 표시 영역인 <code>vd_area</code>를 놓아 주세요.',
+      'GM 레이어에 이미지 토큰을 놓고 토큰 이름을 <code>vd_area</code>로 지정해 주세요.',
     );
     showNextDialogue();
     return;
@@ -2144,7 +2144,7 @@ const showDialogue = function () {
   } else {
     vdWhisperProblem(
       vdPageName(current_page_id) + ' 페이지에 vd_name 토큰이 없습니다.',
-      'GM 레이어에 이름표 영역인 <code>vd_name</code>을 놓아 주세요.',
+      'GM 레이어에 이미지 토큰을 놓고 토큰 이름을 <code>vd_name</code>으로 지정해 주세요.',
     );
     showNextDialogue();
     return;
@@ -2154,7 +2154,7 @@ const showDialogue = function () {
   } else {
     vdWhisperProblem(
       vdPageName(current_page_id) + ' 페이지에 vd_dialogue 토큰이 없습니다.',
-      'GM 레이어에 대사 영역인 <code>vd_dialogue</code>를 놓아 주세요.',
+      'GM 레이어에 이미지 토큰을 놓고 토큰 이름을 <code>vd_dialogue</code>로 지정해 주세요.',
     );
     showNextDialogue();
     return;
@@ -2164,7 +2164,7 @@ const showDialogue = function () {
   } else {
     vdWhisperProblem(
       vdPageName(current_page_id) + ' 페이지에 vd_panel 토큰이 없습니다.',
-      '오브젝트 레이어에 스크립트창 이미지인 <code>vd_panel</code>을 놓아 주세요.',
+      '오브젝트 레이어에 스크립트창 이미지 토큰을 놓고 토큰 이름을 <code>vd_panel</code>로 지정해 주세요.',
     );
     showNextDialogue();
     return;
@@ -2176,7 +2176,7 @@ const showDialogue = function () {
     vdWhisperProblem(
       vdPageName(current_page_id) +
         ' 페이지에 vd_dialogue_box 토큰이 없습니다.',
-      '창 분리 설정에서는 오브젝트 레이어에 대사창 이미지인 <code>vd_dialogue_box</code>를 놓아 주세요.',
+      '창 분리 설정에서는 오브젝트 레이어에 대사창 이미지 토큰을 놓고 토큰 이름을 <code>vd_dialogue_box</code>로 지정해 주세요.',
     );
     showNextDialogue();
     return;
@@ -3067,7 +3067,7 @@ function vdHandleLayerOrderCommand(msg) {
       selectedSheet.get('layer') != 'objects'
     )
       return vdWhisperExclude(
-        '맵시트는 플레이어에게 보이는 <b>맵 레이어</b> 또는 <b>오브젝트 레이어</b>에 둔 뒤 등록하세요.',
+        '맵시트 이미지 토큰은 플레이어에게 보이는 <b>맵 레이어</b> 또는 <b>오브젝트 레이어</b>에 둔 뒤 등록하세요. 정해진 토큰 이름은 없습니다.',
       );
     pageId = selectedSheet.get('_pageid');
     var old = state.KIBSceneVD.layerOrder.byPage[pageId];
@@ -3096,7 +3096,7 @@ function vdHandleLayerOrderCommand(msg) {
   }
   if (!entry)
     return vdWhisperExclude(
-      '현재 페이지에 등록된 맵시트가 없습니다. 맵시트 PNG를 선택하고 <code>!비주얼 순서|맵시트등록</code>을 실행하세요.',
+      '현재 페이지에 등록된 맵시트가 없습니다. 맵시트 이미지 토큰을 선택하고 <code>!비주얼 순서|맵시트등록</code>을 실행하세요. 정해진 토큰 이름은 없습니다.',
     );
   if (
     action == '패널뒤' ||
@@ -3438,7 +3438,7 @@ const arrangeStandings = function (addNew) {
     } else {
       vdWhisperProblem(
         'vd_area 토큰이 없습니다.',
-        'GM 레이어에 비주얼 표시 영역을 놓아 주세요.',
+        'GM 레이어에 이미지 토큰을 놓고 토큰 이름을 <code>vd_area</code>로 지정해 주세요.',
       );
       return;
     }

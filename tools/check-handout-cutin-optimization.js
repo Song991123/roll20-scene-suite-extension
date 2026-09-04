@@ -260,13 +260,23 @@ let avatarScheduled = 0;
 const avatarHandlers = {};
 const avatarDeck = model('avatar-deck', { name: 'avatars' });
 const avatarOtherDeck = model('avatar-other-deck', { name: 'other' });
+const avatarScopeCharacter = model('avatar-character', { name: '네뷸라' });
+const avatarMainValues = { name: '네뷸라', layer: 'objects', imgsrc: 'main.png' };
+const avatarAuxValues = { name: '장서', layer: 'objects', imgsrc: 'aux.png' };
+const avatarStandingValues = { name: 'vd_standing', layer: 'objects', imgsrc: 'standing.png' };
+const avatarScopeTokens = [
+  model('avatar-main', avatarMainValues),
+  model('avatar-aux', avatarAuxValues),
+  model('avatar-standing', avatarStandingValues),
+];
 const avatarRuntime = {
   KIBScene: { handlers: {}, adapters: {} },
   state: {},
   on(event, callback) { avatarHandlers[event] = callback; },
   log() {},
-  findObjs() { return []; },
+  findObjs(query) { return query._type === 'graphic' ? avatarScopeTokens : []; },
   getObj(type, id) {
+    if (type === 'character' && id === avatarScopeCharacter.id) return avatarScopeCharacter;
     if (type === 'deck' && id === avatarDeck.id) return avatarDeck;
     if (type === 'deck' && id === avatarOtherDeck.id) return avatarOtherDeck;
     return null;
@@ -274,7 +284,7 @@ const avatarRuntime = {
   createObj() { return null; },
   playerIsGM() { return true; },
   sendChat() {},
-  Campaign() { return { get() { return ''; } }; },
+  Campaign() { return { get() { return 'page-1'; } }; },
   setTimeout() { avatarScheduled++; return avatarScheduled; },
   clearTimeout() {},
   setInterval() { return 1; },
@@ -323,6 +333,13 @@ expectSchedule(
   3,
   'avatars 덱 삭제는 아바타 갱신을 예약해야 합니다.',
 );
+
+assert.strictEqual(avatarRuntime.avUpdateTokens(avatarScopeCharacter, 'name.png'), 1);
+assert.strictEqual(avatarScopeTokens[0].get('imgsrc'), 'name.png');
+assert.strictEqual(avatarScopeTokens[1].get('imgsrc'), 'aux.png');
+assert.strictEqual(avatarScopeTokens[2].get('imgsrc'), 'standing.png');
+assert(!avatarText.includes('!아바타 토큰범위|'));
+assert(!avatarText.includes('토큰: 연결 전체'));
 
 function eventRuntime(registered) {
   return {

@@ -349,6 +349,7 @@ var KIBScene = KIBScene || {};
     }
     var enabled = /^(?:on|true|1|켜기|사용)$/i.test(String(value || ''));
     setPath(config(), 'features.' + name, enabled);
+    KIBScene.broadcast('feature:changed', { name: name, enabled: enabled });
     whisper(
       escapeHtml(featureName(name)) + ': <b>' + (enabled ? '켜짐' : '꺼짐') + '</b>',
     );
@@ -593,6 +594,7 @@ var KIBScene = KIBScene || {};
       headerButtons +
       '</div>' +
       '</div>' +
+      '<div style="margin:10px;padding:8px 9px;background:#f3f3f3;border-left:4px solid #111"><b>토큰 이름 안내</b><br>아래의 토큰 이름은 업로드 파일명이 아니라 Roll20 보드에 놓은 이미지 토큰의 이름입니다. 이미지를 선택해 토큰 설정에서 이름을 지정하세요.</div>' +
       sections.join('') +
       '</div>'
     );
@@ -693,13 +695,13 @@ var KIBScene = KIBScene || {};
     var vd = vdHelpConfig();
     var panelSetup =
       vd.dialogue_panel_mode == 'shared'
-        ? '<code>vd_panel</code> 패널 하나'
-        : '<code>vd_panel</code> 스크립트창, <code>vd_dialogue_box</code> 대사창';
+        ? '이미지 토큰 이름 <code>vd_panel</code>: 패널 하나'
+        : '이미지 토큰 이름 <code>vd_panel</code>: 스크립트창, <code>vd_dialogue_box</code>: 대사창';
     var setup =
       tableRow('페이지', '<code>page_list</code>에 실제 페이지 이름 입력') +
       tableRow(
-        'GM 레이어',
-        '<code>vd_area</code>, <code>vd_name</code>, <code>vd_dialogue</code>',
+        'GM 레이어 이미지 토큰',
+        '토큰 이름 <code>vd_area</code>, <code>vd_name</code>, <code>vd_dialogue</code>',
       ) +
       tableRow(
         '창 구성',
@@ -707,8 +709,11 @@ var KIBScene = KIBScene || {};
           ? '패널 하나'
           : '스크립트창과 대사창 분리',
       ) +
-      tableRow('오브젝트 레이어', panelSetup) +
-      tableRow('맵 레이어', '<code>vd_background</code> 선택') +
+      tableRow('오브젝트 레이어 이미지 토큰', panelSetup) +
+      tableRow(
+        '맵 레이어 이미지 토큰',
+        '토큰 이름 <code>vd_background</code>, 선택 사항',
+      ) +
       tableRow(
         '스탠딩',
         '<code>standings</code> 덱에 <code>캐릭터명</code>, <code>캐릭터명-표정명</code> 카드',
@@ -792,14 +797,14 @@ var KIBScene = KIBScene || {};
       commandRow('!비주얼 제외|추가|화자명', '해당 화자 숨김') +
       commandRow(
         '!비주얼 순서|맵시트등록',
-        '선택한 고정 맵시트의 앞뒤 순서 저장',
+        '선택한 고정 맵시트 이미지 토큰의 앞뒤 순서 저장',
       );
     var firstSetup = setupSteps([
       '<code>page_list</code>: 적용할 페이지 이름',
-      '가이드 토큰: 적용 페이지에 배치',
+      '가이드 토큰: 적용 페이지에 이미지 토큰을 놓고 토큰 설정에서 이름 지정',
       '<code>standings</code> 덱: <code>캐릭터명</code>, <code>캐릭터명-표정명</code> 카드',
       '캐릭터 저널: 카드의 캐릭터명과 이름 일치',
-      '고정 맵시트: 토큰 선택 후 <b>맵시트 등록</b>',
+      '고정 맵시트: 맵 또는 오브젝트 레이어의 이미지 토큰 선택 후 <b>맵시트 등록</b>. 정해진 토큰 이름 없음',
     ]);
     return moduleHelpSection(
       'vd',
@@ -821,7 +826,7 @@ var KIBScene = KIBScene || {};
     var setup = setupSteps([
       '덱 이름: <code>image</code>로 시작. 예: <code>image_scene</code>',
       '카드 앞면: 전환할 이미지',
-      '대상 토큰: 덱과 같은 이름',
+      '대상: Roll20 보드의 이미지 토큰. 토큰 이름을 덱 이름과 같게 지정',
       '실행: <code>이미지변경</code> 매크로',
     ]);
     return moduleHelpSection(
@@ -879,7 +884,7 @@ var KIBScene = KIBScene || {};
       commandRow('!APNG 재생|카드명|1회|3초|전체', '맵시트 전체에 한 번 재생') +
       commandRow(
         '!APNG 재생|카드명|반복|영역',
-        '<code>apng_area</code>에서 반복 재생',
+        '<code>apng_area</code> 영역 토큰 안에서 반복 재생',
       ) +
       commandRow('!APNG 중지|카드명', '해당 APNG와 연결 음원 중지') +
       commandRow('!APNG 설정|카드명|1회|3초', '기본 재생 방식 저장') +
@@ -888,7 +893,7 @@ var KIBScene = KIBScene || {};
       '페이지: <code>conversation</code>',
       '덱: <code>apng</code>, 카드 앞면에 애니메이션 등록',
       '전체: 맵시트 또는 페이지 전체',
-      '영역(선택): GM 레이어 <code>apng_area</code>의 위치와 크기',
+      '영역(선택): GM 레이어에 이미지 토큰을 놓고 토큰 이름을 <code>apng_area</code>로 지정. 토큰 위치와 크기를 재생 영역으로 사용',
       '실행: <code>📽️apng</code> 매크로에서 카드, 위치, 재생 방식 선택',
     ]);
     return moduleHelpSection(
@@ -925,7 +930,7 @@ var KIBScene = KIBScene || {};
       '자료: 공개할 핸드아웃을 관리할 폴더에 배치',
       '대상: 캐릭터 편집 권한에 플레이어 지정',
       '폴더: <code>!핸드아웃 관리</code>에서 선택',
-      '공개 알림: <code>🖊️핸드아웃</code> 매크로의 <code>/desc</code> 디자인 사용',
+      '공개 알림: <code>🖊️핸드아웃</code> 매크로를 생성하면 해당 매크로 디자인을 인식해 자동 적용(사용자 커스텀 기능). 최소 양식은 <code>/desc ?{누구} ?{핸드아웃}</code>이며, 이 세 가지 항목을 모두 넣어야 인식. 매크로를 생성하지 않으면 기존 디자인으로 적용',
     ]);
     return moduleHelpSection(
       'handout',
@@ -944,6 +949,7 @@ var KIBScene = KIBScene || {};
       '덱: <code>avatars</code>, 카드 앞면에 캐릭터 이미지 등록',
       '카드 이름: <code>캐릭터명</code>, <code>캐릭터명-표정명</code>',
       '캐릭터 저널: 카드의 캐릭터명과 이름 일치',
+      '맵 토큰: 캐릭터 시트와 연결되고 토큰 이름이 캐릭터명과 같은 토큰만 변경',
       '변경 대상: <code>!아바타 관리</code>에서 선택',
     ]);
     var rows =
@@ -1027,9 +1033,10 @@ var KIBScene = KIBScene || {};
       );
     var setup = setupSteps([
       '덱: <code>cutin</code>, 카드 앞면에 컷인 이미지 등록',
-      '그룹: <code>다이스-성공</code>, <code>다이스-실패</code>는 <code>다이스</code> 크기 공유',
-      '표시 영역(선택): GM 레이어 <code>cutin_area</code>',
-      '배경(선택): GM 레이어에 <code>cutin_overlay</code>를 한 번 배치하면 이미지 저장 후 안내 토큰 자동 제거',
+      '그룹: 카드 이름을 <code>그룹명-컷인이름</code>으로 지정하면 같은 그룹끼리 표시 크기 공유. 예: <code>다이스-성공</code>, <code>다이스-실패</code>',
+      '표시 영역(선택): 원하는 위치와 크기로 이미지 토큰을 GM 레이어에 놓고 토큰 설정의 이름을 <code>cutin_area</code>로 변경. 없으면 전체 화면 기준으로 배치',
+      '배경 이미지: 설치 페이지에서 이미지 주소를 넣거나, 배경으로 사용할 이미지 토큰을 GM 레이어에 놓고 토큰 설정의 이름을 <code>cutin_overlay</code>로 변경. 업로드 파일명은 바꾸지 않음',
+      '<code>cutin_overlay</code>는 페이지마다 하나만 배치. 이미지 저장 후 안내 토큰은 자동 제거되며 카드 뒷면이나 저널은 사용하지 않음',
       '핸드아웃 표지 크기: 07 핸드아웃 관리에서 등록',
     ]);
     return moduleHelpSection(
