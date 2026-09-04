@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.55
+ * Scene Suite 10 - Sheet Helper 0.6.56
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -337,7 +337,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.55';
+  var VERSION = '0.6.56';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -503,6 +503,7 @@ var sheet_helper_setting = {
         ? state.hide_tracking ? 'gm' : 'public'
         : 'gm';
     if (typeof data.trackGmOnly !== 'boolean') data.trackGmOnly = false;
+    if (typeof data.trackSkillChanges !== 'boolean') data.trackSkillChanges = true;
     data.version = VERSION;
     return data;
   }
@@ -4379,6 +4380,14 @@ var sheet_helper_setting = {
     })[0] || '';
   }
 
+  function rollInstanceStatusCategory(instance) {
+    var context = rollStatusContext(instance);
+    return rollStatusCategory({
+      label: rollStatusLabel(instance), groupLabels: context.groups, contextLabels: context.labels,
+      structureLabels: context.structure, sourceRaw: context.sourceRaw, contract: instance.contract, roll: instance.roll,
+    });
+  }
+
   function rollHasOutcomeStructure(item) {
     var roll = item && item.roll || {};
     var resultTemplates = item && item.contract && item.contract.resultTemplates;
@@ -4580,11 +4589,7 @@ var sheet_helper_setting = {
     var groups = dictionary();
     var candidates = contractModeCandidates(instance, true);
     var current = currentContractModes(characterId, instance);
-    var context = rollStatusContext(instance);
-    var category = rollStatusCategory({
-      label: rollStatusLabel(instance), groupLabels: context.groups, contextLabels: context.labels,
-      structureLabels: context.structure, sourceRaw: context.sourceRaw, contract: instance.contract, roll: instance.roll,
-    });
+    var category = rollInstanceStatusCategory(instance);
     if (current.length && category === 'combat') candidates = candidates.filter(function (candidate) {
       return current.indexOf(candidate.mode) > -1 || contractUserModeLabels(candidate.mode).some(function (label) {
         return /(?:보너스|패널티|페널티|bonus|penalty)/i.test(normalize(label));
@@ -4918,6 +4923,9 @@ var sheet_helper_setting = {
       button('전체 공개', '!시트 변화알림|공개', data.trackingMode === 'public' ? '#111' : '#53657d') + ' ' +
       button('GM만', '!시트 변화알림|GM', data.trackingMode === 'gm' ? '#111' : '#53657d') + ' ' +
       button('끄기', '!시트 변화알림|끄기', data.trackingMode === 'off' ? '#111' : '#53657d') +
+      '<br><b>기능 / 판정 수치 변경 알림:</b> ' + (data.trackSkillChanges ? '켜기' : '끄기') + '<br>' +
+      button('켜기', '!시트 기능치알림|켜기', data.trackSkillChanges ? '#111' : '#53657d') + ' ' +
+      button('끄기', '!시트 기능치알림|끄기', data.trackSkillChanges ? '#53657d' : '#111') +
       '<br><b>플레이어 권한이 없는 GM 캐릭터도 알림:</b> ' + (data.trackGmOnly ? '켜기' : '끄기') + '<br>' +
       button('켜기', '!시트 GM캐릭터알림|켜기', data.trackGmOnly ? '#111' : '#53657d') + ' ' +
       button('끄기', '!시트 GM캐릭터알림|끄기', data.trackGmOnly ? '#53657d' : '#111');
@@ -5066,6 +5074,7 @@ var sheet_helper_setting = {
       '<code>!!화자 이름</code> 채팅 화자 전환<br>' +
       '<code>!!화자 본인</code> 캐릭터 화자를 해제하고 GM 오너 프로필로 복귀<br>' +
       '<code>!!변화알림 공개|GM|끄기</code> 수치 변화 알림 공개 범위<br>' +
+      '<code>!!기능치알림 켜기|끄기</code> 기능 / 판정 수치 변경 알림 설정<br>' +
       '<code>!!GM캐릭터알림 켜기|끄기</code> 플레이어 권한이 없는 GM 캐릭터도 알림에 포함</div>';
   }
 
@@ -5296,11 +5305,26 @@ var sheet_helper_setting = {
       '</b>' + deltaText + detailText + '</span>';
   }
 
-  function sendTrackedChange(character, item, before, current, detail) {
+  function trackedSkillField(data, item) {
+    if (!data || !item || item.statusResource === true || own(item, 'max') && item.max !== null ||
+      matchesDetectedRole([item.label, item.fieldLabel], 'characteristic')) return false;
+    return preferredContractRolls(data, true).some(function (instance) {
+      if (rollInstanceStatusCategory(instance) !== 'check') return false;
+      var found = false;
+      String(contractRollStructure(instance)).replace(/@\{([^{}|]+)(?:\|max)?\}/g, function (token, name) {
+        if (contractRowAttr(instance.contract, instance.roll, instance.row, trim(name)) === item.name) found = true;
+        return token;
+      });
+      return found;
+    });
+  }
+
+  function sendTrackedChange(character, item, before, current, detail, scannedData) {
     if (item.kind === 'toggle' &&
       fieldValueText(character.id, item, before) === fieldValueText(character.id, item, current)) return false;
     var settings = initState();
     if (settings.trackingMode === 'off') return false;
+    if (!settings.trackSkillChanges && trackedSkillField(scannedData || scan(character.id), item)) return false;
     if (!settings.trackGmOnly && !hasPlayerController(character)) return false;
     var content = resourceChangeContent(character, item, before, current, detail);
     sendChat(settings.trackingMode === 'gm' ? '시트 헬퍼' : '',
@@ -5503,7 +5527,7 @@ var sheet_helper_setting = {
     item.attribute = saved.attribute;
     var details = amount.detail !== String(amount.value) ? [amount.detail] : [];
     details = details.concat(applyDetectedRules(character, item, current, next, data));
-    sendTrackedChange(character, item, current, next, details.join(' / '));
+    sendTrackedChange(character, item, current, next, details.join(' / '), data);
     invalidate(character.id);
     scheduleManager();
     return { ok: true, value: next };
@@ -5594,6 +5618,11 @@ var sheet_helper_setting = {
     var gmTracking = body.match(/^(GM캐릭터알림|GM전용추적)\s+(켜기|on|표시|show|끄기|해제|off|숨김|hide)$/i);
     if (gmTracking) {
       handleNamespaced(msg, '!시트 GM캐릭터알림|' + gmTracking[2]);
+      return true;
+    }
+    var skillTracking = body.match(/^기능치알림\s+(켜기|on|끄기|해제|off)$/i);
+    if (skillTracking) {
+      handleNamespaced(msg, '!시트 기능치알림|' + skillTracking[1]);
       return true;
     }
 
@@ -5736,6 +5765,16 @@ var sheet_helper_setting = {
       managerHandout();
       return whisperGm('플레이어 권한이 없는 GM 캐릭터 변화 알림: <b>' + (initState().trackGmOnly ? '켜기' : '끄기') + '</b>');
     }
+    if (action === '기능치알림') {
+      if (!playerIsGM(msg.playerid)) return whisper(msg, 'GM 전용 명령입니다.');
+      var skillTracking = normalize(parts[0]);
+      if (/^(?:켜기|on)$/.test(skillTracking)) initState().trackSkillChanges = true;
+      else if (/^(?:끄기|해제|off)$/.test(skillTracking)) initState().trackSkillChanges = false;
+      else return whisperGm('기능 / 판정 수치 변경 알림은 켜기 또는 끄기를 골라 주세요.');
+      initState().managerHash = '';
+      managerHandout();
+      return whisperGm('기능 / 판정 수치 변경 알림: <b>' + (initState().trackSkillChanges ? '켜기' : '끄기') + '</b>');
+    }
     if (action === '관리') {
       if (!playerIsGM(msg.playerid)) return whisper(msg, 'GM 전용 명령입니다.');
       return whisperGm(openManager());
@@ -5830,7 +5869,7 @@ var sheet_helper_setting = {
     var character = getObj('character', characterId);
     if (!character) return;
     var details = applyDetectedRules(character, item, before, current, data);
-    sendTrackedChange(character, item, before, current, details.join(' / '));
+    sendTrackedChange(character, item, before, current, details.join(' / '), data);
   }
 
   function cachedUntrackedToggle(characterId, name) {
@@ -5948,6 +5987,7 @@ var sheet_helper_setting = {
         '<code>!!화자 이름</code> GM용 채팅 화자 전환',
         '<code>!!화자 본인</code> 캐릭터 화자를 해제하고 GM 오너 프로필로 복귀',
         '<code>!!변화알림 공개|GM|끄기</code> 수치 변화 알림 공개 범위 설정',
+        '<code>!!기능치알림 켜기|끄기</code> 기능 / 판정 수치 변경 알림 설정',
         '<code>!!GM캐릭터알림 켜기|끄기</code> 플레이어 권한이 없는 GM 캐릭터도 알림에 포함',
         '<code>!!관리</code> GM용 인식 항목 관리',
       ],

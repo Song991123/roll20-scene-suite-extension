@@ -202,8 +202,8 @@ embeddedSheets.forEach((sheet) => {
   sheet.id + '의 시작 수치 입력은 내부 변수명이 아니라 원본 표시명으로 구분되어야 합니다.');
 });
 const distributedBytes = Buffer.byteLength(distributedSource.replace(/\r\n/g, '\n'), 'utf8');
-// 35종 원본과 질문 버튼 전달 코드를 포함한 상한. 기존 원본은 위 해시로 별도 보존합니다.
-assert(distributedBytes <= 677000,
+// 35종 원본, 질문 버튼 전달, 기능치 알림 토글을 포함한 상한. 기존 원본은 위 해시로 별도 보존합니다.
+assert(distributedBytes <= 680000,
   '10번 배포 코드가 다시 비대해졌습니다: ' + distributedBytes + ' bytes');
 
 // 생성된 인식 정보 안에는 원본 변수명이 있을 수 있지만 런타임은 이를
@@ -481,6 +481,8 @@ assert.strictEqual(runtime.state.KIBSheetHelper.sheetSelections.preserved, 'keep
 events.ready();
 assert.strictEqual(runtime.state.KIBSheetHelper.trackingMode, 'gm',
   '구버전 비공개 변화 표시 설정을 업데이트 후 공개로 바꾸면 안 됩니다.');
+assert.strictEqual(runtime.state.KIBSheetHelper.trackSkillChanges, true,
+  '기존 방은 업데이트 후에도 기능 / 판정 수치 변경 알림을 유지해야 합니다.');
 
 function useContracts(...contracts) {
   runtime.KIBSheetContracts = contracts.slice();
@@ -500,7 +502,7 @@ function flushAttributeTimers() {
 assert.strictEqual(runtime.state.KIBSheetHelper.trackGmOnly, false,
   '새 설치에서 플레이어 권한이 없는 GM 캐릭터를 기본 공개 대상에 포함하면 안 됩니다.');
 const compactHelp = runtime.KIBScene.adapters.sheet.help.join('\n');
-[':수치이름+3', '!!화자 본인', '!!변화알림 공개|GM|끄기', '!!GM캐릭터알림 켜기|끄기']
+[':수치이름+3', '!!화자 본인', '!!변화알림 공개|GM|끄기', '!!기능치알림 켜기|끄기', '!!GM캐릭터알림 켜기|끄기']
   .forEach((command) => assert(compactHelp.includes(command), '!sd help에 명령이 없습니다: ' + command));
 
 function addCharacter(id, name, controlledby, values, inplayerjournals) {
@@ -665,16 +667,21 @@ useRoomCharacters(fixtureCharacter);
 delete runtime.state.hide_tracking;
 delete runtime.state.KIBSheetHelper.trackingMode;
 delete runtime.state.KIBSheetHelper.trackGmOnly;
+delete runtime.state.KIBSheetHelper.trackSkillChanges;
 helper.refresh();
 assert.strictEqual(runtime.state.KIBSheetHelper.trackingMode, 'gm');
 assert.strictEqual(runtime.state.KIBSheetHelper.trackGmOnly, false);
+assert.strictEqual(runtime.state.KIBSheetHelper.trackSkillChanges, true);
 runtime.state.KIBSheetHelper.trackingMode = 'off';
 runtime.state.KIBSheetHelper.trackGmOnly = true;
+runtime.state.KIBSheetHelper.trackSkillChanges = false;
 helper.refresh();
 assert.strictEqual(runtime.state.KIBSheetHelper.trackingMode, 'off',
   '사용자가 저장한 변화 알림 설정을 업데이트 중 초기화하면 안 됩니다.');
 assert.strictEqual(runtime.state.KIBSheetHelper.trackGmOnly, true,
   '사용자가 저장한 GM 캐릭터 알림 설정을 업데이트 중 초기화하면 안 됩니다.');
+assert.strictEqual(runtime.state.KIBSheetHelper.trackSkillChanges, false,
+  '사용자가 끈 기능 / 판정 수치 변경 알림을 업데이트 중 다시 켜면 안 됩니다.');
 runtime.state.hide_tracking = false;
 delete runtime.state.KIBSheetHelper.trackingMode;
 delete runtime.state.KIBSheetHelper.trackGmOnly;
@@ -688,6 +695,7 @@ helper.refresh();
 assert.strictEqual(runtime.state.KIBSheetHelper.trackingMode, 'gm',
   '구버전의 명시적인 GM 전용 설정은 유지해야 합니다.');
 runtime.state.KIBSheetHelper.trackGmOnly = false;
+runtime.state.KIBSheetHelper.trackSkillChanges = true;
 
 function fixtureAttribute(name) {
   const attribute = attributeObjects.find((item) =>
@@ -1187,6 +1195,28 @@ assert((managerNotes.match(/두 번째 항목/g) || []).length >= 2,
   'GM 관리 화면은 같은 표시 이름을 가진 실제 반복행도 이름만으로 합쳐 숨기면 안 됩니다.');
 assert(!managerNotes.includes('!시트 굴림선택|') && !managerNotes.includes('!시트 굴림목록|'),
   '캐릭터별 현황 보기에는 현황을 바꾸는 버튼만 있어야 합니다.');
+assert(managerNotes.includes('기능 / 판정 수치 변경 알림') &&
+  managerNotes.includes('!시트 기능치알림|켜기') && managerNotes.includes('!시트 기능치알림|끄기'),
+  'GM 관리 화면에서 기능치 변경 알림만 별도로 켜고 끌 수 있어야 합니다.');
+
+runtime.state.KIBSheetHelper.trackingMode = 'public';
+runtime.state.KIBSheetHelper.trackSkillChanges = true;
+resetFixture({ skill_value: 60, mind_score: 60, vital_current: 10 });
+assert(changeFixture('skill_value', 61).some((item) => String(item.content || '').includes('정밀 관찰')),
+  '기능치 알림을 켜면 기능 / 판정 수치 변경 로그를 보내야 합니다.');
+runApi('!!기능치알림 끄기', '테스터 GM (GM)', 'gm');
+assert.strictEqual(runtime.state.KIBSheetHelper.trackSkillChanges, false);
+assert(!changeFixture('skill_value', 62).some((item) => String(item.content || '').startsWith('/desc ')),
+  '기능치 알림을 끄면 기능 / 판정 수치 변경 로그만 숨겨야 합니다.');
+assert(helper.resolveContractAction(fixtureCharacter, '정밀 관찰', false).result.ok &&
+  sent.at(-1).content.includes('{{success=[[62]]}}'),
+  '기능치 알림을 꺼도 변경값 인식과 원본 굴림 실행은 유지해야 합니다.');
+assert(changeFixture('vital_current', 11).some((item) => String(item.content || '').includes('체력')),
+  '기능치 알림을 꺼도 체력 등 현재 수치 변경 로그는 유지해야 합니다.');
+assert(changeFixture('mind_score', 61).some((item) => String(item.content || '').includes('지능')),
+  '기능치 알림을 꺼도 특성치 변경 로그는 유지해야 합니다.');
+runApi('!!기능치알림 켜기', '테스터 GM (GM)', 'gm');
+assert.strictEqual(runtime.state.KIBSheetHelper.trackSkillChanges, true);
 const playerHelp = created.find((item) => item.get('name') === '[PL] 시트 헬퍼 사용법');
 assert(playerHelp && playerHelp.get('notes').includes('!!굴릴항목이름'));
 assert(playerHelp.get('notes').includes('<table'));
@@ -4650,6 +4680,51 @@ useRoomCharacters(westernEuroRuntime.character);
 const westernEuroInspection = helper.inspectContracts(westernEuroRuntime.character.id);
 assert.strictEqual(westernEuroInspection.status, 'matched');
 assert.strictEqual(westernEuroInspection.contract.id, westernEuroSheet.id);
+
+const westernTrackingBefore = {
+  mode: runtime.state.KIBSheetHelper.trackingMode,
+  skills: runtime.state.KIBSheetHelper.trackSkillChanges,
+};
+const westernTrackingOriginalValues = {};
+const westernTrackingAdded = [];
+const westernTrackingAttributes = Object.fromEntries(['computer', 'str', 'hp', 'hp_max'].map((name) => {
+  const current = { computer: '5', str: '50', hp: '10', hp_max: '20' }[name];
+  let attribute = attributeObjects.find((item) => item.get('_characterid') === westernEuroRuntime.character.id &&
+    item.get('name') === name);
+  if (!attribute) {
+    attribute = addAttribute(westernEuroRuntime.character.id, name, current);
+    westernTrackingAdded.push(attribute);
+  }
+  westernTrackingOriginalValues[name] = attribute.get('current');
+  attribute.set('current', current);
+  return [name, attribute];
+}));
+helper.scan(westernEuroRuntime.character.id, true);
+runtime.state.KIBSheetHelper.trackingMode = 'public';
+runtime.state.KIBSheetHelper.trackSkillChanges = false;
+function changeWesternTracking(name, value) {
+  const attribute = westernTrackingAttributes[name];
+  const before = attribute.get('current');
+  const start = sent.length;
+  attribute.set('current', String(value));
+  events['change:attribute'](attribute, { current: before });
+  return sent.slice(start);
+}
+assert(!changeWesternTracking('computer', 6).some((item) => String(item.content || '').startsWith('/desc ')),
+  '실제 웨스턴유로도 기능치 알림을 끄면 컴퓨터 사용 변경 로그만 숨겨야 합니다.');
+assert(helper.resolveContractAction(westernEuroRuntime.character, '컴퓨터 사용', false).result.ok,
+  '기능치 알림을 꺼도 실제 웨스턴유로의 변경된 기능 굴림은 실행해야 합니다.');
+assert(changeWesternTracking('str', 51).some((item) => String(item.content || '').includes('근력')),
+  '실제 웨스턴유로의 특성치 변경 로그는 기능치 토글과 무관해야 합니다.');
+const westernHealthMessages = changeWesternTracking('hp', 9);
+assert(westernHealthMessages.some((item) => String(item.content || '').startsWith('/desc ')),
+  '실제 웨스턴유로의 체력 변경 로그는 기능치 토글과 무관해야 합니다: ' + JSON.stringify(westernHealthMessages));
+runtime.state.KIBSheetHelper.trackingMode = westernTrackingBefore.mode;
+runtime.state.KIBSheetHelper.trackSkillChanges = westernTrackingBefore.skills;
+Object.keys(westernTrackingAttributes).forEach((name) =>
+  westernTrackingAttributes[name].set('current', westernTrackingOriginalValues[name]));
+westernTrackingAdded.forEach((attribute) => attributeObjects.splice(attributeObjects.indexOf(attribute), 1));
+helper.scan(westernEuroRuntime.character.id, true);
 
 // 실제 시트 기본값만 있는 새 캐릭터도 상태에서는 일반/보너스 버튼을
 // 같은 항목으로 보여야 합니다. 명령 실행 성공만으로 상태 분류를 대신 검증하지 않습니다.
