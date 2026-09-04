@@ -2598,6 +2598,8 @@ useContracts(currentDefaultSheet, staleDefaultSheet);
 useRoomCharacters(cachedSourceCharacter);
 assert.strictEqual(helper.inspectContracts(cachedSourceCharacter.id).contract.id, currentDefaultSheet.id);
 sheetFieldDefaults[cachedSourceCharacter.id] = sourceDefaults(staleDefaultSheet);
+assert.strictEqual(helper.inspectContracts(cachedSourceCharacter.id).contract.id, staleDefaultSheet.id,
+  '현재 시트의 기본값이 바뀌면 방 판별 캐시를 자동으로 갱신해야 합니다.');
 const addedAfterSourceChange = addCharacter(
   'added-after-source-change', '가 새 캐릭터', 'player-1', {},
 );

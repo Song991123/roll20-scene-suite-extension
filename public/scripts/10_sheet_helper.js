@@ -656,6 +656,14 @@ var sheet_helper_setting = {
     return trim(value).toLowerCase().replace(/\s+/g, '');
   }
 
+  function roomCacheValid(cached) {
+    if (typeof getSheetDefaultValue !== 'function') return true;
+    return !(cached.p || []).some(function (probe) {
+      var v = getSheetDefaultValue(probe.name);
+      return normalizedDefault(v) !== probe.value || (v == null) !== !!probe.m;
+    });
+  }
+
   function sourceDefaultEvidence(characterId, records, savedNames) {
     var scores = records.map(function () { return 0; });
     var blankContradictions = records.map(function () { return 0; });
@@ -743,7 +751,7 @@ var sheet_helper_setting = {
           var expected = defaultValues[name][record.ordinal];
           if (expected.indexOf('value:') === 0 && expected.length > 6) missingContradictions[record.ordinal] += 1;
         });
-        probes.push({ name: name, value: '', matches: [] });
+        probes.push({ name: name, value: '', m: 1, matches: [] });
       } else if (!actual) {
         records.forEach(function (record) {
           var expected = defaultValues[name][record.ordinal];
@@ -941,13 +949,17 @@ var sheet_helper_setting = {
 
   function inspectContracts(characterId) {
     if (contractMatchCache.__room__) {
-      if (characterId) contractMatchCache[characterId] = contractMatchCache.__room__;
-      return contractMatchCache.__room__;
+      if (roomCacheValid(contractMatchCache.__room__)) {
+        if (characterId) contractMatchCache[characterId] = contractMatchCache.__room__;
+        return contractMatchCache.__room__;
+      }
+      invalidate();
     }
     var defaultEvidence = { probes: [], scores: [], matched: false };
     function remember(result) {
       result.attributeCount = persistentTotal;
       result.contractCount = contracts.length;
+      result.p = typeof getSheetDefaultValue === 'function' ? defaultEvidence.probes : [];
       contractMatchCache.__room__ = result;
       if (characterId) contractMatchCache[characterId] = result;
       return result;
