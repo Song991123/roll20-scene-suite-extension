@@ -334,19 +334,12 @@ expectSchedule(
   'avatars 덱 삭제는 아바타 갱신을 예약해야 합니다.',
 );
 
-assert.strictEqual(avatarRuntime.avUpdateTokens(avatarScopeCharacter, 'all.png'), 2);
-assert.strictEqual(avatarScopeTokens[0].get('imgsrc'), 'all.png');
-assert.strictEqual(avatarScopeTokens[1].get('imgsrc'), 'all.png');
-assert.strictEqual(avatarScopeTokens[2].get('imgsrc'), 'standing.png');
-avatarRuntime.avHandleTokenScopeCommand({
-  content: '!아바타 토큰범위|avatar-character|같은이름',
-  playerid: 'gm',
-});
-assert.strictEqual(avatarRuntime.avTokenScope(avatarScopeCharacter), 'name');
 assert.strictEqual(avatarRuntime.avUpdateTokens(avatarScopeCharacter, 'name.png'), 1);
 assert.strictEqual(avatarScopeTokens[0].get('imgsrc'), 'name.png');
-assert.strictEqual(avatarScopeTokens[1].get('imgsrc'), 'all.png');
-assert(avatarRuntime.avTokenScopeButton(avatarScopeCharacter.id, 'name').includes('토큰: 같은 이름만'));
+assert.strictEqual(avatarScopeTokens[1].get('imgsrc'), 'aux.png');
+assert.strictEqual(avatarScopeTokens[2].get('imgsrc'), 'standing.png');
+assert(!avatarText.includes('!아바타 토큰범위|'));
+assert(!avatarText.includes('토큰: 연결 전체'));
 
 function eventRuntime(registered) {
   return {

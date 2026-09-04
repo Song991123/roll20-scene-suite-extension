@@ -164,7 +164,7 @@ const MODULES = [
     file: '09_avatar_director.js',
     title: '캐릭터 이미지',
     description: '표정에 맞춰 캐릭터 이미지와 맵 토큰 교체',
-    setup: ['avatars 덱을 만들고 캐릭터명, 캐릭터명-표정명 카드를 넣습니다.', '맵 토큰은 기본적으로 대표 캐릭터가 연결된 토큰 전체를 바꿉니다. 장서나 소환물도 같은 캐릭터에 연결하면 관리 화면에서 같은 이름만을 선택하고, 바꿀 토큰 이름을 캐릭터명과 같게 지정합니다.', '채팅에 !아바타 관리를 입력합니다.', '필요한 캐릭터만 자동 변경에서 제외합니다.'],
+    setup: ['avatars 덱을 만들고 캐릭터명, 캐릭터명-표정명 카드를 넣습니다.', '맵 토큰은 캐릭터 시트와 연결되고 토큰 이름이 캐릭터명과 같은 토큰만 변경됩니다.', '채팅에 !아바타 관리를 입력합니다.', '필요한 캐릭터만 자동 변경에서 제외합니다.'],
     settings: [
       { id: 'deck', group: '기본', label: '덱 이름', type: 'text', value: 'avatars', codeKey: 'deck_name' },
       { id: 'manager', group: '기본', label: '관리 핸드아웃 이름', type: 'text', value: '[GM] 캐릭터 이미지 관리', codeKey: 'management_handout_name' },

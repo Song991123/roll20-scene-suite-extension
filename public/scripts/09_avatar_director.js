@@ -1,5 +1,5 @@
 /*
- * Scene Suite 09 - Avatar Expression Director 1.0.3
+ * Scene Suite 09 - Avatar Expression Director 1.0.4
  * 제작 및 통합: @EOOOOORK
  */
 
@@ -44,13 +44,8 @@ function avInitState() {
     Array.isArray(data.characterTargets)
   )
     data.characterTargets = {};
-  if (data.defaultTokenScope != 'name') data.defaultTokenScope = 'all';
-  if (
-    !data.characterTokenScopes ||
-    typeof data.characterTokenScopes != 'object' ||
-    Array.isArray(data.characterTokenScopes)
-  )
-    data.characterTokenScopes = {};
+  delete data.defaultTokenScope;
+  delete data.characterTokenScopes;
   if (!Array.isArray(data.excludedCharacters)) data.excludedCharacters = [];
   if (
     !data.selectedCards ||
@@ -191,13 +186,6 @@ function avTargets(character, includeUnavailable) {
   return result;
 }
 
-function avTokenScope(character) {
-  var data = avInitState();
-  var saved = character && data.characterTokenScopes[character.id];
-  if (saved == 'all' || saved == 'name') return saved;
-  return data.defaultTokenScope == 'name' ? 'name' : 'all';
-}
-
 function avCanControl(character, playerId) {
   if (playerId == 'API' || playerIsGM(playerId)) return true;
   var controlled = String(character.get('controlledby') || '')
@@ -331,20 +319,17 @@ function avUpdateTokens(character, image) {
   var campaign = Campaign();
   var pageId = campaign && campaign.get('playerpageid');
   if (!pageId) return 0;
+  var characterName = String(character.get('name') || '').trim();
   var tokens = (
     findObjs({ _type: 'graphic', represents: character.id, _pageid: pageId }) ||
     []
   ).filter(function (token) {
     return (
-      token.get('layer') == 'objects' && token.get('name') != 'vd_standing'
+      token.get('layer') == 'objects' &&
+      token.get('name') != 'vd_standing' &&
+      String(token.get('name') || '').trim() == characterName
     );
   });
-  if (avTokenScope(character) == 'name') {
-    var characterName = String(character.get('name') || '').trim();
-    tokens = tokens.filter(function (token) {
-      return String(token.get('name') || '').trim() == characterName;
-    });
-  }
   var imgsrc = avGraphicImage(image);
   tokens.forEach(function (token) {
     token.set('imgsrc', imgsrc);
@@ -632,7 +617,6 @@ function avHandleTargetCommand(msg) {
       return avWhisperGm('캐릭터를 찾지 못했습니다: ' + avEscape(reference));
     if (parts[2] == '초기화') {
       delete data.characterTargets[character.id];
-      delete data.characterTokenScopes[character.id];
       savedMessage =
         '<b>' + avEscape(character.get('name')) + '</b> 변경 대상: 기본값';
     }
@@ -653,43 +637,6 @@ function avHandleTargetCommand(msg) {
   }
   avScheduleRefresh();
   avWhisperGm(savedMessage);
-}
-
-function avHandleTokenScopeCommand(msg) {
-  if (!playerIsGM(msg.playerid)) return;
-  var parts = String(msg.content || '')
-    .split('|')
-    .map(function (part) {
-      return part.trim();
-    });
-  var reference = parts[1];
-  var scope = {
-    전체: 'all',
-    연결전체: 'all',
-    all: 'all',
-    같은이름: 'name',
-    이름일치: 'name',
-    name: 'name',
-  }[String(parts[2] || '').replace(/\s/g, '').toLowerCase()];
-  var data = avInitState();
-  if (!reference || !scope)
-    return avWhisperGm(
-      '사용법: <code>!아바타 토큰범위|캐릭터명 또는 기본|전체</code> / <code>!아바타 토큰범위|캐릭터명 또는 기본|같은이름</code>',
-    );
-  if (reference == '기본') data.defaultTokenScope = scope;
-  else {
-    var character = avCharacter(reference);
-    if (!character)
-      return avWhisperGm('캐릭터를 찾지 못했습니다: ' + avEscape(reference));
-    data.characterTokenScopes[character.id] = scope;
-  }
-  avScheduleRefresh();
-  avWhisperGm(
-    '<b>' +
-      avEscape(reference) +
-      '</b> 맵 토큰 범위: ' +
-      (scope == 'name' ? '캐릭터명과 같은 토큰만' : '연결 토큰 전체'),
-  );
 }
 
 function avTargetLabel(key) {
@@ -864,7 +811,6 @@ function avRefreshManagementHandout(characters, deckCards, active) {
   if (!handout) return null;
   data.managementHandoutId = handout.id;
   var defaults = avTargetButtons('기본', data.defaults);
-  defaults += ' ' + avTokenScopeButton('기본', avTokenScope(null));
   var rows =
     characters
       .filter(function (character) {
@@ -893,8 +839,6 @@ function avRefreshManagementHandout(characters, deckCards, active) {
           ' ' +
           avTargetButtons(character.id, avTargets(character)) +
           ' ' +
-          avTokenScopeButton(character.id, avTokenScope(character)) +
-          ' ' +
           avButton(
             '기본값 사용',
             '!아바타 대상|' + character.id + '|초기화',
@@ -911,7 +855,7 @@ function avRefreshManagementHandout(characters, deckCards, active) {
     archived: false,
     notes:
       '<div style="font-family:Arial,sans-serif;color:#111;background:#fff"><div style="padding:12px;background:#111;color:#fff"><b style="font-size:18px">🎭 캐릭터 이미지 관리</b></div>' +
-      '<div style="margin-top:10px;padding:8px 9px;background:#f3f3f3;border-left:4px solid #111"><b>avatars 덱:</b> <code>캐릭터명</code>, <code>캐릭터명-표정명</code> 카드<br><b>맵 토큰:</b> 기본값은 대표 캐릭터로 연결된 토큰 전체. 장서나 소환물도 같은 캐릭터에 연결하는 룰은 <b>같은 이름만</b>을 선택하고, 바꿀 토큰 이름을 캐릭터명과 같게 지정</div>' +
+      '<div style="margin-top:10px;padding:8px 9px;background:#f3f3f3;border-left:4px solid #111"><b>avatars 덱:</b> <code>캐릭터명</code>, <code>캐릭터명-표정명</code> 카드<br><b>맵 토큰:</b> 캐릭터 시트와 연결되고 토큰 이름이 캐릭터명과 같은 토큰만 변경</div>' +
       '<div style="margin-top:10px;background:#fff;border:1px solid #111"><div style="padding:6px 9px;background:#111;color:#fff;font-weight:bold">기본 변경 대상</div><div style="padding:8px">' +
       defaults +
       '</div></div>' +
@@ -941,18 +885,6 @@ function avToggleButton(label, reference, key, enabled) {
     label + ' ' + (enabled ? '✓' : '－'),
     '!아바타 대상|' + reference + '|' + key + '|' + (enabled ? '끄기' : '켜기'),
     enabled ? '#287a4b' : '#53657d',
-  );
-}
-
-function avTokenScopeButton(reference, scope) {
-  var nameOnly = scope == 'name';
-  return avButton(
-    nameOnly ? '토큰: 같은 이름만' : '토큰: 연결 전체',
-    '!아바타 토큰범위|' +
-      reference +
-      '|' +
-      (nameOnly ? '전체' : '같은이름'),
-    nameOnly ? '#7654a8' : '#53657d',
   );
 }
 
@@ -1033,7 +965,6 @@ function avHelp() {
     '<code>!... /desc 지문 @홍길동:웃음</code> 지정한 캐릭터 표정 변경<br>' +
     '<code>!아바타 관리</code> 변경 대상과 제외 캐릭터 설정<br>' +
     '<code>!아바타 대상|홍길동|시트|켜기</code> 캐릭터 이미지 변경 사용<br>' +
-    '<code>!아바타 토큰범위|홍길동|같은이름</code> 캐릭터명과 같은 맵 토큰만 변경<br>' +
     '<code>!아바타 제외|추가|홍길동</code> 자동 변경 제외'
   );
 }
@@ -1059,7 +990,6 @@ on('ready', function () {
       return {
         deck: avatar_setting.deck_name,
         defaults: avInitState().defaults,
-        defaultTokenScope: avTokenScope(null),
         excluded: avInitState().excludedCharacters.length,
       };
     },
@@ -1102,8 +1032,6 @@ on('chat:message', function (msg) {
     }
     if (msg.type == 'api' && content.indexOf('!아바타 대상|') === 0)
       return avHandleTargetCommand(msg);
-    if (msg.type == 'api' && content.indexOf('!아바타 토큰범위|') === 0)
-      return avHandleTokenScopeCommand(msg);
     if (msg.type == 'api' && content.indexOf('!아바타 제외|') === 0)
       return avHandleExcludeCommand(msg);
     if (msg.type == 'api' && content.indexOf('!아바타 표정|') === 0)
