@@ -2849,7 +2849,7 @@ newsSheet.signature.forEach((entry) => {
 Object.assign(newsValues, {
   hp: '5', mp: '6', con: '50', siz: '50', pow: '50',
   san: '50', san_start: '50', cthulhu_mythos: '0', fighting_brawl: '25', damage_bonus: '1d6',
-  temp_insane: '0', indef_insane: '0',
+  temp_insane: '0', indef_insane: '0', str: '50', str_txt: 'false', appraise_txt: 'false',
 });
 delete newsValues.dex;
 const newsAttributeStart = attributeObjects.length;
@@ -2872,6 +2872,7 @@ const newsCharacteristicsHtml = newsStatusHtml.slice(
 const newsChecksHtml = newsStatusHtml.slice(
   newsStatusHtml.indexOf('기능 / 판정'), newsStatusHtml.indexOf('무기 1개'));
 assert(newsCharacteristicsHtml.includes('민첩 <b>50') && newsCharacteristicsHtml.includes('정신 <b>50') &&
+  newsCharacteristicsHtml.includes('근력 <b>50') &&
   !newsCharacteristicsHtml.includes('민첩 <b>-5') && newsChecksHtml.includes('정신분석 <b>1') &&
   !newsChecksHtml.includes('>정신 <b>50'),
   '원본 화면의 특성치 이름과 표시 기본값을 숨은 중복 기본값보다 우선해야 합니다.');
@@ -2889,6 +2890,15 @@ const newsDexterityRoll = runApi('!!민첩', newsCharacter.get('name'));
 assert.strictEqual(newsDexterityRoll.filter((item) => item.content &&
   item.content.includes('{{success=[[50]]}}') && !item.content.includes('-5')).length, 1,
   '저장값이 없는 보이는 특성치는 숨은 중복값 대신 원본 화면 기본값으로 굴려야 합니다.');
+const newsStrengthRoll = runApi('!!근력', newsCharacter.get('name'));
+assert.strictEqual(newsStrengthRoll.filter((item) => item.content &&
+  item.content.includes('{{name=근력}}') && item.content.includes('{{success=[[50]]}}') &&
+  !item.content.includes('{{name=false}}')).length, 1,
+  '잘못 저장된 숨은 제목값 때문에 보이는 특성치가 사라지거나 false 제목으로 굴러가면 안 됩니다.');
+const newsAppraiseRoll = runApi('!!감정', newsCharacter.get('name'));
+assert.strictEqual(newsAppraiseRoll.filter((item) => item.content &&
+  item.content.includes('{{name=감정}}') && !item.content.includes('{{name=false}}')).length, 1,
+  '잘못 저장된 숨은 기능 제목값은 원본 기본 제목으로 복구해 실행해야 합니다.');
 getAttrByNameOverrides[newsCharacter.id + '|dex|current'] = '75';
 helper.scan(newsCharacter.id, true);
 assert(runApi('!!상태', newsCharacter.get('name')).some((item) =>

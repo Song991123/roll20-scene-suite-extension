@@ -1479,8 +1479,10 @@ var sheet_helper_setting = {
     var repeating = contractRepeating(roll);
     var field = repeating && index.fieldSections[repeating.section] && index.fieldSections[repeating.section][name] ||
       index.fieldGlobal[name];
-    return trim(field && field.defaultVariants
+    var resolved = trim(field && field.defaultVariants
       ? contractUnsavedFieldValue(field, value, field.default, ref && ref.max) : value);
+    return /^(?:name|subject|title|label|skill|skill_name|weapon_name|attribute)$/i.test(trim(ref && ref.field)) &&
+      !humanContractLabel(resolved) ? trim(field && field.default) : resolved;
   }
 
   function contractStaticLabels(roll) {
@@ -1810,7 +1812,6 @@ var sheet_helper_setting = {
         if (own(rowPrefixes, row.id) && rowPrefixes[row.id] !== row.prefix) conflicts[row.id] = true;
         rowPrefixes[row.id] = row.prefix;
       });
-      // 실행 주소에는 prefix가 없으므로 서로 다른 물리 그룹의 같은 ID는 선택하지 않습니다.
       rowsBySection[sectionName] = rows.filter(function (row) { return !conflicts[row.id]; });
     });
     var character = getObj('character', characterId);
@@ -1850,7 +1851,6 @@ var sheet_helper_setting = {
             : { known: false };
         }
         var visibility = contractVisibilityResult(roll.visibility, readVisibility);
-        // Explicit bonus/private modes may use hidden dice buttons, never an inactive worker panel.
         if (contractVisibilityResult(roll.visibility, function (name, atom) {
           return atom.required ? readVisibility(name, atom) : { known: false };
         }) === false) return;
@@ -1906,7 +1906,7 @@ var sheet_helper_setting = {
             return;
           }
           var value = contractLabelRef(characterId, contract, roll, row, ref, read);
-          if (titleRefs[refName] && value && !titleValue) titleValue = value;
+          if (titleRefs[refName] && contractDisplayLabel(value) && !titleValue) titleValue = value;
           if (value) dynamic.push({
             value: value,
             frequency: index.labelRefFrequency[refName] || 0,
@@ -2389,7 +2389,6 @@ var sheet_helper_setting = {
       };
       if (tracked && numericRadioField(field)) result.tracked[fullName].radioRange = field.radioRange.slice();
       if (number === null) return;
-      // A literal HTML input limit is not the character's resource maximum.
       var sourceMaximum = /@\{[^}]+\}/.test(trim(field.max)) ? field.max : '';
       var maxRaw = attribute && attribute.get('max');
       if (trim(maxRaw) === '' && sourceMaximum) {
@@ -2585,7 +2584,6 @@ var sheet_helper_setting = {
   }
 
   function preferredContractRolls(data, forListing) {
-    // 일반/보너스 짝을 먼저 고른 뒤 시트 후보 간 동등화를 해야 짝이 유실되지 않습니다.
     var instances = actionableContractRolls(data.characterId, data.contractMatch, false).filter(function (instance) {
       return !forListing || !instance.roll.listHidden;
     });
@@ -3619,6 +3617,9 @@ var sheet_helper_setting = {
           : visibleDefault !== null && !maximum
             ? contractUnsavedFieldValue(sourceField, live, visibleDefault, false)
             : live;
+        if (!maximum && !humanContractLabel(actual) && (instance.roll.labelRefs || []).some(function (ref) {
+          return contractRefName(ref) === name;
+        })) actual = null;
         if (actual !== undefined && actual !== null && trim(actual) !== '' && /@\{[^{}]+\}/.test(String(actual))) {
           var attrKey = 'attr|' + fullName + '|' + (maximum ? 'max' : 'current');
           if (trail[attrKey]) {
