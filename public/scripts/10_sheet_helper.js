@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.30
+ * Scene Suite 10 - Sheet Helper 0.6.31
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -335,7 +335,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.30';
+  var VERSION = '0.6.31';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -3166,7 +3166,7 @@ var sheet_helper_setting = {
     });
     pendingResults.push(pending);
     try {
-      sendChat('character|' + character.id, content);
+      sendChat('character|' + character.id, content, null);
       return { ok: true, payload: payload };
     } catch (err) {
       var index = pendingResults.indexOf(pending);
