@@ -337,20 +337,25 @@
     return result;
   }
 
-  function cssDisplayRules(source) {
+  function cssDisplayRules(source, includeUnknown) {
     var rules = [];
     var order = 0;
     String(source || '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/@(?:import|charset)[^;]*;/gi, '').replace(/([^{}]+)\{([\s\S]*?)\}/g, function (_all, header, body) {
       if (/^\s*@/.test(header)) return _all;
       var display = null;
-      String(body).replace(/(?:^|;)\s*display\s*:\s*([a-z-]+)\s*(!important)?\s*(?=;|$)/gi, function (_match, value, important) {
+      var knownDisplay = null;
+      String(body).replace(/(?:^|;)\s*display\s*:\s*([^;]+)(?=;|$)/gi, function (_match, declaration) {
+        var important = /!important\s*$/i.test(declaration);
+        var value = declaration.replace(/!important\s*$/i, '').trim();
         if (/^(?:none|block|inline|inline-block|flex|inline-flex|grid|inline-grid|table|table-row|table-cell|list-item|contents)$/.test(value.toLowerCase()))
-          display = { visible: value.toLowerCase() !== 'none', important: !!important };
+          display = knownDisplay = { visible: value.toLowerCase() !== 'none', important: !!important };
+        else if (includeUnknown) display = { visible: null, important: !!important };
         return _match;
       });
       if (!display) return _all;
       cssList(header).forEach(function (selector) {
-        rules.push({ selector: selector, visible: display.visible, important: display.important, order: order++ });
+        rules.push({ selector: selector, visible: display.visible, important: display.important, order: order++,
+          fallback: display.visible === null ? knownDisplay : null });
       });
       return _all;
     });
@@ -365,7 +370,7 @@
 
   function cssCompound(value) {
     var source = value.trim();
-    var result = { tag: '', classes: [], id: '', attributes: [], checked: false, specificity: 0 };
+    var result = { tag: '', classes: [], notClasses: [], id: '', attributes: [], checked: false, specificity: 0 };
     var tag = source.match(/^(\*|[a-z][a-z0-9_-]*)/i);
     var i = 0;
     if (tag) {
@@ -405,6 +410,12 @@
         var end = source.indexOf(')', i + 5);
         if (end < 0) return null;
         var inner = source.slice(i + 5, end).trim();
+        if (/^\.[a-z0-9_-]+$/i.test(inner)) {
+          result.notClasses.push(inner.slice(1));
+          result.specificity += 10;
+          i = end + 1;
+          continue;
+        }
         if (inner.charAt(0) !== '[' || inner.charAt(inner.length - 1) !== ']') return null;
         var negated = cssAttribute(inner.slice(1, -1));
         if (!negated) return null;
@@ -505,13 +516,14 @@
 
   function cssCompoundMatch(node, compound) {
     if (node.tag === '#root') {
-      return !compound.tag && !compound.id && !compound.attributes.length && !compound.checked &&
+      return !compound.tag && !compound.id && !compound.attributes.length && !compound.checked && !compound.notClasses.length &&
         compound.classes.length === 1 && compound.classes[0] === 'charsheet' ? { ok: true, atoms: [] } : { ok: false };
     }
     if (compound.tag && compound.tag !== '*' && compound.tag !== node.tag) return { ok: false };
     if (compound.id && compound.id !== (node.attrs.id || '')) return { ok: false };
     var classes = (node.attrs['class'] || '').split(/\s+/).filter(Boolean);
     if (!compound.classes.every(function (name) { return classes.indexOf(name) > -1; })) return { ok: false };
+    if (compound.notClasses.some(function (name) { return classes.indexOf(name) > -1; })) return { ok: false };
     var type = (node.attrs.type || '').toLowerCase();
     var optionControl = node.tag === 'input' && (type === 'checkbox' || type === 'radio');
     var namedControl = /^attr_/i.test(node.attrs.name || '');
@@ -690,9 +702,19 @@
     return cssCompound(source);
   }
 
-  function buildRollVisibility(root, rollNodes, externalCss) {
+  function uncertainDisplaySource(source) {
+    var clean = String(source || '').replace(/\/\*[\s\S]*?\*\//g, '');
+    if (/@(?:import|media|supports|container|layer|document|scope|(?:-[a-z]+-)?keyframes)\b/i.test(clean)) return true;
+    var uncertain = false;
+    clean.replace(/(?:^|[;{])\s*display\s*:\s*([^;}]+)/gi, function (match, declaration) {
+      if (!/^(?:none|block|inline|inline-block|flex|inline-flex|grid|inline-grid|table|table-row|table-cell|list-item|contents)\s*(?:!important\s*)?$/i.test(declaration.trim())) uncertain = true;
+      return match;
+    });
+    return uncertain;
+  }
+
+  function buildRollVisibility(root, rollNodes, externalCss, legacy) {
     var sources = cssSources(root, externalCss);
-    if (!sources.length) return { rolls: dictionary(), controls: dictionary() };
     var nextId = 1;
     walk(root, function (node) { node._kibSheetNodeId = nextId++; });
     var targets = [];
@@ -706,14 +728,41 @@
       }
     });
     var programs = dictionary();
+    var listHidden = dictionary();
+    var uncertainListingNodes = dictionary();
+    var uncertainListing = false;
     var globalOrder = 0;
     var tainted = dictionary();
+    var unreachableShows = dictionary();
+    var uncertainPermanentNodes = dictionary();
+    var uncertainPermanent = sources.some(uncertainDisplaySource);
     sources.forEach(function (source) {
-      cssDisplayRules(source).forEach(function (rule) {
+      cssDisplayRules(source, true).forEach(function (rule) {
         var selector = cssSelector(rule.selector);
+        var pseudoElement = /::?(?:before|after)\s*$/i.test(rule.selector);
         rule.order = globalOrder++;
+        if (rule.visible === null) {
+          if (pseudoElement) return;
+          var uncertainTarget = rightmostCssCompound(rule.selector);
+          if (!selector && !uncertainTarget) uncertainListing = true;
+          targets.forEach(function (target) {
+            if (selector ? cleanVisibilityPaths(cssSelectorPaths(target, selector)).length :
+                uncertainTarget && cssCompoundMatch(target, uncertainTarget).ok) {
+              var id = target._kibSheetNodeId;
+              if (!uncertainListingNodes[id]) uncertainListingNodes[id] = [];
+              uncertainListingNodes[id].push({ important: rule.important,
+                specificity: selector ? selector.specificity : Infinity, order: rule.order });
+            }
+          });
+          if (!rule.fallback) return;
+          rule = Object.assign({}, rule, rule.fallback);
+        }
         if (!selector) {
           var rightmost = rightmostCssCompound(rule.selector);
+          if (!rightmost && rule.visible) {
+            uncertainPermanent = true;
+            if (!pseudoElement) uncertainListing = true;
+          }
           if (rightmost) targets.forEach(function (target) {
             if (cssCompoundMatch(target, rightmost).ok) tainted[target._kibSheetNodeId] = true;
           });
@@ -721,7 +770,12 @@
         }
         targets.forEach(function (target) {
           var paths = cleanVisibilityPaths(cssSelectorPaths(target, selector));
-          if (!paths.length) return;
+          if (!paths.length) {
+            if (rule.visible && selector.compounds.some(function (compound) { return compound.checked; }) &&
+                cssCompoundMatch(target, selector.compounds[selector.compounds.length - 1]).ok)
+              unreachableShows[target._kibSheetNodeId] = true;
+            return;
+          }
           var id = target._kibSheetNodeId;
           if (!programs[id]) programs[id] = [];
           programs[id].push({
@@ -733,6 +787,7 @@
     });
     targets.forEach(function (target) {
       var style = target.attrs && target.attrs.style || '';
+      if (uncertainDisplaySource(style)) uncertainPermanentNodes[target._kibSheetNodeId] = true;
       var display = null;
       style.replace(/(?:^|;)\s*display\s*:\s*([a-z-]+)\s*(!important)?\s*(?=;|$)/gi, function (_match, value, important) {
         if (/^(?:none|block|inline|inline-block|flex|inline-flex|grid|inline-grid|table|table-row|table-cell|list-item|contents)$/.test(value.toLowerCase()))
@@ -743,14 +798,6 @@
         if (!programs[target._kibSheetNodeId]) programs[target._kibSheetNodeId] = [];
         programs[target._kibSheetNodeId].push({ visible: display.visible, important: display.important, order: 1000000000, specificity: 1000, paths: [[]] });
       }
-    });
-    var showAtoms = dictionary();
-    Object.keys(programs).forEach(function (id) {
-      programs[id].filter(function (entry) { return entry.visible && entry.paths.every(function (path) { return path.length; }); }).forEach(function (entry) {
-        entry.paths.forEach(function (path) {
-          path.forEach(function (atom) { showAtoms[atomKey(atom, true)] = true; });
-        });
-      });
     });
     var nodeConditions = dictionary();
     var usedControls = dictionary();
@@ -765,17 +812,25 @@
       });
       var conditional = entries.filter(function (entry) { return entry.paths.every(function (path) { return path.length; }); });
       var selected = [];
-      if (!base.visible) {
-        if (conditional.some(function (entry) { return entry.visible; })) selected = conditional.slice();
-      } else {
-        var pairedHides = conditional.filter(function (entry) {
-          return !entry.visible && entry.paths.every(function (path) {
-            return path.some(function (atom) { return !!showAtoms[atomKey(atom, true)]; });
-          });
+      if (base.visible || conditional.some(function (entry) { return entry.visible; }))
+        selected = conditional.slice();
+      if (!selected.length) {
+        var target = targets.find(function (node) { return String(node._kibSheetNodeId) === id; });
+        var uncertainDefault = (uncertainListingNodes[id] || []).some(function (entry) {
+          return cssPriority(entry) > cssPriority(base) ||
+            cssPriority(entry) === cssPriority(base) && entry.order >= base.order;
         });
-        if (pairedHides.length) selected = pairedHides.concat(conditional.filter(function (entry) { return entry.visible; }));
+        // Source-hidden roll buttons stay callable; this flag only affects ordinary listings.
+        if (!base.visible && !uncertainListing && !uncertainDefault && !uncertainPermanentNodes[id] &&
+            target && /^(?:button|input)$/.test(target.tag) && (target.attrs.type || '').toLowerCase() === 'roll')
+          listHidden[id] = true;
+        // A missing opening control proves only an unreachable panel, not a hidden auxiliary roll.
+        if (!uncertainPermanent && !uncertainPermanentNodes[id] && !base.visible && unreachableShows[id]) {
+          if (target && /^(?:div|fieldset|section|article|aside|main|table|tbody|thead|tfoot|tr|td|th|ul|ol|li|form)$/.test(target.tag))
+            nodeConditions[id] = { never: true };
+        }
+        return;
       }
-      if (!selected.length) return;
       var cascade = entries.filter(function (entry) {
         return entry.paths.some(function (path) { return !path.length; }) || selected.indexOf(entry) > -1;
       }).slice().sort(function (left, right) {
@@ -797,6 +852,12 @@
         entry.paths.forEach(function (path) { path.forEach(function (atom) { usedControls[atom.name] = true; }); });
       });
     });
+    workerPanelVisibility(root, targets, sources, legacy).forEach(function (entry) {
+      var id = entry.node._kibSheetNodeId;
+      nodeConditions[id] = nodeConditions[id]
+        ? visibilityAll([nodeConditions[id], entry.condition]) : entry.condition;
+      usedControls[entry.condition.name || entry.condition.not.name] = true;
+    });
     var rollConditions = dictionary();
     rollNodes.forEach(function (roll) {
       var conditions = [];
@@ -806,9 +867,98 @@
         var key = condition && JSON.stringify(condition);
         if (condition && !seen[key]) { seen[key] = true; conditions.push(condition); }
       }
-      if (conditions.length) rollConditions[roll._kibSheetNodeId] = visibilityAll(conditions);
+      if (conditions.length) rollConditions[roll._kibSheetNodeId] = conditions.some(function (condition) {
+        return condition.never === true;
+      }) ? { never: true } : visibilityAll(conditions);
     });
-    return { rolls: rollConditions, controls: usedControls };
+    return { rolls: rollConditions, controls: usedControls, listHidden: listHidden };
+  }
+
+  function workerPanelVisibility(root, targets, sources, legacy) {
+    var result = [];
+    var fields = dictionary();
+    walk(root, function (node) {
+      if (/^attr_/i.test(node.attrs.name || '') && !repeatingSection(node)) {
+        var name = baseAttrName(node.attrs.name);
+        if (!fields[name]) fields[name] = [];
+        fields[name].push(node);
+      }
+    });
+    // Roll20 supplies .hidden; other hiding classes must be declared by the sheet CSS.
+    var hiding = dictionary({ hidden: true });
+    var showing = dictionary();
+    sources.forEach(function (source) {
+      cssDisplayRules(source).forEach(function (rule) {
+        var match = rule.selector.match(/^(?:\.charsheet\s+)?\.([\w-]+)$/);
+        if (match) {
+          if (rule.visible) showing[match[1]] = true;
+          else hiding[match[1]] = true;
+        }
+      });
+    });
+    walk(root, function (node) {
+      if (node.tag !== 'script' || normalizeText(node.attrs.type).toLowerCase() !== 'text/worker') return;
+      var source = node.children.filter(function (child) { return child.tag === '#text'; })
+        .map(function (child) { return child.text; }).join('\n');
+      // Mask comments and literals only for locating real calls, never execute sheet workers.
+      var code = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/g,
+        function (text) { return text.replace(/[^\r\n]/g, ' '); });
+      var calls = /\bgetAttrs\s*\(/g;
+      var call;
+      while ((call = calls.exec(code))) {
+        var head = source.slice(call.index).match(/^getAttrs\s*\(\s*\[\s*['"]([\w-]+)['"]\s*\]\s*,\s*function\s*\(\s*(\w+)\s*\)\s*\{/);
+        if (!head || !fields[baseAttrName(head[1])]) continue;
+        var event = source.slice(0, call.index).match(/\bon\(\s*['"]([^'"]+)['"]\s*,\s*function\s*\(\s*\)\s*\{\s*$/);
+        if (!event || event[1].split(/\s+/).indexOf('sheet:opened') < 0 ||
+            event[1].split(/\s+/).indexOf('change:' + head[1]) < 0) continue;
+        if (fields[baseAttrName(head[1])].some(function (field) {
+          return field.tag !== 'input' || !/^(?:checkbox|radio)$/.test(fieldNodeType(field)) ||
+            !/^(?:0|[1-9]\d*)$/.test(field.attrs.value || '');
+        })) continue;
+        var start = call.index + head[0].length - 1;
+        var end = jsObjectProperties(source, start).end;
+        var body = source.slice(start + 1, end).trim();
+        // ponytail: only complete, single-attribute if/else class switches are proven here.
+        // More complex workers remain available until a source-backed parser case is added.
+        var branch = body.match(/^(?:var|let|const)\s+(\w+)\s*=\s*parseInt\(\s*(\w+)\.([\w-]+)\s*\)\s*;\s*if\s*\(\s*(\w+)\s*==={0,1}\s*(\d+)\s*\)\s*\{([^{}]*)\}\s*else\s*\{([^{}]*)\}\s*;?$/);
+        if (!branch || branch[1] !== branch[4] || branch[2] !== head[2] || branch[3] !== head[1]) continue;
+        function mutations(text) {
+          var entries = [];
+          var rest = text.replace(/\$20\(\s*['"]([.#][\w-]+)['"]\s*\)\.(addClass|removeClass)\(\s*['"]([\w-]+)['"]\s*\)\s*;/g,
+            function (_all, selector, operation, className) {
+              entries.push({ selector: selector, hide: operation === 'addClass', className: className });
+              return '';
+            });
+          return rest.trim() ? [] : entries;
+        }
+        var yes = mutations(branch[6]);
+        var no = mutations(branch[7]);
+        if (!yes.length || yes.length !== no.length) continue;
+        yes.forEach(function (change) {
+          if (!hiding[change.className] || showing[change.className] || yes.filter(function (entry) { return entry.selector === change.selector; }).length !== 1 ||
+              no.filter(function (entry) { return entry.selector === change.selector && entry.className === change.className && entry.hide !== change.hide; }).length !== 1) return;
+          var writes = 0;
+          source.replace(/\$20\(\s*['"]([.#][\w-]+)['"]\s*\)\.(?:addClass|removeClass)\(\s*['"]([\w-]+)['"]\s*\)/g,
+            function (all, selector, className, offset) {
+              if (code.slice(offset, offset + 3) === '$20' && selector === change.selector && className === change.className) writes += 1;
+              return all;
+            });
+          if (writes !== 2) return;
+          var selector = cssSelector(change.selector);
+          var matches = targets.filter(function (target) { return cssSelectorPaths(target, selector).length; });
+          // Legacy Roll20 prefixes class/id selectors; prefer exact original matches.
+          if (!matches.length && legacy === true && /^[.#]sheet-/.test(change.selector)) {
+            selector = cssSelector(change.selector.replace(/^([.#])sheet-/, '$1'));
+            matches = targets.filter(function (target) { return cssSelectorPaths(target, selector).length; });
+          }
+          matches.forEach(function (target) {
+            var when = { name: baseAttrName(head[1]), op: 'eq', value: branch[5], scope: 'global', required: true };
+            result.push({ node: target, condition: change.hide ? visibilityNot(when) : when });
+          });
+        });
+      }
+    });
+    return result;
   }
 
   function repeatingFieldset(node) {
@@ -897,12 +1047,63 @@
     });
   }
 
-  function adjacentLabelDetails(node, translations, parentDepth) {
+  function adjacentLabelDetails(node, translations, parentDepth, rollRefs) {
+    function siblingRollValue(button) {
+      return String(button.attrs.value || '')
+        .replace(/&\{template:[^}]+\}/gi, '&{template:*}')
+        .replace(/\{\{\s*roll(?:[2-9]\d*)\s*=\s*\[\[[\s\S]*?\]\]\s*\}\}/gi, '')
+        .replace(/\s+/g, ' ').trim();
+    }
+    var inlineNames = rollRefs && rollRefs.length
+      ? inlineExpressionRefs(node.attrs.value || '') : dictionary();
+    function onlyReferencedInput(wrapper, input) {
+      if (!input || !inlineNames[baseAttrName(input.attrs.name)]) return false;
+      var found = false;
+      var blocked = false;
+      walk(wrapper, function (child) {
+        if (child === input) { found = true; return; }
+        if (!/^(?:div|span)$/.test(child.tag) || directLabelText(child) || Object.keys(child.attrs).some(function (name) {
+          return /^(?:name|title|placeholder|aria-label|data-i18n(?:-.+)?)$/.test(name) &&
+            normalizeText(child.attrs[name]);
+        })) blocked = true;
+      });
+      return found && !blocked;
+    }
     var current = node;
     for (var depth = 0; current && current.parent && depth <= parentDepth; depth += 1) {
       var values = [];
       var siblings = current.parent.children;
       var index = siblings.indexOf(current);
+      var referencedInput = null;
+      if (depth <= 1 && rollRefs && rollRefs.length) {
+        var inputs = [];
+        walk(current.parent, function (child) {
+          if (child.tag !== 'input' || !/^(?:text|number|range)$/.test(fieldNodeType(child))) return;
+          for (var ancestor = child; ancestor && ancestor !== current.parent; ancestor = ancestor.parent)
+            if (hiddenLabelNode(ancestor) || suppressedDefaultNode(ancestor)) return;
+          inputs.push(child);
+        });
+        // 이름칸이나 다른 수치가 함께 있으면 이 묶음의 제목을 한 굴림에 연결하지 않는다.
+        var scalar = inputs.length === 1 && inputs[0];
+        var scalarValue = scalar && normalizeText(scalar.attrs.value);
+        var numericText = scalar && fieldNodeType(scalar) === 'text' &&
+          /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(scalarValue) && isFinite(Number(scalarValue)) &&
+          inlineNames[baseAttrName(scalar.attrs.name)];
+        if (scalar && (fieldNodeType(scalar) === 'number' || numericText) && rollRefs.some(function (ref) {
+          return ref && !ref.max && ref.name === baseAttrName(inputs[0].attrs.name);
+        })) referencedInput = inputs[0];
+      }
+      // 같은 국소 입력에 명시적으로 연결된 제목은 별도 일반·보너스 버튼에도 유효하다.
+      if (referencedInput && referencedInput.attrs.id && inlineNames[baseAttrName(referencedInput.attrs.name)]) {
+        var explicitLabels = siblings.filter(function (sibling) {
+          return sibling.tag === 'label' && sibling.attrs.for === referencedInput.attrs.id &&
+            !hiddenLabelNode(sibling) && !hasRollControl(sibling);
+        });
+        if (explicitLabels.length === 1) {
+          var explicitLabel = labelDetails(explicitLabels[0], translations, labelText);
+          if (explicitLabel.label) return explicitLabel;
+        }
+      }
       [1, -1].forEach(function (direction) {
         for (var i = index + direction; i >= 0 && i < siblings.length; i += direction) {
           var sibling = siblings[i];
@@ -915,9 +1116,16 @@
             continue;
           }
           if (hiddenLabelNode(sibling)) continue;
+          if (onlyReferencedInput(sibling, referencedInput)) continue;
           if (ADJACENT_SKIP_TAGS[sibling.tag]) {
             if (sibling.tag === 'input' &&
               (hasAttr(sibling, 'hidden') || (sibling.attrs.type || '').toLowerCase() === 'hidden')) continue;
+            if (sibling === referencedInput) continue;
+            if (depth === 0 && current.tag === 'button' && sibling.tag === 'button' &&
+                normalizeText(current.attrs.name) && current.attrs.name === sibling.attrs.name &&
+                (current.attrs.type || '').toLowerCase() === 'roll' &&
+                (sibling.attrs.type || '').toLowerCase() === 'roll' &&
+                siblingRollValue(current) === siblingRollValue(sibling)) continue;
             if (depth === 0 && sibling.tag !== 'button') continue;
             break;
           }
@@ -1039,6 +1247,23 @@
     return /^attr_/i.test(name) ? name.slice(5) : name;
   }
 
+  function selectOptionContextAliases(option, label) {
+    if (!/^[+-]?\d+(?:\.\d+)?$/.test(normalizeText(label))) return [];
+    var select = option && option.parent;
+    while (select && select.tag !== 'select') select = select.parent;
+    var container = select && select.parent;
+    var children = container && elementChildren(container) || [];
+    if (!container || children.length !== 1 || children[0] !== select ||
+        !searchableLabelText(directLabelText(container))) return [];
+    // 선택 항목만 대입해 앞 문맥과 뒤 단위의 원본 순서를 보존한다.
+    var selected = { children: container.children.map(function (child) {
+      return child === select ? { tag: '#text', text: label } : child;
+    }) };
+    return uniqueTexts([directLabelText(selected)]).filter(function (alias) {
+      return alias !== normalizeText(label);
+    });
+  }
+
   function buildControls(groups, labelsByFor, translations) {
     var controls = dictionary();
     Object.keys(groups).sort().forEach(function (name) {
@@ -1055,7 +1280,8 @@
           var details = labelDetails(option, translations, nodeText);
           var label = details.label || option.attrs.label || option.attrs.value || '';
           var result = { label: label, value: hasAttr(option, 'value') ? option.attrs.value : label };
-          if (details.aliases.length) result.aliases = details.aliases;
+          var aliases = uniqueTexts(details.aliases.concat(selectOptionContextAliases(option, label)));
+          if (aliases.length) result.aliases = aliases;
           return result;
         }).filter(function (option) {
           var key = option.label + '\n' + option.value;
@@ -1082,6 +1308,13 @@
           }),
           default: checked ? (hasAttr(checked, 'value') ? checked.attrs.value : 'on') : null
         };
+        if (radios.every(function (radio) {
+          for (var parent = radio.parent; parent; parent = parent.parent) {
+            if (parent.tag === 'nav' || /^(?:navigation|tablist)$/.test(parent.attrs.role || '') ||
+                /(?:^|\s)(?:sheet-)?(?:navigation|tabs|tab-bar)(?:\s|$|__)/.test(parent.attrs['class'] || '')) return true;
+          }
+          return false;
+        })) controls[name].navigation = true;
       } else if (nodes.some(function (node) { return node.tag === 'input' && (node.attrs.type || '').toLowerCase() === 'checkbox'; })) {
         var checkboxes = nodes.filter(function (node) { return node.tag === 'input' && (node.attrs.type || '').toLowerCase() === 'checkbox'; });
         var checkedBox = checkboxes.filter(function (checkbox) { return hasAttr(checkbox, 'checked'); })[0];
@@ -1275,7 +1508,8 @@
     function headingNode(candidate) {
       if (!candidate || candidate.tag === '#text') return false;
       var classes = normalizeText(candidate.attrs && candidate.attrs['class']).toLowerCase();
-      return !!headingTags[candidate.tag] || /(?:^|\s)(?:sheet-)?[^\s]*(?:head|header|title|tit)(?:\s|$)/.test(classes);
+      return (candidate.tag === 'img' && !!normalizeText(candidate.attrs.alt)) ||
+        !!headingTags[candidate.tag] || /(?:^|\s)(?:sheet-)?[^\s]*(?:head|header|title|tit|label)(?:\s|$)/.test(classes);
     }
     function usable(details) {
       var values = uniqueTexts([details && details.label].concat(details && details.aliases || [])).filter(function (label) {
@@ -1286,7 +1520,8 @@
     }
     function read(candidate) {
       if (!headingNode(candidate)) return { label: '', aliases: [] };
-      var details = usable(labelDetails(candidate, translations, directLabelText));
+      var details = usable(labelDetails(candidate, translations, candidate.tag === 'img'
+        ? function (image) { return image.attrs.alt; } : directLabelText));
       return details.label ? details : usable(labelDetails(candidate, translations, labelText));
     }
     var direct = read(node);
@@ -1312,7 +1547,7 @@
         (node.attrs.type || '').toLowerCase() !== 'roll') return;
       templateFields(node.attrs.value || '').forEach(function (field) {
         if (!/^(?:subject|name|title|label|skill|attribute)$/i.test(field.field) ||
-          /[@%?&]\{|\[\[|\$\[\[/.test(field.value)) return;
+          /[@%?&^]\{|\[\[|\$\[\[/.test(field.value)) return;
         var label = normalizeText(field.value);
         if (searchableLabelText(label) && !valueLikePlaceholder(label) &&
           !resourceQualifier({ label: label, aliases: [] }))
@@ -1325,6 +1560,14 @@
     return weak.length === 1 ? { label: weak[0], aliases: [], strong: false } : { label: '', aliases: [] };
   }
 
+  function resourceHeadingBranch(node) {
+    var control = false;
+    if (node) walk(node, function (child) {
+      if (/^(?:input|select|textarea)$/.test(child.tag) && /^attr_/i.test(child.attrs.name || '')) control = true;
+    });
+    return !!node && !control;
+  }
+
   function resourceGroupLabelDetails(container, translations) {
     var fallback = null;
     var branch = container;
@@ -1334,6 +1577,12 @@
       details = resourceRollLabelDetails(branch);
       if (details.label && details.strong) return details;
       if (!fallback && details.label) fallback = details;
+      var siblings = branch.parent ? elementChildren(branch.parent) : [];
+      var preceding = siblings[siblings.indexOf(branch) - 1];
+      if (resourceHeadingBranch(preceding)) {
+        details = resourceHeadingDetails(preceding, translations);
+        if (details.label) return details;
+      }
       branch = branch.parent;
     }
     return fallback || { label: '', aliases: [] };
@@ -1457,8 +1706,8 @@
     function headingNode(candidate) {
       if (!candidate || candidate.tag === '#text') return false;
       var classes = normalizeText(candidate.attrs && candidate.attrs['class']).toLowerCase();
-      return !!headingTags[candidate.tag] ||
-        /(?:^|\s)(?:sheet-)?[^\s]*(?:head|header|title|tit)(?:\s|$)/.test(classes);
+      return (candidate.tag === 'img' && !!normalizeText(candidate.attrs.alt)) || !!headingTags[candidate.tag] ||
+        /(?:^|\s)(?:sheet-)?[^\s]*(?:head|header|title|tit|label)(?:\s|$)/.test(classes);
     }
 
     function collectHeadingCandidates(node, distance, nestedDepth, found) {
@@ -1533,6 +1782,12 @@
         var rightIndex = children.indexOf(rightBranch);
         if (leftIndex < 0 || rightIndex < 0) continue;
         var cutoff = Math.min(leftIndex, rightIndex);
+        // 입력란 없는 바로 앞 제목 묶음은 먼 이웃 자원의 제목보다 우선한다.
+        // 병렬 제목이 여럿이면 기존 소스 토큰 판별을 그대로 적용한다.
+        var adjacent = [];
+        if (cutoff > 0 && resourceHeadingBranch(children[cutoff - 1]))
+          collectHeadingCandidates(children[cutoff - 1], depth * 10 + 1, 0, adjacent);
+        if (adjacent.length) return selectHeadingCandidate(adjacent, uniqueTexts(pairTokens));
         for (var index = 0; index < cutoff; index += 1) {
           collectHeadingCandidates(children[index], depth * 10 + cutoff - index, 0, candidates);
         }
@@ -1624,6 +1879,16 @@
             !/^(?:현재|최대|시작|current|maximum|max|start|value|score|값|수치|점수)$/i.test(normalized);
         });
         if (!labels.length) return;
+        siblingFields.forEach(function (candidate) {
+          if (candidate.name !== field.name + '_max' || !(candidate.disabled || candidate.readonly) ||
+            normalizeText(candidate.label) !== normalizeText(candidate.name) ||
+            (candidate.aliases || []).some(function (alias) {
+              return normalizeText(alias) && normalizeText(alias) !== normalizeText(candidate.name);
+            })) return;
+          // 같은 부모의 유일한 현재값과 명시적으로 짝지어진 무명 최대 선언만 보완한다.
+          candidate.label = '최대';
+          if (!candidate.groupLabel) candidate.groupLabel = labels[0];
+        });
         siblingFields.filter(function (candidate) {
           return candidate !== field && /^(?:최대|maximum|max)(?:값|수치|점수)?$/i.test(normalizeText(candidate.label));
         }).forEach(function (maximum) {
@@ -1694,6 +1959,72 @@
     });
   }
 
+  function applyNumericRadioFields(controlScopes, translations, visibility) {
+    (controlScopes.fields || []).forEach(function (field) {
+      if (field.section || field.type !== 'radio' || field.hidden || field.readonly || field.disabled ||
+          visibility.controls[field.name]) return;
+      var nodes = controlScopes.nodes.global[field.name] || [];
+      var control = controlScopes.global[field.name];
+      if (nodes.length < 3 || !control || control.options.length !== nodes.length ||
+          nodes.some(function (node) {
+            for (var ancestor = node; ancestor && ancestor.tag !== '#root'; ancestor = ancestor.parent) {
+              if (hiddenFieldNode(ancestor) || suppressedDefaultNode(ancestor)) return true;
+            }
+            return node.tag !== 'input' || fieldNodeType(node) !== 'radio' ||
+              hasAttr(node, 'readonly') || hasAttr(node, 'disabled');
+          })) return;
+      var numbers = [];
+      if (control.options.some(function (option) {
+        var value = String(option.value);
+        var number = Number(value);
+        if (!/^-?(?:0|[1-9]\d*)$/.test(value) || !isFinite(number) ||
+            Math.abs(number) > 9007199254740991 || String(number) !== value ||
+            !/^[+-]?\d+$/.test(normalizeText(option.label)) ||
+            Number(normalizeText(option.label)) !== number) return true;
+        numbers.push(number);
+        return false;
+      })) return;
+      numbers.sort(function (left, right) { return left - right; });
+      if (numbers.some(function (number, index) { return index && number !== numbers[index - 1] + 1; })) return;
+      var container = nodes[0].parent;
+      for (var depth = 0; container && container.tag !== '#root' && depth < 4;
+        depth += 1, container = container.parent) {
+        var members = [];
+        var companions = [];
+        var unsupported = false;
+        walk(container, function (node) {
+          if (hiddenFieldNode(node) || suppressedDefaultNode(node)) unsupported = true;
+          if (node.tag === 'button' || node.tag === 'input' && fieldNodeType(node) === 'roll') {
+            if (fieldNodeType(node) !== 'roll') unsupported = true;
+            return;
+          }
+          if (!/^(?:input|select|textarea)$/.test(node.tag)) return;
+          if (nodes.indexOf(node) >= 0) members.push(node);
+          else if (node.tag === 'input' && /^(?:number|range)$/.test(fieldNodeType(node)) &&
+              !hiddenFieldNode(node) && /^attr_/i.test(node.attrs.name || ''))
+            companions.push(node);
+          else unsupported = true;
+        });
+        if (members.length !== nodes.length || unsupported || companions.length !== 1) continue;
+        var companionName = baseAttrName(companions[0].attrs.name).toLowerCase();
+        var name = field.name.toLowerCase();
+        // A unique same-group scalar with the exact attribute suffix is related evidence, not a maximum.
+        if (companionName.length <= name.length || companionName.slice(-name.length) !== name) continue;
+        var headings = elementChildren(container).filter(function (node) {
+          return /^(?:h[1-6]|legend|caption)$/.test(node.tag) && resourceHeadingBranch(node);
+        }).map(function (node) { return resourceHeadingDetails(node, translations); })
+          .filter(function (details) { return !!details.label; });
+        if (headings.length !== 1) continue;
+        field.label = headings[0].label;
+        field.aliases = headings[0].aliases.slice();
+        field.groupLabel = headings[0].label;
+        field.numericCandidate = true;
+        field.radioRange = [numbers[0], numbers[numbers.length - 1]];
+        return;
+      }
+    });
+  }
+
   function collectControls(root, translations) {
     var labelsByFor = dictionary();
     var globalGroups = dictionary();
@@ -1727,6 +2058,44 @@
       fields: fields,
       nodes: { global: globalGroups, sections: sectionGroups }
     };
+  }
+
+  function applySettingsControls(root, controlScopes, userOptions) {
+    var options = dictionary();
+    (Array.isArray(userOptions) ? userOptions : []).forEach(function (option) {
+      var name = baseAttrName(option && option.attribute || '');
+      if (name && controlScopes.global[name]) options[name] = true;
+    });
+    if (!Object.keys(options).length) return;
+    function settingsClass(node) {
+      return /(?:^|[\s_-])(?:config|configuration|settings|options)(?:$|[\s_-])/i.test(
+        String(node.attrs['class'] || '').replace(/([a-z])([A-Z])/g, '$1-$2'));
+    }
+    var panels = new Set();
+    walk(root, function (node) {
+      if (!/^(?:div|fieldset|section|aside)$/.test(node.tag) || !settingsClass(node)) return;
+      var declared = dictionary();
+      var gameplay = false;
+      walk(node, function (child) {
+        var name = baseAttrName(child.attrs.name || '');
+        if (options[name]) declared[name] = true;
+        if (child.tag === 'button' && /^(?:roll|action)$/.test(child.attrs.type || '') ||
+            /^repeating_/.test(child.attrs['class'] || '') ||
+            child.tag === 'input' && !hiddenFieldNode(child) && !/^(?:checkbox|radio)$/.test(fieldNodeType(child))) gameplay = true;
+      });
+      // Author-declared options anchor a settings-only panel; do not infer from a class alone.
+      if (!gameplay && Object.keys(declared).length >= 2) panels.add(node);
+    });
+    controlScopes.fields.forEach(function (field) {
+      if (field.section || !/^(?:checkbox|radio)$/.test(field.type)) return;
+      var nodes = controlScopes.nodes.global[field.name] || [];
+      if (options[field.name] || nodes.length && nodes.every(function (node) {
+        if (panels.size && settingsClass(node)) return true;
+        for (var ancestor = node.parent; ancestor; ancestor = ancestor.parent)
+          if (panels.has(ancestor)) return true;
+        return false;
+      })) field.trackCandidate = false;
+    });
   }
 
   function applyFieldVisibility(controlScopes, conditions) {
@@ -1785,10 +2154,17 @@
     }, []);
   }
 
+  function escapedClosingBrace(text, index) {
+    var match = text.charAt(index) === '&' && text.slice(index).match(/^&(?:amp;)*(?:#(?:0*125|x0*7d)|rbrace);/i);
+    return match ? match[0].length : 0;
+  }
+
   function findBraceEnd(text, start) {
     var depth = 1;
     for (var i = start + 2; i < text.length; i += 1) {
-      if (text.charAt(i) === '{') depth += 1;
+      var escaped = depth > 1 && escapedClosingBrace(text, i);
+      if (escaped) { depth -= 1; i += escaped - 1; }
+      else if (text.charAt(i) === '{') depth += 1;
       else if (text.charAt(i) === '}' && --depth === 0) return i + 1;
     }
     return -1;
@@ -1802,7 +2178,9 @@
     var brackets = 0;
     for (var i = 0; i < text.length; i += 1) {
       var ch = text.charAt(i);
-      if (ch === '{') braces += 1;
+      var escaped = braces && escapedClosingBrace(text, i);
+      if (escaped) { braces -= 1; i += escaped - 1; }
+      else if (ch === '{') braces += 1;
       else if (ch === '}' && braces) braces -= 1;
       else if (ch === '(') parens += 1;
       else if (ch === ')' && parens) parens -= 1;
@@ -1832,7 +2210,7 @@
           var pair = splitTopLevel(parts[p], ',', true);
           var label = normalizeText(pair[0]);
           if (!label) continue;
-          options.push({ label: label, value: pair.length > 1 ? pair[1].trim() : pair[0].trim() });
+          options.push({ label: label, value: decodeEntities(pair.length > 1 ? pair[1].trim() : pair[0].trim()) });
         }
       }
       queries.push({
@@ -2104,7 +2482,7 @@
       cursor = equals + 1;
       var valueEnd = -1;
       while (cursor < raw.length - 1) {
-        if (/[@%?&]\{/.test(raw.slice(cursor, cursor + 2))) {
+        if (/[@%?&^]\{/.test(raw.slice(cursor, cursor + 2))) {
           var tokenEnd = findBraceEnd(raw, cursor);
           if (tokenEnd > cursor) { cursor = tokenEnd; continue; }
         }
@@ -2355,6 +2733,33 @@
     return result;
   }
 
+  function applySharedRollLabels(rolls) {
+    var groups = dictionary();
+    rolls.forEach(function (roll) {
+      if (!roll.name) return;
+      var key = JSON.stringify([roll.name, roll.raw, roll.repeating && roll.repeating.section || '']);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(roll);
+    });
+    Object.keys(groups).forEach(function (key) {
+      var group = groups[key];
+      var labels = group.map(function (roll) {
+        var alias = roll.label === roll.name ? normalizeText(roll.name.replace(/_/g, ' ')) : roll.label;
+        var candidates = uniqueTexts(group.filter(function (peer) {
+          return peer.label !== roll.label && ((peer.aliases || []).indexOf(roll.label) > -1 ||
+              (peer.aliases || []).indexOf(alias) > -1) &&
+            (roll.aliases || []).indexOf(peer.label) < 0;
+        }).map(function (peer) { return peer.label; }));
+        return candidates.length === 1 ? candidates[0] : '';
+      });
+      group.forEach(function (roll, index) {
+        if (!labels[index]) return;
+        roll.aliases = uniqueTexts([roll.label].concat(roll.aliases || []));
+        roll.label = labels[index];
+      });
+    });
+  }
+
   function collectRolls(nodes, controlScopes, translations, visibility) {
     var keys = dictionary();
     return nodes.map(function (node) {
@@ -2371,7 +2776,7 @@
       if (!htmlName && node.tag === 'button' && !nodeText(node) &&
           ownLabel.label && ownLabel.label === normalizeText(node.attrs.title))
         ownLabel = mergeLabelDetails(resourceRollLabelDetails(node), ownLabel);
-      var adjacentLabel = ownLabel.label ? { label: '', aliases: [] } : adjacentLabelDetails(node, translations, 1);
+      var adjacentLabel = ownLabel.label ? { label: '', aliases: [] } : adjacentLabelDetails(node, translations, 1, rawRefs);
       var rowLabel = tableRowLabelDetails(node, translations, rawRefs);
       var labelInfo = mergeLabelDetails(mergeLabelDetails(ownLabel, adjacentLabel), rowLabel);
       var label = labelInfo.label || name || '';
@@ -2384,6 +2789,17 @@
       var labelRefSeen = dictionary();
       var staticLabels = [];
       fields.forEach(function (field) {
+        var translated = field.value.match(/^\^\{([^{}]+)\}$/);
+        var translatedLabels = translated ? uniqueTexts(translations.map(function (messages) {
+          return typeof messages[translated[1]] === 'string' ? messages[translated[1]] : '';
+        })) : [];
+        if (translatedLabels.length) {
+          field.value = translatedLabels[0];
+          if (!ownLabel.label && /^(?:name|subject|title|label|skill|skill_name|weapon_name|attribute|header)$/i.test(field.field)) {
+            labelInfo.aliases = uniqueTexts([label].concat(labelInfo.aliases, translatedLabels.slice(1)));
+            label = field.value;
+          }
+        }
         var ref = directRef(field.value);
         var refs = ref ? [ref] : publicRefs(field.value.replace(/\[\[[\s\S]*?\]\]/g, ' '));
         refs.forEach(function (item) {
@@ -2393,7 +2809,7 @@
             labelRefs.push({ field: field.field, name: item.name, max: item.max });
           }
         });
-        if (!refs.length && field.value && !/[@%?&]\{|\[\[|\$\[\[/.test(field.value))
+        if (!refs.length && field.value && !/[@%?&^]\{|\[\[|\$\[\[/.test(field.value))
           staticLabels.push({ field: field.field, value: normalizeText(field.value) });
       });
       var expressionNames = inlineExpressionRefs(raw);
@@ -2440,6 +2856,7 @@
         modes: modes
       };
       if (modes.incomplete) result.modesIncomplete = true;
+      if (visibility && visibility.listHidden && visibility.listHidden[node._kibSheetNodeId]) result.listHidden = true;
       var condition = visibility && visibility.rolls && visibility.rolls[node._kibSheetNodeId];
       if (condition) {
         result.visibility = condition;
@@ -2476,14 +2893,17 @@
       });
     });
     var visibility = visibilityNodes.length
-      ? buildRollVisibility(tree, visibilityNodes, opts.css)
+      ? buildRollVisibility(tree, visibilityNodes, opts.css, opts.legacy)
       : { rolls: dictionary(), controls: dictionary() };
     applyFieldVisibility(controlScopes, visibility.rolls);
+    applySettingsControls(tree, controlScopes, opts.userOptions);
     var rolls = collectRolls(rollNodes, controlScopes, translations, visibility);
+    applySharedRollLabels(rolls);
     applyFieldRollLabels(controlScopes, rolls);
     applyResourceGroupLabels(controlScopes, translations);
     applyNamedResourcePairGroups(controlScopes, translations);
     applyResourcePairLabels(controlScopes);
+    applyNumericRadioFields(controlScopes, translations, visibility);
     var resultTemplates = collectResultTemplates(tree, rolls);
     var signature = compactSignature(globalControls, rolls, controlScopes.fields);
     controlScopes.fields.forEach(function (field) { delete field.persistCandidate; });

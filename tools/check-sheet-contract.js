@@ -107,6 +107,168 @@ const html = `
 
 const contract = parseSheetContract(html, { name: '합성 시트', id: 'fixture', sourceHash: 'abc123' });
 
+const adjacentSiblingRolls = parseSheetContract(`
+  <div><h2>현재 이성치</h2><input name="attr_stability">
+    <button type="roll" name="roll_stability_check" value="&amp;{template:three} {{name=Stability Roll}} {{success=[[@{stability}]]}} {{roll1=[[1d100]]}} {{roll2=[[1d100]]}} {{roll3=[[1d100]]}}"></button>
+    <button type="roll" name="roll_stability_check" value="&amp;{template:one} {{name=Stability Roll}} {{success=[[@{stability}]]}} {{roll1=[[1d100]]}}"></button>
+  </div>
+  <div><h2>다른 항목 제목</h2>
+    <button type="roll" name="roll_other_first" value="&amp;{template:test} {{roll=[[1d6]]}}"></button>
+    <button type="roll" name="roll_other_second" value="&amp;{template:test} {{roll=[[1d8]]}}"></button>
+  </div>
+  <div><h2>무명 항목 제목</h2>
+    <button type="roll" value="&amp;{template:test} {{roll=[[1d4]]}}"></button>
+    <button type="roll" value="&amp;{template:test} {{roll=[[1d12]]}}"></button>
+  </div>
+  <div><h2>전투</h2>
+    <button type="roll" name="roll_tracker" value="[[@{speed}&amp;{tracker}]]"></button>
+    <button type="roll" name="roll_tracker" value="[[@{speed}+@{modifier}&amp;{tracker}]]"></button>
+  </div>
+  <div>방패 <input name="attr_defense_score">
+    <button type="roll" name="roll_defense" value="&amp;{template:test} {{success=[[@{defense_score}]]}} {{roll=[[1d100]]}}"></button>
+    <button type="roll" name="roll_defense" value="&amp;{template:test} {{success=[[@{defense_score}+?{Mod|0}]]}} {{roll=[[1d100]]}}"></button>
+    AP <input name="attr_armor_points">
+  </div>`);
+assert.deepStrictEqual(adjacentSiblingRolls.rolls.slice(0, 2).map((roll) => roll.label),
+  ['현재 이성치', '현재 이성치'],
+  '동일한 원본 name의 일반·다중 굴림 버튼은 앞의 같은 제목을 함께 읽어야 합니다.');
+assert.strictEqual(adjacentSiblingRolls.rolls[3].label, 'other_second',
+  '이름이 다른 앞 버튼은 인접 제목 탐색의 경계로 유지해야 합니다.');
+assert.strictEqual(adjacentSiblingRolls.rolls[5].label, '',
+  '이름 없는 앞 버튼을 건너뛰어 무관한 제목을 공유하면 안 됩니다.');
+assert.strictEqual(adjacentSiblingRolls.rolls[7].label, 'tracker',
+  '같은 버튼 이름이라도 판정 식이 다른 동작은 제목 탐색의 경계로 유지해야 합니다.');
+assert.deepStrictEqual(adjacentSiblingRolls.rolls.slice(8).map((roll) => roll.label), ['방패', 'AP'],
+  '동명 버튼 뒤의 다른 입력 제목을 앞 판정 제목으로 끌어오면 안 됩니다.');
+
+// source19 원본의 빈 일반/보너스 버튼은 숫자 입력 한 칸 뒤의 wrapper에 있습니다.
+const source19LuckHtml = `
+  <div class="characterisrics_container">
+    <input type="checkbox" style="display:none" class="sheet-showpulp" name="attr_showpulp" value="1">
+    <input type="checkbox" style="display:none" class="sheet-showpulp" name="attr_showpulp" value="1">
+    <input type="checkbox" style="display:none" class="sheet-showskills" name="attr_showskills" value="7" checked="checked">
+    <input type="checkbox" style="display:none" class="sheet-showskills" name="attr_showskills" value="1">
+    <input type="checkbox" style="display:none" class="sheet-showskills" name="attr_showskills" value="5">
+    <input type="checkbox" style="display:none" class="sheet-showskills" name="attr_showskills" value="2">
+    <h4 class="section-head" style="width:73px">행운</h4>
+    <input class="attr-input" type="number" name="attr_luck" value="50" min="0" max="99">
+    <div class="attr-roll">
+      <button class="sheet-old-roll btn ui-draggable" type="roll" value="&amp;{template:coc} {{name=@{luck_txt}}} {{success=[[@{luck}]]}} {{hard=[[floor(@{luck}/2)]]}} {{extreme=[[floor(@{luck}/5)]]}} {{roll1=[[1d100]]}} {{roll2=[[1d100]]}} {{roll3=[[1d100]]}}" name="roll_luck_check"></button>
+      <button class="sheet-new-roll btn ui-draggable" type="roll" value="&amp;{template:coc-1} {{name=@{luck_txt}}} {{success=[[@{luck}]]}} {{hard=[[floor(@{luck}/2)]]}} {{extreme=[[floor(@{luck}/5)]]}} {{roll1=[[1d100]]}}" name="roll_luck_check"></button>
+    </div>
+  </div>
+  <input type="hidden" name="attr_luck_txt" value="Luck ROLL"/>
+  <script type="text/worker">
+    getAttrs(['luck_txt'], v => {
+      if (v.luck_txt !== getTranslationByKey('luck-u')) {
+        setAttrs({luck_txt: getTranslationByKey('luck-u')});
+    }});
+  </script>`;
+const source19Luck = parseSheetContract(source19LuckHtml, { translations: [{ 'luck-u': '운' }] });
+assert.deepStrictEqual(source19Luck.rolls.map((roll) => roll.label), ['행운', '행운'],
+  'source19의 숫자 입력 뒤에 묶인 일반·보너스 버튼은 실제 UI 제목 행운을 함께 보존해야 합니다.');
+assert.deepStrictEqual(source19Luck.rolls.map((roll) => roll.template), ['coc', 'coc-1']);
+assert(source19Luck.rolls.every((roll) => roll.raw.includes('{{name=@{luck_txt}}}') &&
+  roll.labelRefs.some((ref) => ref.field === 'name' && ref.name === 'luck_txt')),
+'UI 제목을 연결해도 원본 출력 이름 참조를 바꾸면 안 됩니다.');
+assert.strictEqual(source19Luck.fields.find((field) => field.name === 'luck_txt').default, '운');
+assert.strictEqual(source19Luck.fields.find((field) => field.name === 'luck').label, '행운');
+
+const wrappedNumericBoundaries = parseSheetContract(`
+  <div><h4>주변 제목</h4><input type="number" name="attr_explicit_target" value="50">
+    <div><button type="roll" name="roll_explicit" value="&{template:test} {{success=[[@{explicit_target}]]}}">명시된 버튼 이름</button></div>
+  </div>
+  <div><h4>무관한 입력 제목</h4><input type="number" name="attr_unrelated" value="50">
+    <div><button type="roll" name="roll_unrelated" value="&{template:test} {{success=[[@{elsewhere}]]}}"></button></div>
+  </div>
+  <div><h4>시작</h4><input type="number" name="attr_san_start" value="50">
+    <input type="number" name="attr_san_max" value="99" readonly>
+    <h4>현재</h4><input type="number" name="attr_san" value="50">
+    <div><button type="roll" name="roll_san_check" value="&{template:test} {{name=SAN Roll}} {{success=[[@{san}]]}}"></button></div>
+  </div>
+  <fieldset class="repeating_custom"><h4>가변 이름칸 제목</h4><input type="number" name="attr_custom_value" value="47">
+    <div><button type="roll" name="roll_custom" value="&{template:test} {{name=@{custom_name}}} {{success=[[@{custom_value}]]}}"></button></div>
+    <input type="text" name="attr_custom_name" value="">
+  </fieldset>`);
+assert.strictEqual(wrappedNumericBoundaries.rolls[0].label, '명시된 버튼 이름',
+  '명시된 버튼 이름을 숫자 입력 앞의 주변 제목으로 덮으면 안 됩니다.');
+assert(!wrappedNumericBoundaries.rolls[0].aliases.includes('주변 제목'));
+assert.strictEqual(wrappedNumericBoundaries.rolls[1].label, 'unrelated',
+  '굴림이 참조하지 않는 숫자 입력을 건너 제목을 가져오면 안 됩니다.');
+assert.strictEqual(wrappedNumericBoundaries.rolls[2].label, 'san_check',
+  '숫자 입력이 여러 개인 묶음의 현재 라벨을 SAN 굴림 제목으로 가져오면 안 됩니다.');
+assert.deepStrictEqual(wrappedNumericBoundaries.rolls[2].staticLabels, [{ field: 'name', value: 'SAN Roll' }]);
+assert.strictEqual(wrappedNumericBoundaries.rolls[3].label, 'custom',
+  '가변 텍스트 이름칸은 숫자 입력으로 취급하여 건너뛰면 안 됩니다.');
+assert.deepStrictEqual(wrappedNumericBoundaries.rolls[3].labelRefs,
+  [{ field: 'name', name: 'custom_name', max: false }],
+  '가변 이름의 원본 참조는 이름 변경 후에도 사용할 수 있게 보존해야 합니다.');
+
+// source20: 숫자를 담는 text 입력의 순수 wrapper 뒤에도 실제 UI 제목이 있습니다.
+const source20PowRaw = '&{template:coc}@{template_name}{{name=정신력}}{{success=[[@{pow}]]}}{{hard=[[floor(@{pow}/2)]]}}{{extreme=[[floor(@{pow}/5)]]}}{{roll1=[[1d100]]}}';
+const source20Pow = parseSheetContract(`
+  <div>
+    <div class="sheet-ability-header">정신</div>
+    <div class="sheet-attributes"><input type="text" name="attr_pow" value="50"></div>
+    <div class="sheet-ability-footer">
+      <button type="roll" value="${source20PowRaw}@{dice_corr}" name="roll_pow_check" class="sheet-button sheet-dice-btn pale"><i class="fa-solid fa-dice-d20"></i><img name="attr_dice_01" class="sheet-for-custom"></button>
+      <button type="roll" value="${source20PowRaw}" name="roll_pow_check" class="sheet-button sheet-dice-btn"><i class="fa-solid fa-dice-d20"></i><img name="attr_dice_02" class="sheet-for-custom"></button>
+    </div>
+  </div>`);
+assert.deepStrictEqual(source20Pow.rolls.map((roll) => roll.label), ['정신', '정신'],
+  '숫자 text 입력만 감싼 wrapper를 사이에 둔 일반·보너스 굴림은 UI 제목 정신을 읽어야 합니다.');
+assert.deepStrictEqual(source20Pow.rolls.map((roll) => roll.raw),
+  [source20PowRaw + '@{dice_corr}', source20PowRaw],
+  'UI 제목을 읽어도 정신력이라는 원본 출력 이름과 판정 식은 그대로 보존해야 합니다.');
+assert(source20Pow.rolls.every((roll) => roll.staticLabels.some((entry) => entry.value === '정신력')));
+
+const source20LuckRaw = '&{template:coc}@{template_name}{{name=행운}}{{success=[[@{luck}]]}} {{hard=[[floor(@{luck}/2)]]}}{{extreme=[[floor(@{luck}/5)]]}}{{roll1=[[1d100]]}}';
+const source20Luck = parseSheetContract(`
+  <div class="sheet-subability-03">
+    <label for="attr_luck" class="sheet-label-default">운</label>
+    <input type="number" min="0" max="99" name="attr_luck" placeholder="50" id="attr_luck" class="sheet-point-box-input">
+    <button type="roll" name="roll_luck" value="${source20LuckRaw}@{dice_corr}"><i class="fa-solid fa-dice-d20"></i><img name="attr_dice_01"></button>
+    <button type="roll" name="roll_luck" value="${source20LuckRaw}"><i class="fa-solid fa-dice-d20"></i><img name="attr_dice_02"></button>
+  </div>`);
+assert.deepStrictEqual(source20Luck.rolls.map((roll) => roll.label), ['운', '운'],
+  '같은 국소 수치 입력을 참조하는 두 버튼은 명시된 label-for UI 이름을 함께 읽어야 합니다.');
+assert.deepStrictEqual(source20Luck.rolls.map((roll) => roll.raw),
+  [source20LuckRaw + '@{dice_corr}', source20LuckRaw]);
+assert(source20Luck.rolls.every((roll) => roll.staticLabels.some((entry) => entry.value === '행운')));
+assert.strictEqual(source20Luck.fields.find((field) => field.name === 'luck').default, null,
+  'placeholder만 있는 숫자 입력에 임의 기본값을 넣으면 안 됩니다.');
+
+const scalarBridgeCases = [
+  { name: 'direct_text', input: '<input type="text" name="attr_score" value="-2.5">', expected: '국소 제목' },
+  { name: 'wrapped_number', input: '<div><input type="number" name="attr_score" value="50"></div>', expected: '국소 제목' },
+  ...['', ' ', '50%', '@{other}', 'Infinity', '9'.repeat(310)].map((value, index) => ({
+    name: 'nonnumeric_' + index, input: `<div><input type="text" name="attr_score" value="${value}"></div>`,
+  })),
+  ...[
+    '현재', '<span>현재</span>', '<input type="hidden" name="attr_mirror" value="1">',
+    '<input type="checkbox" name="attr_flag">', '<input type="radio" name="attr_mode">',
+    '<select name="attr_option"><option>옵션</option></select>', '<textarea name="attr_note"></textarea>',
+    '<button type="action" name="act_other"></button>', '<img alt="현재">',
+    '<span data-i18n="current"></span>', '<span title="현재"></span>',
+    '<span name="attr_display"></span>', '<span aria-label="현재"></span>',
+    '<span placeholder="현재"></span>', '<span></span>'.repeat(205) + '현재',
+  ].map((extra, index) => ({
+    name: 'semantic_wrapper_' + index,
+    input: `<div><input type="text" name="attr_score" value="50">${extra}</div>`,
+  })),
+  { name: 'label_only', input: '<div><input type="text" name="attr_score" value="50"></div>', raw: '{{name=@{score}}} {{roll=[[1d100]]}}' },
+  { name: 'inline_max_only', input: '<div><input type="text" name="attr_score" value="50"></div>', raw: '{{name=@{score}}} {{target=[[@{score|max}]]}}' },
+  { name: 'multiple_scalars', input: '<div><input type="text" name="attr_score" value="50"></div><input type="text" name="attr_name" value="">' },
+  { name: 'explicit_for', input: '<label for="score-id">국소 제목</label><input type="number" name="attr_score" id="score-id">', expected: '국소 제목' },
+  { name: 'unrelated_for', input: '<label for="other-id">무관한 명시 제목</label><input type="number" name="attr_score" id="score-id">' },
+  { name: 'label_only_for', input: '<label for="score-id">이름칸 제목</label><input type="text" name="attr_score" id="score-id" value="50">', raw: '{{name=@{score}}} {{roll=[[1d100]]}}' },
+];
+scalarBridgeCases.forEach((test) => {
+  const sheet = parseSheetContract(`<div><h4>국소 제목</h4>${test.input}<div><button type="roll" name="roll_${test.name}" value="&{template:test} ${test.raw || '{{success=[[@{score}]]}} {{roll=[[1d100]]}}'}"></button></div></div>`);
+  assert.strictEqual(sheet.rolls[0].label, test.expected || test.name,
+    test.name + ': 숫자 참조와 순수 입력 wrapper가 확인된 경우에만 앞 제목을 연결해야 합니다.');
+});
+
 function packedContractShape(sheet) {
   const fieldKeys = [
     'name', 'type', 'label', 'aliases', 'section', 'default', 'max', 'onValue', 'visibility',
@@ -350,6 +512,101 @@ assert.strictEqual(parallelResourceContract.fields.find((field) => field.name ==
 assert.strictEqual(parallelResourceContract.fields.find((field) => field.name === 'unknown').groupLabel, undefined,
   '병렬 제목 중 유일하게 맞는 원본 후보가 없으면 자원 이름을 추측하면 안 됩니다.');
 
+// source20: 현재값에만 연결된 label과 같은 부모의 무명 disabled *_max 원본 입력입니다.
+const source20ResourceContract = parseSheetContract(`
+  <div class="sheet-subability-01">
+    <label for="attr_hp" class="sheet-label-default">체력</label>
+    <div>
+      <input type="number" name="attr_hp" placeholder="0" id="attr_hp">/<input type="number" min="0" name="attr_hp_max" value="floor((@{con}+@{siz})/10)" disabled="true">
+      <input type="checkbox" id="attr_majorwound" value="1" name="attr_majorwound" class="sheet-checkbox"><label for="attr_majorwound" class="sheet-check-label">중상</label>
+      <input type="checkbox" id="attr_dying" value="1" name="attr_dying" class="sheet-checkbox"><label for="attr_dying" class="sheet-check-label">빈사</label>
+    </div>
+    <label for="attr_mp" class="sheet-label-default">마력</label>
+    <div>
+      <input type="number" min="0" name="attr_mp" placeholder="0" id="attr_mp">/<input type="number" min="0" name="attr_mp_max" value="floor(@{pow}/5)" disabled="true">
+    </div>
+    <label for="attr_san" class="sheet-label-default">이성</label>
+    <div>
+      <input type="number" name="attr_san" min="0" placeholder="0" id="attr_san"> / <input type="number" min="0" name="attr_san_max" placeholder="최대" value="99-@{cthulhu_mythos}" disabled="true">
+      <input type="number" min="0" name="attr_san_start" placeholder="시작" title="시작 이성" alt="시작 이성">
+    </div>
+  </div>`);
+[['hp', '체력', 'floor((@{con}+@{siz})/10)'], ['mp', '마력', 'floor(@{pow}/5)']]
+  .forEach(([name, label, formula]) => {
+    const current = source20ResourceContract.fields.find((field) => field.name === name);
+    const maximum = source20ResourceContract.fields.find((field) => field.name === name + '_max');
+    assert.strictEqual(current.label, label);
+    assert.strictEqual(maximum.label, '최대', 'source20의 명시적 *_max 선언은 같은 부모의 현재값 최대 역할로 보존해야 합니다.');
+    assert.strictEqual(maximum.groupLabel, label);
+    assert(maximum.aliases.includes(label));
+    assert.strictEqual(maximum.default, formula, '원본 최대값 공식은 명칭 보완으로 바뀌면 안 됩니다.');
+    assert.strictEqual(maximum.disabled, true);
+    assert.strictEqual(maximum.numericCandidate, false);
+  });
+assert.strictEqual(source20ResourceContract.fields.find((field) => field.name === 'san_max').label, '최대');
+assert.strictEqual(source20ResourceContract.fields.find((field) => field.name === 'san_max').default, '99-@{cthulhu_mythos}');
+assert.strictEqual(source20ResourceContract.fields.find((field) => field.name === 'san_start').label, '시작 이성');
+
+const namedMaximumGuards = parseSheetContract(`
+  <label for="attr_readonly_pool">정력</label><div><input type="number" name="attr_readonly_pool" id="attr_readonly_pool"><input type="number" name="attr_readonly_pool_max" value="12" readonly></div>
+  <label for="attr_explicit_pool">잔량</label><div><input type="number" name="attr_explicit_pool" id="attr_explicit_pool"><input type="number" name="attr_explicit_pool_max" title="보유 상한" value="13" disabled></div>
+  <label for="attr_aliased_pool">평정</label><div><input type="number" name="attr_aliased_pool" id="attr_aliased_pool"><input type="number" name="attr_aliased_pool_max" title="aliased_pool_max" placeholder="독립 상한" value="20" disabled></div>
+  <label for="attr_editable_pool">동력</label><div><input type="number" name="attr_editable_pool" id="attr_editable_pool"><input type="number" name="attr_editable_pool_max" value="14"></div>
+  <label for="attr_wrong_pool">집중</label><div><input type="number" name="attr_wrong_pool" id="attr_wrong_pool"><input type="number" name="attr_different_max" value="15" disabled></div>
+  <label for="attr_split_pool">생명</label><div><input type="number" name="attr_split_pool" id="attr_split_pool"></div><div><input type="number" name="attr_split_pool_max" value="16" disabled></div>
+  <label for="attr_crowded_pool">마나</label><div><input type="number" name="attr_crowded_pool" id="attr_crowded_pool"><input type="number" name="attr_crowded_pool_max" value="17" disabled><input type="number" name="attr_other_count" value="1"></div>
+  <label for="attr_hidden_pool">기력</label><div><input type="number" name="attr_hidden_pool" id="attr_hidden_pool"><input type="number" name="attr_hidden_pool_max" value="18" disabled hidden></div>
+  <fieldset class="repeating_pool"><label for="attr_row_pool">에너지</label><div><input type="number" name="attr_row_pool" id="attr_row_pool"><input type="number" name="attr_row_pool_max" value="19" disabled></div></fieldset>
+`);
+assert.strictEqual(namedMaximumGuards.fields.find((field) => field.name === 'readonly_pool_max').label, '최대');
+assert.strictEqual(namedMaximumGuards.fields.find((field) => field.name === 'row_pool_max').label, '에너지',
+  '반복행에서 이미 얻은 표시명도 새 선언명 보완으로 덮으면 안 됩니다.');
+assert.strictEqual(namedMaximumGuards.fields.find((field) => field.name === 'explicit_pool_max').label, '보유 상한',
+  '이미 있는 최대 필드의 명시적 UI 제목을 선언명 역할로 덮으면 안 됩니다.');
+const aliasedMaximum = namedMaximumGuards.fields.find((field) => field.name === 'aliased_pool_max');
+assert.strictEqual(aliasedMaximum.label, 'aliased_pool_max');
+assert(aliasedMaximum.aliases.includes('독립 상한'), '기계명 label이어도 원본 별칭이 있으면 새 최대 역할로 바꾸면 안 됩니다.');
+['editable_pool_max', 'different_max', 'split_pool_max', 'crowded_pool_max', 'hidden_pool_max'].forEach((name) => {
+  assert.strictEqual(namedMaximumGuards.fields.find((field) => field.name === name).label, name,
+    '편집 가능·다른 선언명·다른 부모·여러 현재값·숨김 최대필드는 새 명칭 보완에서 제외해야 합니다: ' + name);
+});
+
+const imageResourceContract = parseSheetContract(`
+  <div class="sheet-resource-board"><div class="sheet-column">
+    <input type="checkbox" class="sheet-extra-mode" name="attr_extra_mode" value="1">
+    <div class="sheet-extra-panel"><h4>생명</h4><div class="section"><table><tr>
+      <td><input placeholder="현재" type="text" name="attr_vital"></td>
+      <td>/</td><td><input placeholder="최대" type="number" name="attr_extra_limit" value="20" disabled></td>
+    </tr></table></div></div>
+    <div><img src="vital.png" alt="생명"></div>
+    <div class="section"><table><tr>
+      <td><input placeholder="현재" type="text" name="attr_vital"></td>
+      <td>/</td><td><input placeholder="최대" type="number" name="attr_vital_max" value="10" disabled></td>
+    </tr></table></div>
+    <div><img src="arcane.png" alt="마력"></div>
+    <div class="section"><table><tr>
+      <td><input placeholder="현재" type="text" name="attr_arcane"></td>
+      <td>/</td><td><input placeholder="최대" type="number" name="attr_arcane_max" value="12" disabled></td>
+    </tr></table></div>
+    <div><img src="focus.png" alt="집중"><img src="decoration.png" alt=""></div>
+    <div class="section"><table><tr>
+      <td><input placeholder="현재" type="text" name="attr_focus"></td>
+      <td>/</td><td><input placeholder="최대" type="number" name="attr_focus_max" value="8" disabled></td>
+    </tr></table></div>
+    <h4>의지</h4>
+    <div class="section"><table><tr>
+      <td><input placeholder="현재" type="text" name="attr_spirit"></td>
+      <td>/</td><td><input placeholder="최대" type="number" name="attr_spirit_max" value="9" disabled></td>
+    </tr></table></div>
+  </div></div>
+`, { css: '.sheet-extra-panel{display:none}.sheet-extra-mode:checked ~ .sheet-extra-panel{display:block}' });
+[['vital', '생명'], ['arcane', '마력'], ['focus', '집중'], ['spirit', '의지']].forEach(([name, label]) => {
+  [name, name + '_max'].forEach((fieldName) => {
+    assert.strictEqual(imageResourceContract.fields.find((field) => field.name === fieldName).groupLabel, label,
+      '이미지 제목 자원은 먼 이웃의 제목이 아니라 가까운 원본 alt를 사용해야 합니다: ' + fieldName);
+  });
+});
+
 const trailingHeadingContract = parseSheetContract(`
   <div class="sheet-focus-panel">
     <h4 class="sheet-focus-title" data-i18n="focus-title">Focus</h4>
@@ -361,6 +618,20 @@ const trailingHeadingContract = parseSheetContract(`
 `, { translations: [{ 'focus-title': '집중', 'condition-title': '상태' }] });
 assert.strictEqual(trailingHeadingContract.fields.find((field) => field.name === 'focus').groupLabel, '집중',
   '현재·최대 입력 뒤의 무관한 제목이 자원 이름을 덮어쓰면 안 됩니다.');
+const spanResourceContract = parseSheetContract(`
+  <div class="sheet-gauge-area">
+    <div class="sheet-gauge-box">
+      <div><span class="sheet-gauge-label">집중</span><div><input type="number" title="현재 집중" placeholder="현재" name="attr_focus"></div> / <div><input type="number" title="최대 집중" placeholder="최대" name="attr_focus_max" readonly></div></div>
+      <div><span class="sheet-gauge-label">행운</span><input type="number" title="행운" name="attr_fortune"><button type="roll" value="&{template:test} {{subject=행운}} {{success=[[@{fortune}]]}} {{roll=[[1d100]]}}"></button></div>
+    </div>
+    <div class="sheet-gauge-box"><span class="sheet-gauge-label">동력</span><div><input type="number" title="현재 동력" placeholder="현재" name="attr_energy"></div> / <div><input type="number" title="최대 동력" placeholder="최대" name="attr_energy_max" readonly></div></div>
+  </div>
+`);
+[['focus', '집중'], ['focus_max', '집중'], ['energy', '동력'], ['energy_max', '동력']]
+  .forEach(([name, group]) => {
+    assert.strictEqual(spanResourceContract.fields.find((field) => field.name === name).groupLabel, group,
+      'span 라벨의 현재·최대 묶음은 인접 굴림명이 아니라 자체 제목을 사용해야 합니다: ' + name);
+  });
 const groupedFieldRuntime = { KIBSheetContracts: [] };
 vm.runInNewContext(render([fieldContract]), groupedFieldRuntime);
 ['blood_current', 'blood_limit', 'blood_start', 'official_threshold', 'official_current', 'official_limit', 'official_start']
@@ -389,6 +660,71 @@ assert.strictEqual(fieldContract.fields.find((field) => field.name === 'durabili
     `${name} 필드는 실제로 저장할 수 없는 값이므로 시트 인식 기준이 아니어야 합니다.`);
 });
 
+// 숫자 라디오 자원은 원본 숫자 표시와 유일한 같은 묶음 수치 근거가 있을 때만 허용합니다.
+{
+  function radioGroup(values, options) {
+    options = options || {};
+    const radios = values.map((value) => '<label>' + (options.labels ? options.labels[value] : value) +
+      '<input type="radio" name="attr_pool" value="' + value + '"' +
+      (String(value) === '0' ? ' checked' : '') + (options.radioAttrs || '') + '></label>')
+      .map((radio) => options.table ? radio.replace('<label>', '<td>').replace('</label>', '</td>') : radio).join('');
+    const companion = '<label>기준 수치<input type="number" name="attr_base_pool" value="7"></label>';
+    return '<div' + (options.containerAttrs || '') + '><h3>잔여 수치</h3>' +
+      (options.table ? '<table><tr><td>' + companion + '</td></tr></table><table><tr>' + radios + '</tr></table>' :
+        companion + '<div>' + radios + '</div>') + (options.extra || '') + '</div>';
+  }
+  const scalarRadioHtml = radioGroup([-1, 0, 1]);
+  const scalarRadio = parseSheetContract(scalarRadioHtml, { id: 'numeric-radio-div' });
+  const scalar = scalarRadio.fields.find((field) => field.name === 'pool');
+  assert(scalar.numericCandidate && scalar.type === 'radio');
+  assert.deepStrictEqual(scalar.radioRange, [-1, 1]);
+  assert.strictEqual(scalar.default, '0');
+  assert.strictEqual(scalar.label, '잔여 수치');
+  assert.strictEqual(scalar.max, '', '라디오 선택 범위 끝은 캐릭터 최대값이 아닙니다.');
+  assert(!scalar.aliases.some((alias) => /^[+-]?\d+$/.test(alias)),
+    '라디오의 숫자 선택지를 자원 이름 별칭으로 만들면 안 됩니다.');
+  const scalarTable = parseSheetContract(radioGroup([0, 1, 2], { table: true }), { id: 'numeric-radio-table' });
+  assert.deepStrictEqual(scalarTable.fields.find((field) => field.name === 'pool').radioRange, [0, 2],
+    '표로 나뉜 원본 자원도 같은 h3/수치 묶음 경계를 사용해야 합니다.');
+  [
+    ['hidden 속성', radioGroup([0, 1, 2], { radioAttrs: ' hidden' })],
+    ['disabled 입력', radioGroup([0, 1, 2], { radioAttrs: ' disabled' })],
+    ['readonly 입력', radioGroup([0, 1, 2], { radioAttrs: ' readonly' })],
+    ['inline 숨은 입력', radioGroup([0, 1, 2], { radioAttrs: ' style="display:none"' })],
+    ['inline 숨은 묶음', radioGroup([0, 1, 2], { containerAttrs: ' style="display:none"' })],
+    ['더 먼 숨은 조상', '<div style="display:none">' + scalarRadioHtml + '</div>'],
+    ['숨은 관련 수치', scalarRadioHtml.replace('name="attr_base_pool"', 'name="attr_base_pool" style="display:none"')],
+    ['숨은 동명 mirror', radioGroup([0, 1, 2], { extra: '<input type="hidden" name="attr_pool" value="1">' })],
+    ['중복 숫자', radioGroup([0, 1, 1, 2])],
+    ['누락 숫자', radioGroup([0, 2, 3])],
+    ['소수 선택지', radioGroup([0, 0.5, 1])],
+    ['모호한 선행 0', radioGroup(['00', 1, 2])],
+    ['동시 다른 입력', radioGroup([0, 1, 2], { extra: '<input name="attr_other">' })],
+    ['동시 다른 선택', radioGroup([0, 1, 2], { extra: '<select name="attr_other"><option>하나</option></select>' })],
+    ['경쟁 제목', radioGroup([0, 1, 2], { extra: '<h3>다른 제목</h3>' })],
+    ['관련 없는 수치', scalarRadioHtml.replace('attr_base_pool', 'attr_unrelated')],
+    ['반복행 범위', '<fieldset class="repeating_pool">' + scalarRadioHtml + '</fieldset>'],
+    ['숫자 모드', radioGroup([1, 2, 3], { labels: { 1: '기본', 2: '보너스', 3: '패널티' } })],
+  ].forEach(([reason, source]) => {
+    const field = parseSheetContract(source).fields.find((candidate) => candidate.name === 'pool');
+    assert(!field.radioRange && !field.numericCandidate, reason + '는 숫자 자원 opt-in이 아니어야 합니다.');
+  });
+  const presentationRadio = parseSheetContract('<div><h3>화면 선택</h3><input type="number" name="attr_base_pool">' +
+    [0, 1, 2].map((value) => '<input type="radio" name="attr_pool" value="' + value + '" title="' + value + '">').join('') +
+    '<div class="panel"><button type="roll" value="&{template:test} {{roll=[[1d100]]}}"></button></div></div>',
+    { css: '.panel{display:none}input[name="attr_pool"][value="1"]:checked ~ .panel{display:block}' });
+  assert(!presentationRadio.fields.find((field) => field.name === 'pool').radioRange,
+    '원본 CSS의 화면 열기 제어는 연속 숫자여도 자원으로 만들면 안 됩니다.');
+  const roundTrip = { KIBSheetContracts: [] };
+  vm.runInNewContext(render([scalarRadio, scalarTable]), roundTrip);
+  const restored = roundTrip.KIBSheetContracts.map((sheet) => sheet.fields.find((field) => field.name === 'pool'));
+  assert.deepStrictEqual(Array.from(restored[0].radioRange), [-1, 1]);
+  assert.deepStrictEqual(Array.from(restored[1].radioRange), [0, 2]);
+  assert.strictEqual(restored[0].default, '0');
+  restored[0].radioRange[0] = -99;
+  assert.strictEqual(restored[1].radioRange[0], 0, '압축 복원한 선택 범위 배열을 다른 필드와 공유하면 안 됩니다.');
+}
+
 const madness = contract.rolls.find((roll) => roll.name === 'madness');
 assert.strictEqual(madness.raw.startsWith('&{template:test}'), true);
 assert(madness.staticLabels.some((entry) => entry.field === 'name' && entry.value === '광기'));
@@ -403,6 +739,52 @@ assert(check.modes.some((mode) => mode.overrides.visibility === 'secret'));
 assert(!check.modes.some((mode) => mode.overrides.dice_mode && mode.overrides.visibility));
 
 const query = contract.rolls.find((roll) => roll.label === '질의');
+// Official sheet worker formulas nest a numeric question using an escaped closing brace.
+const escapedQuery = '?{방식|일반,1d10|보너스,?{개수&#125;d10kl1|패널티,?{개수&#125;d10kh1}';
+const escapedQueryRoll = parseSheetContract('<button type="roll" value="' +
+  ('&{template:test} {{roll=[[' + escapedQuery + '+1]]}} {{target=[[63]]}}').replace(/&/g, '&amp;') +
+  '">원본 질문</button>').rolls[0];
+assert.deepStrictEqual(escapedQueryRoll.modes.map(mode => mode.labelPath), [['일반'], ['보너스'], ['패널티']],
+  '중첩 질문의 HTML 닫는 괄호 때문에 패널티 선택지를 잃으면 안 됩니다.');
+assert.deepStrictEqual(escapedQueryRoll.modes.map(mode => mode.queries['방식'].raw), [escapedQuery, escapedQuery, escapedQuery],
+  '질문 뒤의 실제 주사위/목표치 식을 질문 범위로 삼키면 안 됩니다.');
+assert.deepStrictEqual(escapedQueryRoll.modes.map(mode => mode.queries['방식'].value),
+  ['1d10', '?{개수}d10kl1', '?{개수}d10kh1'],
+  'Roll20처럼 질문 선택값의 HTML 엔티티는 한 단계만 풀어야 합니다.');
+const deeperQuery = '?{외부|A,?{안쪽&#124;B&#44;?{깊이&amp;#125;&#124;C&#44;2&#125;|D,0}';
+const deeperQueryRoll = parseSheetContract('<button type="roll" value="' + deeperQuery.replace(/&/g, '&amp;') + '">중첩</button>').rolls[0];
+assert.deepStrictEqual(deeperQueryRoll.modes.map(mode => mode.labelPath), [['A', 'B'], ['A', 'C'], ['D']]);
+assert.strictEqual(deeperQueryRoll.modes[0].queries['외부'].value, '?{안쪽|B,?{깊이&#125;|C,2}',
+  '다음 질문에서 풀 엔티티까지 미리 해제하면 안 됩니다.');
+assert.strictEqual(deeperQueryRoll.modes[0].queries['안쪽'].value, '?{깊이}');
+const numericContextContract = parseSheetContract(`
+  <span>보너스 <select name="attr_extra_count"><option value="1">1</option><option value="2">2</option></select> 개</span>
+  <span>패널티 <select name="attr_less_count"><option value="-1">1</option><option value="-2">2</option></select> 개</span>
+  <span>거리 <select name="attr_range"><option value="1">1</option><option value="2">2</option></select> 칸</span>
+  <div>장식 <input name="attr_other"><select name="attr_unlabelled"><option value="1">1</option></select></div>
+  <button type="roll" name="roll_extra" value="&{template:test} {{mode=[[@{extra_count}]]}}"></button>
+  <button type="roll" name="roll_less" value="&{template:test} {{mode=[[@{less_count}]]}}"></button>
+  <button type="roll" name="roll_range" value="&{template:test} {{mode=[[@{range}]]}}"></button>
+  <button type="roll" name="roll_unlabelled" value="&{template:test} {{mode=[[@{unlabelled}]]}}"></button>
+`);
+[['extra', '보너스', 'extra_count', ['1', '2']], ['less', '패널티', 'less_count', ['-1', '-2']], ['range', '거리', 'range', ['1', '2']]]
+  .forEach(([rollName, context, attr, values]) => {
+    const roll = numericContextContract.rolls.find((item) => item.name === rollName);
+    assert.deepStrictEqual(roll.modes.map((mode) => mode.labelPath), [['1'], ['2']],
+      '원본 option 라벨과 기존 모드 ID 입력은 문맥 별칭을 추가해도 보존해야 합니다.');
+    roll.modes.forEach((mode, index) => {
+      assert.strictEqual(mode.overrides[attr], values[index]);
+      assert(mode.aliases && mode.aliases.includes(context + ' ' + (index + 1) + (context === '거리' ? ' 칸' : ' 개')),
+        '숫자 선택값 앞의 원본 문맥과 뒤의 단위를 실제 순서대로 모드 별칭에 보존해야 합니다.');
+      const plain = parseSheetContract('<select name="attr_' + attr + '"><option value="' + values[index] +
+        '">' + (index + 1) + '</option></select><button type="roll" value="&{template:test} {{mode=[[@{' + attr + '}]]}}"></button>');
+      assert.strictEqual(mode.id, plain.rolls[0].modes[0].id,
+        '문맥 별칭이 추가돼도 기존 모드 ID와 override는 바뀌면 안 됩니다.');
+    });
+  });
+assert(!numericContextContract.rolls.find((roll) => roll.name === 'unlabelled').modes[0].aliases,
+  '여러 입력란을 품은 상위 레이아웃의 장식 텍스트를 선택 모드 별칭으로 섞으면 안 됩니다.');
+
 assert(query.modes.some((mode) => mode.labelPath[0] === '비밀' && mode.queries['공개 방식'].value === 'secret'));
 assert(query.modes.every((mode) => mode.queries['공개 방식'].raw.includes('?{공개 방식')));
 assert(query.modes.some((mode) => mode.aliases.includes('공개 방식 비밀')));
@@ -609,6 +991,20 @@ const visibilityCss = `
   .sheet-row-route[value="row-on"]:checked ~ .sheet-row-panel { display: block; }
 `;
 const visibleContract = parseSheetContract(visibilityHtml, { name: '가시성 합성 시트', id: 'visibility', css: visibilityCss });
+const classNegationVisibility = parseSheetContract(`
+  <input type="hidden" name="attr_npc"><input type="hidden" name="attr_edit">
+  <div class="sheet-npc"><button type="roll" name="roll_npc" value="[[1d100]]">외모</button></div>
+  <div class="sheet-pc"><button type="roll" name="roll_pc" value="[[1d100]]">외모</button></div>
+`, { css: `
+  .charsheet .sheet-npc { display: none; }
+  .charsheet input[name=attr_npc][value=on] ~ div.sheet-npc { display: block; }
+  .charsheet input[name=attr_npc][value=on] ~ div.sheet-pc { display: none; }
+  .charsheet input[name=attr_edit][value="0"] ~ *:not(.sheet-npc) .sheet-edit-enable[value=on] + div { display: none; }
+` });
+const npcVisibility = { name: 'npc', op: 'eq', value: 'on', scope: 'global' };
+assert.deepStrictEqual(classNegationVisibility.rolls.map(roll => roll.visibility),
+  [npcVisibility, { not: npcVisibility }],
+  '관계없는 :not(.class) 편집 CSS가 모든 div의 PC/NPC 표시 조건을 무효화하면 안 됩니다.');
 assert.deepStrictEqual(visibleContract.rolls.find((roll) => roll.name === 'left').visibility, { name: 'route', op: 'eq', value: 'left', scope: 'global' });
 assert.deepStrictEqual(visibleContract.rolls.find((roll) => roll.name === 'right').visibility, { name: 'route', op: 'eq', value: 'right', scope: 'global' });
 assert.strictEqual(Object.prototype.hasOwnProperty.call(visibleContract.rolls.find((roll) => roll.name === 'uncertain'), 'visibility'), false);
@@ -629,6 +1025,135 @@ assert(visibleContract.rolls.filter((roll) => !roll.repeating).every((roll) => !
 assert.strictEqual(visibleContract.rolls.find((roll) => roll.name === 'row').controls.route.repeating, 'repeating_items');
 const htmlOnlyContract = parseSheetContract(visibilityHtml, { name: 'HTML 전용', id: 'html-only' });
 assert(htmlOnlyContract.rolls.every((roll) => !Object.prototype.hasOwnProperty.call(roll, 'visibility')));
+
+const workerPanelHtml = `
+  <input type="checkbox" name="attr_combat_route" value="1">
+  <div class="current"><button type="roll" name="roll_unarmed" value="&{template:test} {{roll=[[1d100cs1cf100]]}}">비무장</button></div>
+  <div class="previous sheet-hidden"><button type="roll" name="roll_unarmed" value="&{template:test} {{roll=[[1d100]]}}">비무장</button></div>
+  <script type="text/worker">
+  on("sheet:opened change:combat_route", function() {
+    getAttrs(["combat_route"], function(values) {
+      var route = parseInt(values.combat_route);
+      if (route == 1) {
+        $20(".sheet-current").addClass("hidden");
+        $20(".sheet-previous").removeClass("sheet-hidden");
+      } else {
+        $20(".sheet-previous").addClass("sheet-hidden");
+        $20(".sheet-current").removeClass("hidden");
+      }
+    });
+  });
+  </script>`;
+const workerPanelCss = '.charsheet .sheet-hidden { display: none; }';
+const workerPanel = parseSheetContract(workerPanelHtml, { css: workerPanelCss, legacy: true });
+const workerRoute = { name: 'combat_route', op: 'eq', value: '1', scope: 'global', required: true };
+assert.deepStrictEqual(workerPanel.rolls.map((roll) => roll.visibility), [{ not: workerRoute }, workerRoute]);
+assert.strictEqual(workerPanel.rolls.length, 2, '다른 원본 굴림은 합치지 않고 현재 영역만 고릅니다.');
+assert(workerPanel.controls.combat_route, '워커 표시 컨트롤은 변경 감지와 현재값 읽기에 남아야 합니다.');
+const workerNested = parseSheetContract(workerPanelHtml.replace('if (route == 1)', 'if (route == 1 && anotherValue)'), { css: workerPanelCss, legacy: true });
+assert(workerNested.rolls.every((roll) => !roll.visibility), '해석하지 않은 조건은 임의로 숨기지 않습니다.');
+const workerComment = parseSheetContract(workerPanelHtml.replace('on("sheet:opened', '/* on("sheet:opened').replace('</script>', '*/</script>'), { css: workerPanelCss, legacy: true });
+assert(workerComment.rolls.every((roll) => !roll.visibility), '주석의 워커 코드는 실행 경로가 아닙니다.');
+const workerConflict = parseSheetContract(workerPanelHtml.replace('</script>', '$20(".sheet-current").addClass("hidden");</script>'), { css: workerPanelCss, legacy: true });
+assert(!workerConflict.rolls[0].visibility, '다른 곳에서도 쓰는 클래스는 단일 조건으로 단정하지 않습니다.');
+const workerTextValue = parseSheetContract(workerPanelHtml.replace('type="checkbox"', 'type="text"'), { css: workerPanelCss, legacy: true });
+assert(workerTextValue.rolls.every((roll) => !roll.visibility), '임의 문자열의 parseInt 결과를 문자열 동등성으로 바꾸지 않습니다.');
+const workerVisibleClass = parseSheetContract(workerPanelHtml, { css: '.hidden, .sheet-hidden { display: block; }', legacy: true });
+assert(workerVisibleClass.rolls.every((roll) => !roll.visibility), 'CSS가 표시하도록 정의한 클래스를 이름만 보고 숨김으로 단정하지 않습니다.');
+const workerCse = parseSheetContract(workerPanelHtml, { css: workerPanelCss, legacy: false });
+assert(workerCse.rolls.every((roll) => !roll.visibility), 'CSE 시트의 잘못된 선택자를 legacy 접두어로 임의 보정하지 않습니다.');
+
+const settingsHtml = `
+  <input type="checkbox" class="HideConfig" name="attr_navigation" value="1">
+  <div class="sheet-settings">
+    <select name="attr_edition"><option value="normal">일반</option><option value="hero">영웅</option></select>
+    <input type="checkbox" name="attr_style" value="1">
+    <label>최대값 배율<input type="checkbox" name="attr_capacity_rule" value="5"></label>
+    <input type="checkbox" name="attr_shared_state" value="1">
+  </div>
+  <label>중상<input type="checkbox" name="attr_major" value="1"></label>
+  <label>공용 상태<input type="checkbox" name="attr_shared_state" value="1"></label>
+  <input type="number" name="attr_health" value="10">
+  <input type="number" name="attr_limit" value="20" readonly>
+  <button type="roll" name="roll_test" value="&{template:test} {{roll=[[1d100]]}}">판정</button>`;
+const settingsOptions = [{ attribute: 'edition' }, { attribute: 'style' }];
+const settingsContract = parseSheetContract(settingsHtml, { userOptions: settingsOptions });
+['navigation', 'style', 'capacity_rule'].forEach(name => {
+  const field = settingsContract.fields.find(f => f.name === name);
+  assert.strictEqual(field.trackCandidate, false, '설정 UI를 상태 알림으로 보내면 안 됩니다: ' + name);
+  assert(settingsContract.globalAttributes.includes(name), '설정의 원본 속성/변경 감지는 보존해야 합니다.');
+});
+['major', 'shared_state', 'health'].forEach(name => assert(settingsContract.fields.find(f => f.name === name).trackCandidate));
+assert.strictEqual(settingsContract.fields.find(f => f.name === 'capacity_rule').onValue, '5');
+const settingsNoMetadata = parseSheetContract(settingsHtml);
+assert(settingsNoMetadata.fields.find(f => f.name === 'capacity_rule').trackCandidate,
+  '설정 선언 없이 CSS 클래스만으로 상태 항목을 제거하지 않습니다.');
+const settingsWithGameplay = parseSheetContract(settingsHtml.replace('<div class="sheet-settings">', '<div class="sheet-settings"><input name="attr_game_value" type="number" value="10">'), { userOptions: settingsOptions });
+assert(settingsWithGameplay.fields.find(f => f.name === 'capacity_rule').trackCandidate,
+  '설정과 실제 수치가 섞인 영역의 미선언 체크박스는 임의로 제외하지 않습니다.');
+
+// 열기 규칙은 있지만 그 규칙의 원본 형제 컨트롤이 없는 폐기된 탭만 확정 숨김입니다.
+const unreachablePanelHtml = `
+  <input type="checkbox" class="sheet-route" name="attr_route" value="on">
+  <input type="checkbox" class="sheet-route" name="attr_route" value="off" checked>
+  <input type="hidden" name="attr_hidden_value" value="10" style="display:none">
+  <div class="sheet-active-panel"><button type="roll" name="roll_active" value="&{template:test} {{roll=[[1d6]]}}">유효한 탭</button></div>
+  <div class="sheet-retired-panel">
+    <input type="number" name="attr_retired_health" value="10">
+    <input type="checkbox" class="sheet-child-route" name="attr_child_route" value="on" checked>
+    <div class="sheet-child-panel"><button type="roll" name="roll_retired" value="&{template:test} {{roll=[[1d8]]}}">폐기된 탭</button></div>
+  </div>
+  <button type="roll" class="sheet-auxiliary" name="roll_auxiliary" style="display:none" value="&{template:test} {{roll=[[1d10]]}}">숨은 보조 버튼</button>
+  <div class="sheet-roll-storage"><button type="roll" name="roll_stored" value="&{template:test} {{roll=[[1d12]]}}">보조 굴림 저장소</button></div>
+  <div class="sheet-future-panel"><button type="roll" name="roll_future" value="&{template:test} {{roll=[[1d20]]}}">불확정 탭</button></div>
+`;
+const unreachablePanelCss = `
+  .sheet-active-panel, .sheet-retired-panel, .sheet-child-panel, .sheet-roll-storage, .sheet-future-panel { display:none; }
+  .sheet-route[value="on"]:checked ~ .sheet-active-panel { display:block; }
+  .sheet-route[value="retired"]:checked ~ .sheet-retired-panel { display:block; }
+  .sheet-child-route[value="on"]:checked ~ .sheet-child-panel { display:block; }
+  .sheet-route[value="retired"]:checked ~ .sheet-auxiliary { display:block; }
+  .sheet-route[value="retired"]:checked ~ .sheet-future-panel { display:block; }
+  .charsheet:has(.sheet-future) .sheet-future-panel { display:block; }
+`;
+const unreachablePanelContract = parseSheetContract(unreachablePanelHtml, { css: unreachablePanelCss });
+assert.deepStrictEqual(unreachablePanelContract.rolls.find((roll) => roll.name === 'retired').visibility,
+  { never: true }, '도달 불가 조상 탭은 자식의 다른 조건과 무관하게 never 하나로 보존해야 합니다.');
+assert.deepStrictEqual(unreachablePanelContract.fields.find((field) => field.name === 'retired_health').visibility,
+  { never: true }, '같은 도달 불가 탭의 수치 필드도 표시 조건을 보존해야 합니다.');
+assert.deepStrictEqual(unreachablePanelContract.rolls.find((roll) => roll.name === 'active').visibility,
+  { name: 'route', op: 'eq', value: 'on', scope: 'global' },
+  '현재 선택이 off라도 원본에 on 컨트롤이 있는 유효한 탭을 영구 숨김으로 바꾸면 안 됩니다.');
+['auxiliary', 'stored', 'future'].forEach((name) => {
+  assert.strictEqual(unreachablePanelContract.rolls.find((roll) => roll.name === name).visibility, undefined,
+    '숨은 보조 버튼, 열기 규칙 없는 저장소, 미지원 조건은 보존해야 합니다: ' + name);
+});
+assert.strictEqual(unreachablePanelContract.rolls.length, 5, '숨겨진 원본 굴림 자체를 삭제하면 안 됩니다.');
+assert.strictEqual(unreachablePanelContract.fields.find((field) => field.name === 'hidden_value').visibility, undefined);
+const uncertainPanelCss = [
+  '@import url("external.css");',
+  '@media (min-width: 1px) { .sheet-retired-panel { display:block; } }',
+  '.sheet-retired-panel { display:var(--panel-display); }',
+  '.sheet-retired-panel:hover { display:block; }',
+  '.sheet-retired-panel { display:inherit; }',
+];
+uncertainPanelCss.forEach((extra) => {
+  const uncertain = parseSheetContract(unreachablePanelHtml, { css: unreachablePanelCss + extra });
+  assert(!uncertain.rolls.find((roll) => roll.name === 'retired').visibility?.never,
+    '해석하지 못하는 CSS가 있을 때 영구 숨김을 확정하면 안 됩니다: ' + extra);
+});
+const inlineUncertainPanel = parseSheetContract(
+  unreachablePanelHtml.replace('class="sheet-retired-panel"', 'class="sheet-retired-panel" style="display:var(--panel-display)"'),
+  { css: unreachablePanelCss });
+assert(!inlineUncertainPanel.rolls.find((roll) => roll.name === 'retired').visibility?.never,
+  '인라인의 미지원 display 선언도 확정 숨김으로 해석하면 안 됩니다.');
+const restoredNeverRuntime = { KIBSheetContracts: [] };
+vm.runInNewContext(render([unreachablePanelContract]), restoredNeverRuntime);
+assert.strictEqual(JSON.stringify(restoredNeverRuntime.KIBSheetContracts[0].rolls.map((roll) => roll.visibility || null)),
+  JSON.stringify(unreachablePanelContract.rolls.map((roll) => roll.visibility || null)),
+  'never와 기존 조건은 임베드 압축/복원 뒤에도 그대로 남아야 합니다.');
+assert.strictEqual(JSON.stringify(restoredNeverRuntime.KIBSheetContracts[0].fields.map((field) => field.visibility || null)),
+  JSON.stringify(unreachablePanelContract.fields.map((field) => field.visibility || null)));
 
 const visibilityRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sheet-contract-css-'));
 try {
@@ -756,5 +1281,21 @@ try {
 } finally {
   fs.rmSync(translationRoot, { recursive: true, force: true });
 }
+
+const translatedTemplateTitle = parseSheetContract([
+  '<input type="number" name="attr_impact" value="0">',
+  '<span data-i18n="feet">Feet</span> : 1D6',
+  '<button type="roll" value="&{template:test} {{weapon_name=^{feet}}} {{damage_roll=[[1d6+@{impact}]]}}"></button>',
+].join('\n'), { translations: [{ feet: '발' }, { feet: 'Feet' }] });
+assert.strictEqual(translatedTemplateTitle.rolls[0].staticLabels[0].value, '발',
+  '번역 참조의 닫는 괄호를 템플릿 종료로 오인하지 않고 실제 이름을 읽어야 합니다.');
+assert.strictEqual(translatedTemplateTitle.rolls[0].label, '발');
+assert(translatedTemplateTitle.rolls[0].aliases.includes('Feet'));
+assert(translatedTemplateTitle.rolls[0].raw.includes('{{weapon_name=^{feet}}}'),
+  '표시 이름을 번역해도 실행하는 원본 굴림 식은 그대로 보존해야 합니다.');
+const unknownTemplateTitle = parseSheetContract(
+  '<button type="roll" value="&{template:test} {{weapon_name=^{unknown}}} {{roll=[[1d6]]}}"></button>');
+assert(!unknownTemplateTitle.rolls[0].staticLabels.some(entry => entry.value.includes('^{')),
+  '번역이 없는 기계 참조를 사용자에게 판정 이름으로 노출하면 안 됩니다.');
 
 console.log('Sheet contract parser: ok');

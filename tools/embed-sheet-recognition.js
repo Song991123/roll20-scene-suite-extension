@@ -17,7 +17,7 @@ const brotliLicensePath = path.resolve(
 );
 
 function readSheet(name, htmlPath, cssPath, translationPaths) {
-  const { source, translationInputs, stylesheet, sourceHash } =
+  const { source, translationInputs, stylesheet, sourceHash, legacy, userOptions } =
     readSheetSourceInputs(htmlPath, cssPath, translationPaths);
   return parseSheetContract(source, {
     name,
@@ -25,6 +25,8 @@ function readSheet(name, htmlPath, cssPath, translationPaths) {
     sourceHash,
     translations: translationInputs.map((entry) => entry.messages),
     css: stylesheet,
+    legacy,
+    userOptions,
   });
 }
 
@@ -127,6 +129,7 @@ function packModes(sheet) {
       visibilityId,
       field.groupLabel || 0,
       defaultVariants.length ? defaultVariants : 0,
+      field.radioRange || 0,
     ];
     while (values.length > 4 && !values[values.length - 1]) values.pop();
     return values;
@@ -163,7 +166,7 @@ function sharedPackedPayload(sheets) {
     sheet.rolls = (sheet.rolls || []).map((roll) => {
       const known = new Set([
         'key', 'name', 'label', 'aliases', 'raw', 'template', 'refs', 'repeating',
-        'staticLabels', 'labelRefs', 'expressionRefs', 'controls', 'modesIncomplete', 'm', 'v',
+        'staticLabels', 'labelRefs', 'expressionRefs', 'controls', 'modesIncomplete', 'listHidden', 'm', 'v',
       ]);
       const unknown = Object.keys(roll).filter((key) => !known.has(key));
       if (unknown.length) throw new Error(`Roll packer does not preserve: ${unknown.join(', ')}`);
@@ -183,6 +186,7 @@ function sharedPackedPayload(sheets) {
         roll.modesIncomplete ? 1 : 0,
         roll.m === undefined ? 0 : roll.m + 1,
         roll.v === undefined ? 0 : roll.v + 1,
+        roll.listHidden ? 1 : 0,
       ];
       while (values.length > 5 && !values[values.length - 1]) values.pop();
       return values;
@@ -311,6 +315,7 @@ ${renderBrotliDecoder()}
       if (roll[11]) restored.controls = roll[11];
       if (roll[12]) restored.modesIncomplete = true;
       if (roll[14]) restored.visibility = rollVisibilitySets[roll[14] - 1];
+      if (roll[15]) restored.listHidden = true;
       return restored;
     });
     delete sheet.M;
@@ -338,6 +343,7 @@ ${renderBrotliDecoder()}
         numericCandidate: !!(flags & 1), trackCandidate: !!(flags & 2), readonly: !!(flags & 4),
         disabled: !!(flags & 8), hidden: !!(flags & 16) };
       if (field[11]) restored.defaultVariants = [restored.default].concat(field[11]);
+      if (field[12]) restored.radioRange = field[12].slice();
       return restored;
     });
     delete sheet.f;
