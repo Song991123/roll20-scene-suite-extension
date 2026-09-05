@@ -409,7 +409,8 @@ const runtime = {
     if (!callback && !/&\{\s*template\s*:/i.test(content)) return sent.push({ who, content, options });
     const token = 'test' + nextSheetCallbackId++;
     sheetCallbacks[token] = callback || ((messages) => sheetChatHandler(messages[0]));
-    sent.push({ who, content: content + ' <!--kib_sheet_result=' + token + '-->', rawContent: content, callback, options });
+    sent.push({ who, content: content + ' <!--kib_sheet_result=' + token + '-->', rawContent: content,
+      callback, options, argumentCount: arguments.length });
   },
   playerIsGM(playerId) {
     return playerId === 'gm';
@@ -3739,7 +3740,9 @@ assert.strictEqual(westernEuroInspection.contract.id, westernEuroSheet.id);
     const rolls = messages.filter((message) => (message.content || '').includes('kib_sheet_result='));
     assert.strictEqual(rolls.length, 1, '한글 명령을 선택 질문 없이 한 번 실행해야 합니다: ' + label + suffix);
     assert(rolls.every((message) => typeof message.callback !== 'function'),
-      '웨스턴유로 원본 카드를 숨기는 sendChat 콜백을 사용하면 안 됩니다: ' + label + suffix);
+      '원본 카드를 숨기는 sendChat 콜백을 사용하면 안 됩니다: ' + label + suffix);
+    assert(rolls.every((message) => message.argumentCount === 2),
+      '원본 카드 출력은 sendChat의 콜백 인수 자리 자체를 넘기면 안 됩니다: ' + label + suffix);
     assert(rolls[0].content.includes('{{subject=' + label + '}}') &&
       rolls[0].content.includes('{{success=[[0+' + value + ']]}}'),
     '원본 한글 이름과 현재값을 전송해야 합니다: ' + label + suffix);
@@ -3762,5 +3765,7 @@ assert.strictEqual(westernWeaponMessages
   '웨스턴유로의 고정 무기명을 한국어로 한 번만 실행해야 합니다.');
 assert(westernWeaponMessages.every((message) => typeof message.callback !== 'function'),
   '웨스턴유로 원본 카드를 숨기는 sendChat 콜백을 사용하면 안 됩니다.');
+assert(westernWeaponMessages.every((message) => message.argumentCount === 2),
+  '웨스턴유로 원본 카드 출력은 sendChat의 콜백 인수 자리 자체를 넘기면 안 됩니다.');
 
 console.log('Sheet Helper check: PASS');
