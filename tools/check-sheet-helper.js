@@ -406,9 +406,9 @@ const runtime = {
     return object;
   },
   sendChat(who, content, callback, options) {
-    if (!callback) return sent.push({ who, content, options });
+    if (!callback && !/&\{\s*template\s*:/i.test(content)) return sent.push({ who, content, options });
     const token = 'test' + nextSheetCallbackId++;
-    sheetCallbacks[token] = callback;
+    sheetCallbacks[token] = callback || ((messages) => sheetChatHandler(messages[0]));
     sent.push({ who, content: content + ' <!--kib_sheet_result=' + token + '-->', rawContent: content, options });
   },
   playerIsGM(playerId) {
@@ -448,6 +448,11 @@ events['chat:message'] = (message) => {
   if (matched && sheetCallbacks[matched[1]]) {
     const callback = sheetCallbacks[matched[1]];
     delete sheetCallbacks[matched[1]];
+    if (!message.rolltemplate) {
+      const template = String(message.content || '').match(/&\{\s*template\s*:\s*([^}\s]+)\s*\}/i);
+      if (template) message.rolltemplate = template[1];
+    }
+    message.playerid = 'API';
     callback([message]);
     return;
   }
@@ -1454,7 +1459,7 @@ const token = pendingMessage.content.match(/kib_sheet_result=([A-Za-z0-9_-]+?)(?
 const resultBefore = sent.length;
 events['chat:message']({
   type: 'general',
-  content: '&{template:fixture} {{success=$[[0]]}} {{hard=$[[1]]}} ' +
+  content: '&{template:fixture} {{subject=정밀 관찰}} {{success=$[[0]]}} {{hard=$[[1]]}} ' +
     '{{extreme=$[[2]]}} {{roll=$[[3]]}} {{kib_sheet_result=' + token + '}}',
   inlinerolls: [
     { results: { total: 60 } },
@@ -2666,6 +2671,11 @@ assert(runApi('!!검색 체력', publicResourceCharacter.get('name')).some((item
 assert(runGeneral(':체력+1', publicResourceCharacter.get('name')).some((item) =>
   item.content && item.content.includes('체력') && item.content.includes('10') && item.content.includes('11')),
   '공개 CoC 시트에서도 :체력+1을 현재 체력에 적용해야 합니다.');
+const publicUnarmedMessages = runApi('!!비무장', publicResourceCharacter.get('name'));
+assert.strictEqual(publicUnarmedMessages.filter((item) => item.content && item.content.includes('kib_sheet_result=')).length, 1,
+  '공개 CoC 시트의 숨은 호환용 비무장 버튼을 중복 선택지로 보여주면 안 됩니다.');
+assert(publicUnarmedMessages.some((item) => item.content && item.content.includes('1d100cs1cf100')),
+  '공개 CoC 시트는 숨은 구버전보다 현재 비무장 굴림을 실행해야 합니다.');
 const publicAttribute = (name) => attributeObjects.find((item) =>
   item.get('_characterid') === publicResourceCharacter.id && item.get('name') === name);
 assert.strictEqual(publicAttribute('hp').get('current'), '11');
@@ -2684,6 +2694,29 @@ assert.strictEqual(publicAttribute('major_wound_toggle').get('current'), '1',
 changePublicResource('hp', 0);
 assert.strictEqual(publicAttribute('dying').get('current'), '1',
   '공개 CoC 시트에서도 중상 상태에서 체력 0은 빈사를 활성화해야 합니다.');
+
+const currentOnlyHealthSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-4ef69d1ea6666110');
+assert(currentOnlyHealthSheet, '현재라고만 표시하는 H커미션 시트 인식 정보가 필요합니다.');
+const currentOnlyHealthValues = { hp: '3', hp_max: '13', mp: '4', mp_max: '10' };
+currentOnlyHealthSheet.signature.forEach((entry) => {
+  const name = typeof entry === 'string' ? entry : entry.name;
+  currentOnlyHealthValues[name] = currentOnlyHealthValues[name] || '1';
+});
+const currentOnlyHealthCharacter = addCharacter(
+  'current-only-health-sheet', '현재 라벨 체력 시험', 'player-1', currentOnlyHealthValues);
+useContracts(currentOnlyHealthSheet);
+useRoomCharacters(currentOnlyHealthCharacter);
+assert.strictEqual(helper.scan(currentOnlyHealthCharacter.id, true).resourcesByAttribute.hp.label, '체력',
+  'attr_hp는 인접 그룹이 잘못 파싱되어도 체력으로 표시해야 합니다.');
+const currentOnlyHealthStatus = runApi('!!상태', currentOnlyHealthCharacter.get('name'))
+  .find((item) => item.who === '시트 헬퍼').content;
+assert(currentOnlyHealthStatus.includes('체력 <b>3 / 13') && currentOnlyHealthStatus.includes('마력 <b>4 / 10'),
+  '현재/최대로만 표시한 자원도 이름이 짝을 이루면 현재 수치에 최대값과 함께 보여야 합니다.');
+assert(runGeneral(':체력-1', currentOnlyHealthCharacter.get('name')).some((item) =>
+  item.content && item.content.includes('3') && item.content.includes('2')),
+  'attr_hp의 화면 라벨이 현재뿐이어도 :체력으로 바꿔야 합니다.');
+assert.strictEqual(attributeObjects.find((item) => item.get('_characterid') === currentOnlyHealthCharacter.id &&
+  item.get('name') === 'hp').get('current'), '2');
 
 // 미저장 체크박스가 들어간 원본 최대값, 한국어 자원 굴림, 무기 상태 표시를 함께 검증합니다.
 const newsSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-5cab2ac801cda404');
@@ -2919,6 +2952,18 @@ function addSourceCharacter(sheet, id, name) {
   return { character, values };
 }
 
+// 표시명이 비어 있고 선택지만 이름을 가진 원본 광기 버튼도 상태 화면에 남아야 합니다.
+const islandSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-9b09d7edc1403192');
+assert(islandSheet, '선택지형 광기 상태 회귀를 검증할 원본 구조가 필요합니다.');
+const islandStatusRuntime = addSourceCharacter(
+  islandSheet, 'island-status-character', '선택지형 광기 상태 시험');
+sheetFieldDefaults[islandStatusRuntime.character.id] = sourceDefaults(islandSheet);
+const islandStatus = runApi('!!상태', islandStatusRuntime.character.get('name'))
+  .find((item) => item.who === '시트 헬퍼');
+assert(islandStatus && islandStatus.content.includes('광기 2개') &&
+  islandStatus.content.includes('실시간') && islandStatus.content.includes('요약'),
+'표시명이 없는 원본 광기 버튼의 실시간/요약 선택지를 상태 화면에서 누락하면 안 됩니다.');
+
 // 같은 원본 계열이 함께 후보로 남고 숨은 표시명이 빈 Attribute로 저장된 경우에도
 // 단일 판정 버튼을 골라 완전한 원본 rolltemplate 식을 보내야 합니다.
 const singleRollSource = embeddedSheets.find((sheet) => sheet.id === 'sheet-897a7f3b9c6a8d78');
@@ -3100,6 +3145,19 @@ const actualBonusMode = actualCheckRoll.modes.find((mode) =>
 const actualPenaltyMode = actualCheckRoll.modes.find((mode) =>
   /패널티.*1/.test((mode.labelPath || []).join(' ')));
 assert(actualNormalMode && actualBonusMode && actualPenaltyMode);
+
+// 다른 시트에서 남은 선택값은 현재 원본 시트의 주사위 조각을 덮어쓰면 안 됩니다.
+const actualDiceType = attributeObjects.find((item) =>
+  item.get('_characterid') === actualCharacter.id && item.get('name') === 'dice_type');
+const actualCheckInstance = helper.contractRolls(actualCharacter.id).find((instance) =>
+  instance.roll.key === actualCheckRoll.key);
+assert(actualDiceType && actualCheckInstance, '원본 주사위 선택값 회귀 대상을 찾지 못했습니다.');
+actualDiceType.set('current', '1');
+const staleDiceMacro = helper.qualifyContractMacro(actualCharacter.id, actualCheckInstance, null);
+assert(staleDiceMacro.ok && staleDiceMacro.content.includes('{{roll=[[1d100]]}}') &&
+  !/\}\}\s+1\s*$/.test(staleDiceMacro.content),
+'현재 원본에 없는 이전 시트 선택값 대신 원본 기본 주사위 조각을 사용해야 합니다.');
+actualDiceType.set('current', '{{roll=[[1d100]]}}');
 
 function captureActualSheetResult(mode, fields) {
   const beforeRoll = sent.length;
@@ -3690,5 +3748,15 @@ assert.strictEqual(westernEuroInspection.contract.id, westernEuroSheet.id);
     '원본 주사위 식을 빠짐없이 전송해야 합니다: ' + label + suffix);
   });
 });
+const westernStatus = runApi('!!상태', westernEuroRuntime.character.get('name'))
+  .map((message) => message.content || '').join('\n');
+assert(westernStatus.includes('특성치 8개') && (westernStatus.match(/>근력(?:\s|<)/g) || []).length === 1,
+  '웨스턴유로의 일반·보너스 버튼을 같은 특성치로 중복 표시하면 안 됩니다.');
+assert(westernStatus.includes('비무장') && !westernStatus.includes('무기 2개'),
+  '웨스턴유로의 비무장 일반·보너스 버튼을 별도 무기로 중복 표시하면 안 됩니다.');
+const westernWeaponMessages = runApi('!!비무장', westernEuroRuntime.character.get('name'));
+assert.strictEqual(westernWeaponMessages
+  .filter((message) => (message.content || '').includes('kib_sheet_result=')).length, 1,
+  '웨스턴유로의 고정 무기명을 한국어로 한 번만 실행해야 합니다.');
 
 console.log('Sheet Helper check: PASS');

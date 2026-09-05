@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.21
+ * Scene Suite 10 - Sheet Helper 0.6.30
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -335,13 +335,14 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.21';
+  var VERSION = '0.6.30';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
   var contractIndexCache = {};
   var contractMatchCache = {};
   var contractCatalogCache = null;
+  var pendingResults = [];
   var suppressedAttributeChanges = {};
   var pendingAttributeChanges = {};
   var pendingAttributeOrder = [];
@@ -1977,6 +1978,16 @@ var sheet_helper_setting = {
     return rowLabel || label;
   }
 
+  function canonicalResourceLabel(name, field) {
+    var key = normalize(name);
+    var source = normalize(contractDisplayLabel(field && field.label));
+    if (!/^(?:현재|current|now)?(?:hp|mp|san)?(?:값|수치|점수|value|score)?$/i.test(source)) return '';
+    if (key === 'hp') return '체력';
+    if (key === 'mp') return '마력';
+    if (key === 'san') return '이성';
+    return '';
+  }
+
   function userFacingField(field) {
     var name = trim(field && field.name);
     var label = contractDisplayLabel(field && field.label);
@@ -2115,11 +2126,17 @@ var sheet_helper_setting = {
   function liveResourceFields(fields) {
     var result = dictionary();
     var maximums = dictionary();
+    var maximumsByName = dictionary();
     (fields || []).filter(function (field) {
       return !field.section && !field.hidden &&
         /^(?:text|number|range)$/.test(trim(field.type).toLowerCase()) &&
         maximumFieldLabel(sourceFieldLabels(field, fieldLabel(field, ''), ''));
     }).forEach(function (field) {
+      var nameKey = fieldPairNameKey(field.name);
+      if (nameKey) {
+        if (!maximumsByName[nameKey]) maximumsByName[nameKey] = [];
+        maximumsByName[nameKey].push(field);
+      }
       fieldPairKeys(fieldPairLabels(field, localFieldLabel(field), '')).forEach(function (key) {
         if (!maximums[key]) maximums[key] = [];
         maximums[key].push(field);
@@ -2133,6 +2150,13 @@ var sheet_helper_setting = {
       if (trim(field.max) && ['health', 'sanity', 'magicPoints'].some(function (role) {
         return matchesDetectedRole(labels, role);
       })) result[field.name] = true;
+      var named = (maximumsByName[fieldPairNameKey(field.name)] || []).filter(function (maximum) {
+        return maximum !== field;
+      });
+      if (named.length === 1) {
+        result[field.name] = true;
+        result[named[0].name] = true;
+      }
       var keys = fieldPairKeys(pairLabels);
       keys.forEach(function (key) {
         var matches = (maximums[key] || []).filter(function (maximum) { return maximum !== field; });
@@ -2252,6 +2276,7 @@ var sheet_helper_setting = {
       var raw = attribute ? attribute.get('current') : fallback;
       var rowLabel = match.section ? rowLabels[match.section + '|' + match.rowId] || '' : '';
       var label = fieldLabel(field, rowLabel);
+      label = canonicalResourceLabel(fullName, field) || label;
       var aliases = fieldAliases(field, label, rowLabel, fullName);
       var type = trim(field.type).toLowerCase();
       var sourceLabels = sourceFieldLabels(field, label, rowLabel);
@@ -2966,7 +2991,9 @@ var sheet_helper_setting = {
 
   function directResultCharacters(message, fields) {
     var speaking = speakingCharacter(message);
-    return speaking.ok ? [speaking.character] : [];
+    if (speaking.ok) return [speaking.character];
+    var who = trim(message && message.who);
+    return who ? findObjs({ _type: 'character', name: who }) : [];
   }
 
   function directInstanceScore(characterId, instance, fields) {
@@ -3073,7 +3100,47 @@ var sheet_helper_setting = {
     return true;
   }
 
+  function prunePendingResults() {
+    var cutoff = Date.now() - 30000;
+    pendingResults = pendingResults.filter(function (pending) { return pending.created >= cutoff; });
+  }
+
+  function takePendingResult(message) {
+    prunePendingResults();
+    if (String(message && message.playerid || '').toUpperCase() !== 'API') return null;
+    var template = normalize(message && message.rolltemplate);
+    if (!template) return null;
+    var who = normalize(message && message.who);
+    var fields = messageTemplateFields(message);
+    var values = dictionary();
+    Object.keys(fields).forEach(function (field) {
+      var value = normalizedTemplateText(fields[field]);
+      if (value) values[value] = true;
+    });
+    var candidates = [];
+    pendingResults.forEach(function (pending, index) {
+      if (pending.template !== template) return;
+      if (!who || pending.characterName === who) candidates.push(index);
+    });
+    if (!candidates.length) {
+      pendingResults.forEach(function (pending, index) {
+        if (pending.template === template) candidates.push(index);
+      });
+    }
+    if (!candidates.length) return null;
+    var labelled = candidates.filter(function (index) {
+      return !!values[normalize(pendingResults[index].payload.label)];
+    });
+    var selected = (labelled.length ? labelled : candidates).slice(-1)[0];
+    return pendingResults.splice(selected, 1)[0].payload;
+  }
+
   function captureResult(message) {
+    var pending = takePendingResult(message);
+    if (pending) {
+      emitResult(pending, message);
+      return true;
+    }
     return captureDirectResult(message);
   }
 
@@ -3085,12 +3152,25 @@ var sheet_helper_setting = {
   }
 
   function sendSheet(character, content, payload) {
+    prunePendingResults();
+    var templateMatch = String(content || '').match(/&\{\s*template\s*:\s*([^}\s]+)\s*\}/i);
+    var pending = {
+      created: Date.now(),
+      template: normalize(templateMatch && templateMatch[1]),
+      characterName: normalize(character.get('name')),
+      payload: payload,
+    };
+    pendingResults = pendingResults.filter(function (saved) {
+      return saved.template !== pending.template || saved.characterName !== pending.characterName ||
+        normalize(saved.payload.label) !== normalize(payload.label);
+    });
+    pendingResults.push(pending);
     try {
-      sendChat('character|' + character.id, content, function (messages) {
-        if (messages && messages[0]) emitResult(payload, messages[0]);
-      });
+      sendChat('character|' + character.id, content);
       return { ok: true, payload: payload };
     } catch (err) {
+      var index = pendingResults.indexOf(pending);
+      if (index > -1) pendingResults.splice(index, 1);
       return { ok: false, error: '판정 메시지를 보내지 못했습니다: ' + (err.message || err) };
     }
   }
@@ -3472,6 +3552,14 @@ var sheet_helper_setting = {
           : visibleDefault !== null && !maximum
             ? contractUnsavedFieldValue(sourceField, live, visibleDefault, false)
             : live;
+        var sourceControl = sourceControls[name] || runtimeIndex.controls[name];
+        var controlOptions = maximum ? [] : contractOptionValues(sourceControl);
+        var validatesOptions = controlOptions.length > 1 ||
+          /^(?:select|radio)$/i.test(trim(sourceControl && sourceControl.type));
+        if (actual !== undefined && actual !== null && trim(actual) !== '' && validatesOptions &&
+            controlOptions.length && controlOptions.indexOf(String(actual)) < 0) {
+          actual = sourceControl && own(sourceControl, 'default') ? sourceControl.default : null;
+        }
         if (actual !== undefined && actual !== null && trim(actual) !== '' && /@\{[^{}]+\}/.test(String(actual))) {
           var attrKey = 'attr|' + fullName + '|' + (maximum ? 'max' : 'current');
           if (trail[attrKey]) {
@@ -3648,10 +3736,31 @@ var sheet_helper_setting = {
     return executeContractInstance(character, exact.instance, modeId, secret, expression);
   }
 
+  function fixedCombatTitle(instance) {
+    var roll = instance && instance.roll;
+    if (!roll || !/\{\{\s*(?:damage|피해)\s*=/i.test(String(roll.raw || ''))) return '';
+    var index = contractRuntimeIndex(instance.contract);
+    var repeating = contractRepeating(roll);
+    var fields = repeating && index.fieldSections[repeating.section] || index.fieldGlobal;
+    var refs = Array.isArray(roll.labelRefs) ? roll.labelRefs : [];
+    for (var at = 0; at < refs.length; at += 1) {
+      var name = contractRefName(refs[at]);
+      var field = fields[name] || index.fieldGlobal[name];
+      if (!/^(?:weapon|weap|attack).*?(?:name|title|label)/i.test(name) || !field ||
+          field.hidden || field.disabled || !field.readonly) continue;
+      var fullName = contractRowAttr(instance.contract, roll, instance.row, name);
+      var value = getAttr(instance.characterId, fullName);
+      if (value === undefined || value === null || !trim(value)) value = field.default;
+      value = contractDisplayLabel(value);
+      if (value) return value;
+    }
+    return '';
+  }
+
   function contractInstanceAliases(instance, compatible) {
     var found = dictionary();
     var result = [];
-    (instance.aliases || []).forEach(function (value) {
+    [fixedCombatTitle(instance)].concat(instance.aliases || []).forEach(function (value) {
       contractLookupKeys(value, compatible).forEach(function (key) {
         if (!found[key]) {
           found[key] = true;
@@ -3945,14 +4054,14 @@ var sheet_helper_setting = {
       var instance = candidate.instance;
       var roll = instance.roll || {};
       var structure = contractRollStructure(instance);
-      var baseRaw = structure
+      var baseRaw = contractBehaviorContent(structure, instance)
         .replace(/&\{template:[^}]+\}/gi, '&{template:*}')
         .replace(/\{\{\s*roll(?:[2-9]\d*)\s*=\s*\[\[[\s\S]*?\]\]\s*\}\}/gi, '')
         .replace(/\s+/g, ' ').trim();
       var key = JSON.stringify([
         instance.contract.id,
         instance.row ? instance.row.id : '',
-        normalize(instance.label),
+        normalize(fixedCombatTitle(instance) || instance.label),
         normalize(roll.name),
         roll.visibility || null,
         roll.repeating || null,
@@ -3971,11 +4080,18 @@ var sheet_helper_setting = {
       var group = groups[key];
       var counts = group.map(function (candidate) { return contractInlineRollCount(candidate.instance); });
       var minimum = Math.min.apply(Math, counts);
-      var maximum = Math.max.apply(Math, counts);
       var best = group.filter(function (candidate) {
         return contractInlineRollCount(candidate.instance) === minimum;
       });
-      if (minimum < 1 || minimum === maximum || best.length !== 1) return;
+      if (minimum < 1) return;
+      if (best.length > 1) {
+        var annotations = best.map(function (candidate) {
+          return (contractRollStructure(candidate.instance).match(/\b\d*d(?:\d+|%|f)(?:c[fs])/gi) || []).length;
+        });
+        var richest = Math.max.apply(Math, annotations);
+        if (richest) best = best.filter(function (_candidate, index) { return annotations[index] === richest; });
+      }
+      if (best.length !== 1) return;
       group.forEach(function (candidate) {
         chosen[candidate.instance.contract.id + '|' + candidate.instance.key] = best[0];
       });
@@ -4165,7 +4281,8 @@ var sheet_helper_setting = {
     var roll = instance && instance.roll || {};
     var groups = [];
     var labels = contractStaticLabels(roll).concat(roll.aliases || []);
-    var structure = [roll.template].concat(sourceTemplateFieldNames(roll.raw));
+    var sourceRaw = contractRollStructure(instance);
+    var structure = [roll.template].concat(sourceTemplateFieldNames(sourceRaw));
     var repeating = contractRepeating(roll);
     if (repeating && instance && instance.contract) {
       var index = contractRuntimeIndex(instance.contract);
@@ -4179,6 +4296,7 @@ var sheet_helper_setting = {
       });
     }
     return {
+      sourceRaw: sourceRaw,
       groups: sortedUnique(groups.map(contractDisplayLabel).filter(Boolean)),
       labels: sortedUnique(labels.map(contractDisplayLabel).filter(Boolean)),
       structure: sortedUnique(structure.map(trim).filter(Boolean)),
@@ -4193,7 +4311,7 @@ var sheet_helper_setting = {
     var roll = instance && instance.roll || {};
     var rollName = normalize(roll.name);
     var rollKey = normalize(roll.key);
-    return [instance && instance.label].concat(instance && instance.aliases || []).map(contractDisplayLabel).filter(function (label) {
+    return [fixedCombatTitle(instance), instance && instance.label].concat(instance && instance.aliases || []).map(contractDisplayLabel).filter(function (label) {
       var key = normalize(label);
       return key && key !== rollName && key !== rollKey;
     })[0] || '';
@@ -4208,7 +4326,7 @@ var sheet_helper_setting = {
     function addFields(raw) {
       sourceTemplateFieldNames(raw).forEach(function (name) { sourceFields[name] = true; });
     }
-    addFields(roll.raw);
+    addFields(item.sourceRaw || roll.raw);
     (roll.modes || []).forEach(function (mode) {
       var overrides = contractOverrides(mode);
       Object.keys(overrides).forEach(function (name) { addFields(overrides[name]); });
@@ -4231,7 +4349,7 @@ var sheet_helper_setting = {
   }
 
   function rollHasPercentileThreshold(item) {
-    var raw = String(item && item.roll && item.roll.raw || '');
+    var raw = String(item && (item.sourceRaw || item.roll && item.roll.raw) || '');
     if (!/\b(?:\d+)?d100/i.test(raw) || !/@\{[^}]+\}/.test(raw)) return false;
     return sourceTemplateFieldNames(raw).some(function (name) {
       return /(?:^|[_-])(?:stat|threshold|target|success|skill|ability|characteristic|score)(?:$|[_-])/i.test(name);
@@ -4243,7 +4361,7 @@ var sheet_helper_setting = {
     if (rollStatusMatches(structure, /(?:광기|정신\s*이상|발작|insanit|madness|bout)/i)) return 'madness';
     if (rollStatusMatches(structure, /(?:주문|마법|주술|시전|spell|magic|sorcer|ritual)/i)) return 'spell';
     if (rollStatusMatches(structure, /(?:무기|전투|공격|피해|방어구|장갑|탄약|weapon|combat|attack|damage|defen[cs]e|armo(?:u)?r|ammo)/i)) return 'combat';
-    if (/&\{tracker\}/i.test(String(item && item.roll && item.roll.raw || ''))) return 'other';
+    if (/&\{tracker\}/i.test(String(item && (item.sourceRaw || item.roll && item.roll.raw) || ''))) return 'other';
     var context = (item.contextLabels || []).concat([item.label]);
     if (!contractRepeating(item.roll) && (matchesDetectedRole(context, 'characteristic') ||
         rollStatusMatches(item.structureLabels, /(?:^|[_-])characteristic(?:$|[_-])/i))) return 'characteristic';
@@ -4418,7 +4536,6 @@ var sheet_helper_setting = {
   }
 
   function statusRollIdentity(instance) {
-    if (!rollStatusLabel(instance)) return '';
     var roll = instance && instance.roll || {};
     var repeating = contractRepeating(roll);
     var source = trim(roll.name) ? 'name:' + trim(roll.name) : 'raw:' + String(roll.raw || '');
@@ -4433,6 +4550,7 @@ var sheet_helper_setting = {
   }
 
   function statusRollLabelIdentity(instance) {
+    if (!rollStatusLabel(instance)) return '';
     var roll = instance && instance.roll || {};
     var repeating = contractRepeating(roll);
     return JSON.stringify([
@@ -4448,18 +4566,32 @@ var sheet_helper_setting = {
     var seen = dictionary();
     var seenLabels = dictionary();
     if (!usableContractInspection(data.contractMatch)) return result;
-    data.contractRolls.forEach(function (instance) {
+    var preferred = dictionary();
+    if (!includeEveryInstance) preferSingleInlineRollActions(uniqueContractCandidates(
+      data.contractRolls.map(function (instance) { return { instance: instance }; }),
+    )).forEach(function (candidate) {
+      preferred[candidate.instance.contract.id + '|' + candidate.instance.key] = true;
+    });
+    var instances = includeEveryInstance ? data.contractRolls : data.contractRolls.filter(function (instance) {
+      return preferred[instance.contract.id + '|' + instance.key];
+    });
+    instances.forEach(function (instance) {
       var key = normalize(instance.label);
       if (key) counts[key] = (counts[key] || 0) + 1;
     });
-    data.contractRolls.forEach(function (instance) {
+    instances.forEach(function (instance) {
       var label = rollStatusLabel(instance);
       var key = statusRollIdentity(instance);
       if (!key) return;
       var modeEntries = statusModeEntries(data.characterId, instance);
+      var labelKey = statusRollLabelIdentity(instance);
       if (!includeEveryInstance && seen[key] &&
           (!instance.row || seen[key].roll.key !== instance.roll.key)) {
         seen[key].modeEntries = seen[key].modeEntries.concat(modeEntries);
+        return;
+      }
+      if (!includeEveryInstance && fixedCombatTitle(instance) && labelKey && seenLabels[labelKey]) {
+        seenLabels[labelKey].modeEntries = seenLabels[labelKey].modeEntries.concat(modeEntries);
         return;
       }
       var context = rollStatusContext(instance);
@@ -4471,13 +4603,14 @@ var sheet_helper_setting = {
         groupLabels: context.groups,
         contextLabels: context.labels,
         structureLabels: context.structure,
+        sourceRaw: context.sourceRaw,
         contract: instance.contract,
         roll: instance.roll,
       };
+      if (!label && (!modeEntries.length || rollStatusCategory(item) !== 'madness')) return;
       if (rollStatusCategory(item) === 'combat')
         item.damage = contractRollDamageText(data.characterId, instance);
       if (!seen[key]) seen[key] = item;
-      var labelKey = statusRollLabelIdentity(instance);
       if (labelKey && !seenLabels[labelKey]) seenLabels[labelKey] = item;
       result.push(item);
     });
@@ -4932,6 +5065,15 @@ var sheet_helper_setting = {
     if (exact.length === 1) return { ok: true, item: exact[0] };
     if (exact.length > 1)
       return { ok: false, error: '같은 이름의 수치가 여러 개입니다: ' + exact.map(function (item) { return item.label; }).join(', ') };
+    var role = Object.keys(DETECTED_ROLE_LABELS).filter(function (name) {
+      return DETECTED_ROLE_LABELS[name].indexOf(wanted) > -1;
+    })[0];
+    var canonical = role ? uniqueResources((data.resources || []).filter(function (item) {
+      return matchesDetectedRole([item.name].concat(item.sourceLabels || []), role);
+    })) : [];
+    if (canonical.length === 1) return { ok: true, item: canonical[0] };
+    if (canonical.length > 1)
+      return { ok: false, error: '같은 종류의 수치가 여러 개입니다: ' + canonical.map(function (item) { return item.label; }).join(', ') };
     var partial = uniqueResources((data.resources || []).filter(function (item) {
       return item.aliases.some(function (alias) { return normalize(alias).indexOf(wanted) > -1; });
     }));
