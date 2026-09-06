@@ -1,5 +1,5 @@
 /*
- * Scene Suite 10 - Sheet Helper 0.6.57
+ * Scene Suite 10 - Sheet Helper 0.6.58
  * 제작 및 통합: @EOOOOORK
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
@@ -337,7 +337,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.57';
+  var VERSION = '0.6.58';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -2544,11 +2544,23 @@ var sheet_helper_setting = {
     }
   }
 
+  function emptyResourceCacheHasLiveValue(characterId, cached) {
+    var contract = cached && cached.contractMatch && cached.contractMatch.contract;
+    if (!cached || !cached.matched || (cached.resources || []).length || !contract) return false;
+    var fields = contractRuntimeIndex(contract).fieldGlobal;
+    return attrObjects(characterId).some(function (attribute) {
+      var field = fields[trim(attribute.get('name'))];
+      return !!(field && field.numericCandidate &&
+        /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(trim(attribute.get('current'))));
+    });
+  }
+
   function scan(characterId, force) {
     var character = getObj('character', characterId);
     if (!character) return { ok: false, error: '캐릭터를 찾지 못했습니다.' };
-    if (!force && cache[characterId] && cache[characterId].characterName === trim(character.get('name')))
-      return cache[characterId];
+    var cached = cache[characterId];
+    if (!force && cached && cached.characterName === trim(character.get('name')) &&
+        !emptyResourceCacheHasLiveValue(characterId, cached)) return cached;
     var objects = attrObjects(characterId);
     attributeObjectCache[characterId] = objects;
     var contractMatch = contractMatchCache[characterId] || inspectContracts(characterId, objects);

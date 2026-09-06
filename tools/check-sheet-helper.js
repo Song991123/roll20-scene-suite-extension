@@ -582,6 +582,76 @@ function runGeneral(content, who, playerId, speakingAs) {
   return sent.slice(before);
 }
 
+// 비슷한 CoC 원본이 함께 배포되어도 현재 회색 공식 7판의 저장 필드와
+// 원본 굴림을 공통분모 처리로 잃으면 안 됩니다.
+const grayOfficialDefaults = Object.fromEntries((workerUpdatedSheet.fields || [])
+  .filter((field) => !field.section && Object.prototype.hasOwnProperty.call(field, 'default'))
+  .map((field) => [field.name, String(field.default == null ? '' : field.default)]));
+const grayOfficialCharacter = addCharacter(
+  'gray-official-source-character',
+  '회색 공식 7판 시험',
+  'player-1',
+  { str: '60', dex: '60', pow: '50', con: '50', app: '50', edu: '60', siz: '60', int: '50' },
+);
+sheetFieldDefaults[grayOfficialCharacter.id] = grayOfficialDefaults;
+useContracts(...embeddedSheets);
+useRoomCharacters(grayOfficialCharacter);
+const grayOfficialData = helper.scan(grayOfficialCharacter.id, true);
+const grayOfficialStrength = grayOfficialData.resourcesByAttribute.str;
+assert(grayOfficialStrength && String(grayOfficialStrength.value) === '60',
+  '회색 공식 7판의 str 저장값을 근력 수치로 읽어야 합니다. ' + JSON.stringify({
+    status: grayOfficialData.contractMatch.status,
+    reason: grayOfficialData.contractMatch.recognitionReason,
+    matches: (grayOfficialData.contractMatch.matches || []).slice(0, 8).map((item) => item.id),
+    resources: grayOfficialData.resources.map((item) => item.name),
+  }));
+const grayOfficialMessages = runApi('!!근력', grayOfficialCharacter.get('name'));
+const grayOfficialRolls = grayOfficialMessages.filter((message) =>
+  String(message.content || '').includes('kib_sheet_result='));
+assert.strictEqual(grayOfficialRolls.length, 1,
+  '회색 공식 7판의 한글 근력 명령은 실제 원본 굴림을 한 번 전송해야 합니다.');
+assert(grayOfficialRolls[0].content.includes('{{success=[[60]]}}') &&
+  /&\{template:coc(?:-1)?\}/.test(grayOfficialRolls[0].content),
+'회색 공식 7판의 현재 근력값과 coc 원본 템플릿을 전송해야 합니다.');
+grayOfficialData.resources = [];
+grayOfficialData.resourcesByAttribute = Object.create(null);
+grayOfficialData.trackedFields = Object.create(null);
+const recoveredGrayData = helper.scan(grayOfficialCharacter.id);
+assert(recoveredGrayData.resourcesByAttribute.str &&
+  String(recoveredGrayData.resourcesByAttribute.str.value) === '60',
+'실제 저장 속성이 있는데 빈 인식 캐시가 남으면 강제 새로고침 없이 공통 스캔이 복구되어야 합니다.');
+const staleSheetCharacters = embeddedSheets
+  .filter((sheet) => sheet.id !== workerUpdatedSheet.id)
+  .map((sheet, index) => {
+    const values = {};
+    (sheet.globalAttributes || []).forEach((name) => {
+      const field = (sheet.fields || []).find((candidate) => !candidate.section && candidate.name === name);
+      values[name] = field && Object.prototype.hasOwnProperty.call(field, 'default')
+        ? String(field.default == null ? '' : field.default)
+        : '';
+    });
+    return addCharacter('stale-sheet-character-' + index, '이전 시트 자료 ' + index, 'player-1', values);
+  });
+useRoomCharacters(grayOfficialCharacter, ...staleSheetCharacters);
+const grayOfficialMixedData = helper.scan(grayOfficialCharacter.id, true);
+assert(grayOfficialMixedData.resourcesByAttribute.str &&
+  String(grayOfficialMixedData.resourcesByAttribute.str.value) === '60',
+'다른 시트의 과거 캐릭터 데이터가 남아도 현재 회색 공식 7판의 str 수치를 잃으면 안 됩니다. ' +
+  JSON.stringify({
+    status: grayOfficialMixedData.contractMatch.status,
+    reason: grayOfficialMixedData.contractMatch.recognitionReason,
+    matches: (grayOfficialMixedData.contractMatch.matches || []).slice(0, 8).map((item) => item.id),
+    resources: grayOfficialMixedData.resources.map((item) => item.name),
+  }));
+const grayOfficialMixedMessages = runApi('!!근력', grayOfficialCharacter.get('name'));
+assert.strictEqual(grayOfficialMixedMessages.filter((message) =>
+  String(message.content || '').includes('kib_sheet_result=')).length, 1,
+'다른 시트의 과거 캐릭터 데이터가 남아도 회색 공식 7판 근력 굴림을 한 번 전송해야 합니다.');
+if (process.env.SHEET_HELPER_TARGETED === 'gray') {
+  console.log('회색 공식 7판 수치·굴림 회귀 검사 통과');
+  process.exit(0);
+}
+
 helper.registerContract(fixture);
 useContracts(fixture);
 const fixtureValues = {};
