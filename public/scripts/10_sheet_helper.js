@@ -3837,9 +3837,8 @@ var sheet_helper_setting = {
         }
       });
     });
-    if (compatible !== false && !primaryOnly && labels.some(function (value) {
-      return /^(?:운|행운|luck)(?:roll|check|판정)?$/i.test(normalize(value));
-    })) {
+    if (compatible !== false && !primaryOnly &&
+        /^(?:운|행운|luck)(?:roll|check|판정)?$/i.test(normalize(instance.label))) {
       ['운', '행운'].forEach(function (value) {
         var key = normalize(value);
         if (!found[key]) {

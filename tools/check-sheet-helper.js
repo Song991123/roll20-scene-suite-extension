@@ -4816,6 +4816,17 @@ const westernEuroInspection = helper.inspectContracts(westernEuroRuntime.charact
 assert.strictEqual(westernEuroInspection.status, 'matched');
 assert.strictEqual(westernEuroInspection.contract.id, westernEuroSheet.id);
 
+addAttribute(westernEuroRuntime.character.id, 'luck', '50');
+['운', '행운'].forEach((query) => {
+  const rolls = runApi('!!' + query, westernEuroRuntime.character.get('name'))
+    .filter((message) => String(message.content || '').includes('kib_sheet_result='));
+  assert.strictEqual(rolls.length, 1,
+    '웨스턴유로의 ' + query + ' 명령은 자동차 운전과 충돌하지 않고 같은 원본 굴림을 한 번 실행해야 합니다.');
+  assert(rolls[0].content.includes('{{subject=행운}}') &&
+    rolls[0].content.includes('{{success=[[0+50]]}}'),
+  '웨스턴유로의 ' + query + ' 명령은 행운 원본 굴림과 기준치를 보존해야 합니다.');
+});
+
 const westernTrackingBefore = {
   mode: runtime.state.KIBSheetHelper.trackingMode,
   skills: runtime.state.KIBSheetHelper.trackSkillChanges,
