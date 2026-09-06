@@ -2578,9 +2578,10 @@ const blue29WithStaleSibling = addCharacter(
 sheetFieldDefaults[blue29WithStaleSibling.id] = sourceDefaults(blue29Sheet);
 useRoomCharacters(blue29WithStaleSibling);
 const blue29WithStaleSiblingInspection = helper.inspectContracts(blue29WithStaleSibling.id);
-assert.strictEqual(blue29WithStaleSiblingInspection.status, 'ambiguous',
-  '과거 시트의 저장 필드만으로 현재 시트를 다른 형제 시트로 확정하면 안 됩니다.');
-assert.strictEqual(blue29WithStaleSiblingInspection.recognitionReason, 'source-defaults-ambiguous');
+assert.strictEqual(blue29WithStaleSiblingInspection.status, 'matched',
+  '현재 시트 기본값 API가 있으면 과거 형제 시트의 저장 필드보다 현재 원본을 우선해야 합니다.');
+assert.strictEqual(blue29WithStaleSiblingInspection.contract.id, blue29Sheet.id,
+  '과거 형제 시트의 저장 필드 때문에 현재 원본이 바뀌면 안 됩니다.');
 
 // Roll20이 새 캐릭터의 기본 입력들을 Attribute로 먼저 저장하면 기본값 probe는
 // 그 이름들을 건너뜁니다. 이 경우에도 실제로 저장된 전체 구조로 현재 원본을
@@ -2618,6 +2619,37 @@ const blue29SavedRolls = helper.scan(blue29SavedCharacter.id, true).contractRoll
     '현재 원본의 한국어 굴림은 한 번만 인식해야 합니다: ' + label + ' / ' +
       JSON.stringify(blue29SavedRolls.map((item) => item.label)));
 });
+
+// 현재 시트 기본값 API는 방 안 캐릭터의 과거 저장 필드와 무관합니다.
+// 저장 필드가 판별용 이름과 겹쳐도 현재 원본값을 반드시 비교해야 합니다.
+const authoritativeCurrentSheet = parseSheetContract([
+  '<input name="attr_source_marker_a" value="현재 한글 시트 A">',
+  '<input name="attr_source_marker_b" value="현재 한글 시트 B">',
+  '<button type="roll" value="&{template:test} {{subject=현재 굴림}} {{roll=[[1d100]]}}"></button>',
+].join('\n'), { id: 'authoritative-current-sheet', sourceHash: 'authoritative-current-sheet' });
+const authoritativeStaleSheet = parseSheetContract([
+  '<input name="attr_source_marker_a" value="과거 외국어 시트 A">',
+  '<input name="attr_source_marker_b" value="과거 외국어 시트 B">',
+  '<button type="roll" value="&{template:test} {{subject=Stale Roll}} {{roll=[[1d100]]}}"></button>',
+].join('\n'), { id: 'authoritative-stale-sheet', sourceHash: 'authoritative-stale-sheet' });
+const staleSavedMarker = addCharacter(
+  'authoritative-default-with-stale-save', '현재 시트 기본값 우선 반례', 'player-1',
+  { source_marker_a: '과거 외국어 시트 A', source_marker_b: '과거 외국어 시트 B' },
+);
+const authoritativeDefaults = sourceDefaults(authoritativeCurrentSheet);
+const savedAuthoritativeReader = runtime.getSheetDefaultValue;
+runtime.getSheetDefaultValue = (name) => Object.prototype.hasOwnProperty.call(authoritativeDefaults, name)
+  ? authoritativeDefaults[name]
+  : undefined;
+useContracts(authoritativeCurrentSheet, authoritativeStaleSheet);
+useRoomCharacters(staleSavedMarker);
+const authoritativeInspection = helper.inspectContracts(staleSavedMarker.id);
+assert.strictEqual(authoritativeInspection.status, 'matched',
+  '현재 시트 기본값 API가 있어도 캐릭터의 과거 저장 필드 때문에 판별을 생략하면 안 됩니다.');
+assert.strictEqual(authoritativeInspection.contract.id, authoritativeCurrentSheet.id,
+  '캐릭터의 과거 저장값 대신 현재 시트 원본 기본값을 선택해야 합니다.');
+runtime.getSheetDefaultValue = savedAuthoritativeReader;
+useContracts(...embeddedSheets);
 
 const blue29BlankDefaults = sourceDefaults(blue29Sheet);
 Object.keys(blue29BlankDefaults).filter((name) =>

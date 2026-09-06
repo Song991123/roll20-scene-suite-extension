@@ -846,6 +846,12 @@ var sheet_helper_setting = {
 
   function roomSourceDefaultEvidence(characters, records, ownersByName) {
     var fallback = { record: null, survivors: records.slice(), scores: records.map(function () { return 0; }), probes: [], matched: false };
+    // getSheetDefaultValue는 캐릭터 저장값과 무관한 현재 시트 원본값이다.
+    // 과거 시트 필드가 남은 임의 캐릭터 때문에 판별용 기본값을 건너뛰지 않는다.
+    if (typeof getSheetDefaultValue === 'function') {
+      var authoritative = sourceDefaultEvidence('', records, dictionary());
+      if ((authoritative.probes || []).some(function (probe) { return !probe.m; })) return authoritative;
+    }
     var savedCounts = dictionary();
     (characters || []).forEach(function (character) { savedCounts[character.id] = 0; });
     Object.keys(ownersByName || {}).forEach(function (name) {
