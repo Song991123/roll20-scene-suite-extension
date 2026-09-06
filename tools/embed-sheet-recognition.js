@@ -303,6 +303,12 @@ ${renderBrotliDecoder()}
   var serializedRollVisibility = (packed.r || []).map(JSON.stringify);
   var serializedFieldVisibility = (packed.v || []).map(JSON.stringify);
   var serializedFieldAliases = (packed.a || []).map(JSON.stringify);
+  function hasKoreanDisplay(value) {
+    if (typeof value === 'string') return /[가-힣]/.test(value);
+    if (Array.isArray(value)) return value.some(hasKoreanDisplay);
+    if (!value || typeof value !== 'object') return false;
+    return Object.keys(value).some(function (key) { return hasKoreanDisplay(value[key]); });
+  }
   embedded.forEach(function (sheet) {
     var modeSets = (sheet.M || []).map(function (index) { return serializedModes[index]; });
     var rollVisibilitySets = (sheet.R || []).map(function (index) { return JSON.parse(serializedRollVisibility[index]); });
@@ -347,6 +353,14 @@ ${renderBrotliDecoder()}
       return restored;
     });
     delete sheet.f;
+    var koreanDisplay = (sheet.rolls || []).some(function (roll) {
+      return hasKoreanDisplay([roll.label, roll.aliases, roll.staticLabels, roll.modes]);
+    }) || (sheet.fields || []).some(function (field) {
+      return hasKoreanDisplay([field.label, field.aliases, field.groupLabel]);
+    });
+    Object.defineProperty(sheet, 'recognitionLocale', {
+      value: koreanDisplay ? 'ko' : 'foreign', configurable: true,
+    });
     if (!KIBSheetContracts.some(function (current) { return current && current.id === sheet.id; }))
       KIBSheetContracts.push(sheet);
   });

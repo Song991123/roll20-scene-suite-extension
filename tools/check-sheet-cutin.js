@@ -693,10 +693,14 @@ runtime.KIBScene.broadcast = (event, payload) => {
 vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../public/scripts/10_sheet_helper.js'), 'utf8'),
   runtime, { filename: '10_sheet_helper.js' });
 const privacyHelper = runtime.KIBSheetHelper;
+const privacySheet = JSON.parse(JSON.stringify(
+  runtime.KIBSheetContracts.find((sheet) => sheet.id === 'sheet-982a8cbae9128aea'),
+));
+runtime.KIBSheetContracts = [privacySheet];
+privacyHelper.registerContract(privacySheet);
 const privacySheets = privacyHelper.sheetContracts();
-const privacySheet = privacySheets.find((sheet) => sheet.id === 'sheet-982a8cbae9128aea');
 const privacyRoll = privacySheet && privacySheet.rolls.find((roll) => roll.name === 'Resistance');
-check('비밀 전파 검사도 실제 36개 내장 원본 유지', privacySheets.length === 36 &&
+check('외부 등록 계약도 비밀 전파 검사에 사용 가능', privacySheets.length === 1 &&
   privacyRoll && privacyRoll.raw.startsWith('@{jetGM}') && privacyRoll.template === 'jets',
 'French 2e 원본의 공개/비밀 선택 굴림을 찾지 못했습니다.');
 if (privacyRoll) {

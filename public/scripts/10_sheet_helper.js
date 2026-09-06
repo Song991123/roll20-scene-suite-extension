@@ -273,6 +273,12 @@ var KIBSheetContracts = KIBSheetContracts || [];
   var serializedRollVisibility = (packed.r || []).map(JSON.stringify);
   var serializedFieldVisibility = (packed.v || []).map(JSON.stringify);
   var serializedFieldAliases = (packed.a || []).map(JSON.stringify);
+  function hasKoreanDisplay(value) {
+    if (typeof value === 'string') return /[가-힣]/.test(value);
+    if (Array.isArray(value)) return value.some(hasKoreanDisplay);
+    if (!value || typeof value !== 'object') return false;
+    return Object.keys(value).some(function (key) { return hasKoreanDisplay(value[key]); });
+  }
   embedded.forEach(function (sheet) {
     var modeSets = (sheet.M || []).map(function (index) { return serializedModes[index]; });
     var rollVisibilitySets = (sheet.R || []).map(function (index) { return JSON.parse(serializedRollVisibility[index]); });
@@ -317,6 +323,14 @@ var KIBSheetContracts = KIBSheetContracts || [];
       return restored;
     });
     delete sheet.f;
+    var koreanDisplay = (sheet.rolls || []).some(function (roll) {
+      return hasKoreanDisplay([roll.label, roll.aliases, roll.staticLabels, roll.modes]);
+    }) || (sheet.fields || []).some(function (field) {
+      return hasKoreanDisplay([field.label, field.aliases, field.groupLabel]);
+    });
+    Object.defineProperty(sheet, 'recognitionLocale', {
+      value: koreanDisplay ? 'ko' : 'foreign', configurable: true,
+    });
     if (!KIBSheetContracts.some(function (current) { return current && current.id === sheet.id; }))
       KIBSheetContracts.push(sheet);
   });
@@ -337,7 +351,7 @@ var sheet_helper_setting = {
 
   var SHEET_NOT_RECOGNIZED = '현재 인식된 시트가 없습니다.';
 
-  var VERSION = '0.6.58';
+  var VERSION = '0.6.59';
   var cache = {};
   var attributeObjectCache = {};
   var refreshTimer = null;
@@ -586,7 +600,8 @@ var sheet_helper_setting = {
     if (!Array.isArray(KIBSheetContracts)) return result;
     for (var i = KIBSheetContracts.length - 1; i >= 0; i--) {
       var contract = KIBSheetContracts[i];
-      if (!contract || !contract.id || !contract.signature || !Array.isArray(contract.rolls) || found[contract.id]) continue;
+      if (!contract || contract.recognitionLocale === 'foreign' || !contract.id ||
+          !contract.signature || !Array.isArray(contract.rolls) || found[contract.id]) continue;
       found[contract.id] = true;
       result.unshift(contract);
     }
@@ -3822,6 +3837,17 @@ var sheet_helper_setting = {
         }
       });
     });
+    if (compatible !== false && !primaryOnly && labels.some(function (value) {
+      return /^(?:운|행운|luck)(?:roll|check|판정)?$/i.test(normalize(value));
+    })) {
+      ['운', '행운'].forEach(function (value) {
+        var key = normalize(value);
+        if (!found[key]) {
+          found[key] = true;
+          result.push(key);
+        }
+      });
+    }
     return result;
   }
 

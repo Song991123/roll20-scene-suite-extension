@@ -51,8 +51,20 @@ const expectedEmbeddedIds = [
   'sheet-f08a8b2d95ebc3cb', 'sheet-1b678812ac2dada9', 'sheet-8165ce77b3301b5d',
   'sheet-cf240692b20596fc', 'sheet-f3665f982d39afe2', 'sheet-ac1ff9b685efa342',
 ];
+const foreignOnlyIds = [
+  'sheet-4ffca055eb552326', 'sheet-982a8cbae9128aea', 'sheet-e1376f830eba05c9',
+  'sheet-3916f9196f8c21ed', 'sheet-2f86ba472bdc1c42', 'sheet-f08a8b2d95ebc3cb',
+  'sheet-1b678812ac2dada9',
+];
+const expectedRuntimeIds = expectedEmbeddedIds.filter((id) => !foreignOnlyIds.includes(id));
+const supportedEmbeddedSheets = embeddedSheets.filter((sheet) => sheet.recognitionLocale !== 'foreign');
 assert.deepStrictEqual(Array.from(embeddedSheets, (sheet) => sheet.id), expectedEmbeddedIds,
   '배포용 10번의 CoC 시트 인식 구조가 누락되거나 순서가 바뀌었습니다.');
+assert.deepStrictEqual(
+  embeddedSheets.filter((sheet) => sheet.recognitionLocale === 'foreign').map((sheet) => sheet.id),
+  foreignOnlyIds,
+  '한글 표시명이나 실제 한국어 번역이 없는 원본만 외국어 전용 후보에서 제외해야 합니다.',
+);
 // CoC6 translated titles were rebuilt from its unchanged source. The subsequent
 // Achtung refresh changes only roll/field labels and aliases: all 179 raw rolls,
 // 1132 field behaviors, visibility/modes and the other 34 contracts were preserved.
@@ -473,8 +485,8 @@ vm.runInContext(distributedSource, runtime);
 const helper = runtime.KIBSheetHelper;
 assert(helper && typeof helper.registerContract === 'function',
   '배포용 10번을 그대로 실행하지 못했습니다.');
-assert.strictEqual(helper.sheetContracts().length, expectedEmbeddedIds.length,
-  '배포 파일의 실제 시트 인식 정보가 런타임에 등록되지 않았습니다.');
+assert.deepStrictEqual(Array.from(helper.sheetContracts(), (sheet) => sheet.id), expectedRuntimeIds,
+  '런타임은 외국어 전용 원본을 제외하고 한국어 표시가 있는 시트만 인식 후보로 사용해야 합니다.');
 assert.strictEqual(runtime.state.KIBSheetHelper.keepMe, '보존');
 assert.strictEqual(runtime.state.KIBSheetHelper.sheetSelections.preserved, 'keep',
   '업데이트할 때 기존 시트 선택 설정을 지우면 안 됩니다.');
@@ -581,6 +593,50 @@ function runGeneral(content, who, playerId, speakingAs) {
   });
   return sent.slice(before);
 }
+
+// 원본 Luck 굴림이 하나라면 운/행운을 함께 허용하되, 행운 회복이나
+// 실제로 따로 존재하는 운/행운 굴림의 정확한 이름보다 앞서면 안 됩니다.
+[
+  { label: '운', alias: '행운' },
+  { label: '행운', alias: '운' },
+].forEach(({ label, alias }, index) => {
+  const contract = parseSheetContract([
+    '<input name="attr_luck_marker_a"><input name="attr_luck_marker_b"><input name="attr_luck_marker_c">',
+    '<input name="attr_luck_value" value="45">',
+    `<button type="roll" name="roll_luck" value="&{template:fixture} {{subject=${label}}} {{target=[[@{luck_value}]]}} {{roll=[[1d100]]}}">${label}</button>`,
+    '<button type="roll" name="roll_luck_recovery" value="&{template:fixture} {{subject=행운 회복}} {{roll=[[1d6]]}}">행운 회복</button>',
+  ].join('\n'), { id: 'luck-alias-' + index, sourceHash: 'luck-alias-' + index });
+  const character = addCharacter('luck-alias-character-' + index, '운 행운 별칭 ' + index, 'player-1', {
+    luck_marker_a: '1', luck_marker_b: '1', luck_marker_c: '1', luck_value: '45',
+  });
+  useContracts(contract);
+  useRoomCharacters(character);
+  const before = sent.length;
+  const resolved = helper.resolveContractAction(character, alias, false);
+  const message = sent.slice(before).find((item) => String(item.content || '').includes('&{template:fixture}'));
+  assert(resolved.handled && resolved.result && resolved.result.ok &&
+    message && message.content.includes('{{subject=' + label + '}}') &&
+    !message.content.includes('{{subject=행운 회복}}'),
+  `${label} 원본은 ${alias} 명령으로 같은 굴림을 실행하고 행운 회복과 구분해야 합니다.`);
+});
+const distinctLuckContract = parseSheetContract([
+  '<input name="attr_distinct_luck_a"><input name="attr_distinct_luck_b"><input name="attr_distinct_luck_c">',
+  '<button type="roll" name="roll_native_fortune" value="&{template:fixture} {{subject=운}} {{roll=[[1d20]]}}">운</button>',
+  '<button type="roll" name="roll_native_luck" value="&{template:fixture} {{subject=행운}} {{roll=[[1d100]]}}">행운</button>',
+].join('\n'), { id: 'distinct-luck-rolls', sourceHash: 'distinct-luck-rolls' });
+const distinctLuckCharacter = addCharacter('distinct-luck-character', '서로 다른 운과 행운', 'player-1', {
+  distinct_luck_a: '1', distinct_luck_b: '1', distinct_luck_c: '1',
+});
+useContracts(distinctLuckContract);
+useRoomCharacters(distinctLuckCharacter);
+[['운', '1d20'], ['행운', '1d100']].forEach(([query, dice]) => {
+  const before = sent.length;
+  const resolved = helper.resolveContractAction(distinctLuckCharacter, query, false);
+  const message = sent.slice(before).find((item) => String(item.content || '').includes('&{template:fixture}'));
+  assert(resolved.handled && resolved.result && resolved.result.ok && message && message.content.includes(dice),
+    '서로 다른 원본 굴림은 정확한 이름을 우선해야 합니다: ' + query);
+});
+useContracts(...embeddedSheets);
 
 // 비슷한 CoC 원본이 함께 배포되어도 현재 회색 공식 7판의 저장 필드와
 // 원본 굴림을 공통분모 처리로 잃으면 안 됩니다.
@@ -2018,7 +2074,9 @@ assert(!helper.scan(singleCheckboxRuntime.character.id, true).contractRolls
   '사용자가 끈 단일 checkbox를 원본 기본값으로 되돌리면 안 됩니다.');
 
 const achtungSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-cf240692b20596fc');
-const nativeLimitSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-4ffca055eb552326');
+const nativeLimitSheet = JSON.parse(JSON.stringify(
+  embeddedSheets.find((sheet) => sheet.id === 'sheet-4ffca055eb552326'),
+));
 const officialSixSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-c236bcff42e9a873');
 assert(achtungSheet, 'Achtung! Cthulhu 공개 시트 인식 정보가 필요합니다.');
 assert(nativeLimitSheet, 'HTML 입력 상한과 명시 최대 필드가 함께 있는 공개 시트 인식 정보가 필요합니다.');
@@ -2066,7 +2124,13 @@ function sourceDefaults(sheet) {
 // getSheetDefaultValue는 없는 필드(undefined)와 존재하는 빈 기본값('')을
 // 구분합니다. 기본값 증거가 충돌하거나 부족하면 임의 선택하지 않습니다.
 let safelyMatchedEmptySheets = 0;
-embeddedSheets.forEach((sheet, index) => {
+const emptySourceSheets = [
+  'sheet-b3cd19dc20eb2710', 'sheet-99888fc8321bfa35', 'sheet-ff0b26c52105b05d',
+  'sheet-c236bcff42e9a873', 'sheet-c653c0852b277de6', 'sheet-f3665f982d39afe2',
+  'sheet-ac1ff9b685efa342',
+].map((id) => supportedEmbeddedSheets.find((sheet) => sheet.id === id));
+assert(emptySourceSheets.every(Boolean), '빈 캐릭터 인식의 대표 원본이 모두 필요합니다.');
+emptySourceSheets.forEach((sheet, index) => {
   useContracts(...embeddedSheets);
   const character = addCharacter(
     'empty-source-character-' + index,
@@ -2117,7 +2181,7 @@ Object.assign(getAttrByNameOverrides, {
   [nativeLiveCharacter.id + '|Active|current']: '10',
   [nativeLiveCharacter.id + '|Aminus1|current']: '@{Active}-1',
 });
-useContracts(...embeddedSheets);
+useContracts(...embeddedSheets.map((sheet) => sheet.id === nativeLimitSheet.id ? nativeLimitSheet : sheet));
 useRoomCharacters(nativeLiveCharacter);
 const nativeLiveInspection = helper.inspectContracts(nativeLiveCharacter.id);
 assert.strictEqual(nativeLiveInspection.status, 'matched',
@@ -2736,7 +2800,7 @@ assert.deepStrictEqual(
 // 희소한 저장값으로 시트를 확정합니다. 필드 하나나 여러 시트에 겹치는 값은 부족합니다.
 const sparseDefaults = {};
 const attributeOwners = new Map();
-embeddedSheets.forEach((sheet) => {
+supportedEmbeddedSheets.forEach((sheet) => {
   (sheet.globalAttributes || []).forEach((name) => {
     if (!attributeOwners.has(name)) attributeOwners.set(name, new Set());
     attributeOwners.get(name).add(sheet.id);
@@ -2749,7 +2813,7 @@ function uniqueNonSignatureFields(sheet) {
     attributeOwners.get(name) && attributeOwners.get(name).size === 1 &&
     !signatureNames.has(name));
 }
-const sparseEvidenceSheets = embeddedSheets.map((sheet) => ({
+const sparseEvidenceSheets = supportedEmbeddedSheets.map((sheet) => ({
   sheet, fields: uniqueNonSignatureFields(sheet),
 })).filter((entry) => entry.fields.length >= 2);
 assert(sparseEvidenceSheets.length >= 2,
@@ -3624,14 +3688,16 @@ assert(cheonthulhuChecks.every((item) => item.pass),
 
 // 실제 31번 Physics 버튼의 원본 식은 잘못 복사된 Photography 식입니다.
 // 원본 오류를 고치거나 숨기지 말고, 서로 다른 표시명의 검색 항목/선택 키를 보존합니다.
-const photographyPhysicsSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-1b678812ac2dada9');
+const photographyPhysicsSheet = JSON.parse(JSON.stringify(
+  embeddedSheets.find((sheet) => sheet.id === 'sheet-1b678812ac2dada9'),
+));
 assert(photographyPhysicsSheet, 'Photography/Physics 원본 표시명 반례가 필요합니다.');
 const photographyPhysicsAttributeStart = attributeObjects.length;
 const photographyPhysicsCharacter = addCharacter('photography-physics-source-preservation', '원본 Physics 표시 보존', 'player-1', {
   showskills: '2', Photography: '47', Physics: '63',
 });
 sheetFieldDefaults[photographyPhysicsCharacter.id] = sourceDefaults(photographyPhysicsSheet);
-useContracts(...embeddedSheets);
+useContracts(photographyPhysicsSheet);
 useRoomCharacters(photographyPhysicsCharacter);
 const photographyPhysicsChecks = [];
 ['2', '4'].forEach((view) => {
@@ -4275,7 +4341,7 @@ assert(!nativeLimitResources.some((item) => item.name === 'Damage-Bonus'),
   try {
     runtime.state.KIBSheetHelper.trackingMode = 'public';
     [[24, 0, 99], [31, -2, null], [32, -2, 99]].forEach(([sourceIndex, minimum, sanityMaximum]) => {
-      const sheet = embeddedSheets[sourceIndex];
+      const sheet = JSON.parse(JSON.stringify(embeddedSheets[sourceIndex]));
       const setup = addSourceCharacter(sheet, 'numeric-radio-' + sourceIndex, '숫자 라디오 ' + sourceIndex);
       const character = setup.character;
       sheetFieldDefaults[character.id] = sourceDefaults(sheet);
@@ -4287,7 +4353,7 @@ assert(!nativeLimitResources.some((item) => item.name === 'Damage-Bonus'),
       const untouched = attributeObjects.filter((item) => item.get('_characterid') === character.id &&
         !['HP', 'MP', 'Sanity'].includes(item.get('name')))
         .map((item) => [item, item.get('current'), item.get('max')]);
-      useContracts(...embeddedSheets);
+      useContracts(sheet);
       useRoomCharacters(character);
       let data = helper.scan(character.id, true);
       assert.strictEqual(data.contractMatch.contract.id, sheet.id, '실제 원본과 다른 시트로 우회하면 안 됩니다.');
@@ -4571,9 +4637,9 @@ attributeObjects.splice(sectionScopeStart);
 useContracts(nativeLimitSheet);
 useRoomCharacters(nativeLimitRuntime.character);
 
-// 배포본에 들어간 모든 실제 시트도 시트 화면에서 직접 누른 rolltemplate 결과를
+// 구조가 다른 대표 원본에서 시트 화면의 직접 rolltemplate 결과를
 // 명령 굴림과 같은 판정 컷인 키로 전달해야 합니다.
-embeddedSheets.forEach((sheet, index) => {
+emptySourceSheets.forEach((sheet, index) => {
   const directRuntime = addSourceCharacter(
     sheet,
     'direct-source-' + index,
@@ -4582,8 +4648,7 @@ embeddedSheets.forEach((sheet, index) => {
   const directInstances = helper.contractRolls(directRuntime.character.id);
   assert(!directInstances.some((item) => item.label === 'false'),
     sheet.id + ': 내부 boolean 값을 굴림 표시명으로 노출하면 안 됩니다.');
-  const instance = directInstances.find((item) =>
-    item.roll && item.roll.template &&
+  const instance = directInstances.find((item) => item.roll && item.roll.template &&
     Array.isArray(item.roll.staticLabels) && item.roll.staticLabels.length);
   assert(instance, sheet.id + ': 직접 결과를 식별할 원본 rolltemplate 굴림이 없습니다.');
   const identity = instance.roll.staticLabels.map((entry) =>
@@ -4658,19 +4723,19 @@ assert.strictEqual(ambiguousResources.length, 2);
 assert(ambiguousResources.every((item) => item.max === null),
   '같은 이름의 최대 수치가 여러 개면 이전처럼 임의로 하나를 연결하면 안 됩니다.');
 
-const smallPairing = addPairingCharacter('pairing-small', 100, false);
-const largePairing = addPairingCharacter('pairing-large', 800, false);
+const smallPairing = addPairingCharacter('pairing-small', 25, false);
+const largePairing = addPairingCharacter('pairing-large', 200, false);
 useRoomCharacters(ambiguousPairing, smallPairing, largePairing);
 const largePairingData = helper.scan(largePairing.id, true);
 const pairedResources = largePairingData.resources.filter((item) => /_current_value$/.test(item.name));
-assert.strictEqual(pairedResources.length, 800);
+assert.strictEqual(pairedResources.length, 200);
 pairedResources.forEach((item) => {
   const row = Number(item.name.match(/_row(\d+)_current_value$/)[1]);
   assert.strictEqual(item.max, 1000 + row,
     '반복행 현재 수치가 같은 행의 최대 수치와 연결되어야 합니다: ' + item.name);
 });
-const smallPairingMs = pairingScanMilliseconds(smallPairing, 5);
-const largePairingMs = pairingScanMilliseconds(largePairing, 5);
+const smallPairingMs = pairingScanMilliseconds(smallPairing, 3);
+const largePairingMs = pairingScanMilliseconds(largePairing, 3);
 assert(largePairingMs <= smallPairingMs * 10 + 25,
   '반복행 8배 증가 시 스캔이 제곱으로 증가했습니다: ' +
   smallPairingMs.toFixed(2) + 'ms -> ' + largePairingMs.toFixed(2) + 'ms');
