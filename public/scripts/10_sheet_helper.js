@@ -1102,6 +1102,7 @@ var sheet_helper_setting = {
     });
     var recognizedOwnerCount = Object.keys(recognizedFieldsByOwner).length;
     var compatibilityVotes = catalog.records.map(function () { return 0; });
+    var compatibilityOwnerWinners = dictionary();
     Object.keys(recognizedFieldsByOwner).forEach(function (owner) {
       var total = recognizedFieldsByOwner[owner];
       if (total < 2) return;
@@ -1125,8 +1126,10 @@ var sheet_helper_setting = {
         if (hasRunner && !hasBest) runnerOnly += count;
       });
       var completeFieldAdvantage = total >= 5 && best.count === total && bestOnly >= 1 && runnerOnly === 0;
-      if (completeFieldAdvantage || (total >= 5 && bestOnly >= 2 && bestOnly > runnerOnly))
+      if (completeFieldAdvantage || (total >= 5 && bestOnly >= 2 && bestOnly > runnerOnly)) {
         compatibilityVotes[best.ordinal] += 1;
+        compatibilityOwnerWinners[owner] = best.ordinal;
+      }
     });
     var scored = catalog.records.map(function (record) {
       var contract = record.contract;
@@ -1174,6 +1177,16 @@ var sheet_helper_setting = {
         b.repeatingHits - a.repeatingHits || b.score - a.score || b.ratio - a.ratio;
     });
     if (defaultEvidence.matched) {
+      var activeOrdinal = compatibilityOwnerWinners[characterId];
+      if (own(compatibilityOwnerWinners, characterId) &&
+          activeOrdinal !== defaultEvidence.record.ordinal) {
+        var activeMatch = scored.filter(function (item) {
+          return item.id === catalog.records[activeOrdinal].contract.id;
+        })[0];
+        if (activeMatch.uniqueEvidence >= 2)
+          return remember({ status: 'matched', contract: activeMatch.contract,
+            match: activeMatch, matches: scored, recognitionReason: 'active-character-structure' });
+      }
       var match = scored.filter(function (item) {
         return item.id === defaultEvidence.record.contract.id;
       })[0];

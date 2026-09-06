@@ -3089,8 +3089,32 @@ assert.strictEqual(newsDexterityRoll.filter((item) => item.content &&
 const newsStrengthRoll = runApi('!!근력', newsCharacter.get('name'));
 assert.strictEqual(newsStrengthRoll.filter((item) => item.content &&
   item.content.includes('{{name=근력}}') && item.content.includes('{{success=[[50]]}}') &&
-  !item.content.includes('{{name=false}}')).length, 1,
-  '잘못 저장된 숨은 제목값 때문에 보이는 특성치가 사라지거나 false 제목으로 굴러가면 안 됩니다.');
+  item.content.includes('&{template:coc-1}') && item.content.includes('{{roll1=[[1d100]]}}') &&
+  !item.content.includes('{{roll2=') && !item.content.includes('{{name=false}}')).length, 1,
+  '뉴스 테마는 숨은 제목값을 복구하고 실제로 보이는 단일 주사위 원본 버튼을 실행해야 합니다.');
+const staleNewsDefaultSheet = embeddedSheets.find((sheet) => sheet.id === 'sheet-c31fd05b084bc43c');
+const staleNewsDefaults = sourceDefaults(staleNewsDefaultSheet);
+const savedNewsDefaultReader = runtime.getSheetDefaultValue;
+runtime.getSheetDefaultValue = (name) => Object.prototype.hasOwnProperty.call(staleNewsDefaults, name)
+  ? staleNewsDefaults[name]
+  : undefined;
+useContracts(...embeddedSheets);
+useRoomCharacters(newsCharacter);
+const staleNewsInspection = helper.inspectContracts(newsCharacter.id);
+assert.strictEqual(staleNewsInspection.status, 'matched',
+  'Sheet Sandbox의 지연된 기본값이 현재 캐릭터 구조와 충돌해도 현재 시트를 인식해야 합니다.');
+assert.strictEqual(staleNewsInspection.contract.id, newsSheet.id,
+  'Sheet Sandbox의 과거 기본값으로 뉴스 테마 대신 이전 시트를 선택하면 안 됩니다.');
+assert.strictEqual(staleNewsInspection.recognitionReason, 'active-character-structure',
+  '현재 캐릭터의 충분한 저장 구조가 지연된 기본값보다 우선해야 합니다.');
+const staleNewsStrengthRoll = runApi('!!근력', newsCharacter.get('name'));
+assert.strictEqual(staleNewsStrengthRoll.filter((item) => item.content &&
+  item.content.includes('{{name=근력}}') && item.content.includes('&{template:coc-1}') &&
+  item.content.includes('{{roll1=[[1d100]]}}') && !item.content.includes('{{roll2=')).length, 1,
+  '지연된 기본값이 있어도 뉴스 테마의 실제 단일 주사위 원본 굴림을 실행해야 합니다.');
+runtime.getSheetDefaultValue = savedNewsDefaultReader;
+useContracts(newsSheet);
+useRoomCharacters(newsCharacter);
 const newsAppraiseRoll = runApi('!!감정', newsCharacter.get('name'));
 assert.strictEqual(newsAppraiseRoll.filter((item) => item.content &&
   item.content.includes('{{name=감정}}') && !item.content.includes('{{name=false}}')).length, 1,
