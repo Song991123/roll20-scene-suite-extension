@@ -1171,8 +1171,10 @@ assert(
 assert(
   !appText.includes('contractBuilder: true') &&
     !appText.includes('bindSheetContractBuilder();') &&
-    appText.includes('이 10번 코드 하나를 Roll20 Mod Scripts에 넣고 저장합니다.'),
-  '사용자는 시트별 보조 JS 없이 배포용 10번 하나만 설치해야 합니다.',
+    !appText.includes('이 10번 코드 하나를 Roll20 Mod Scripts에 넣고 저장합니다.') &&
+    appText.includes('채팅에 !!관리를 입력해 인식된 항목을 확인합니다.') &&
+    appText.includes('!!굴릴항목이름으로 실행하고, !!검색 이름으로 현재 수치와 굴림 버튼을 찾습니다.'),
+  '10번 설명은 설치 절차를 반복하지 않고 실제 사용 순서만 안내해야 합니다.',
 );
 assert(
   !/(?:define:|\/define:|on\.ready|\/on\.|✅|option:)/.test(scriptText),
