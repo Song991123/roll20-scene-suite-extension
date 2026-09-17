@@ -1,5 +1,5 @@
 /*
- * Scene Suite 00 - Scene Director 3.5.1
+ * Scene Suite 00 - Scene Director 3.5.2
  * 제작 및 통합: @EOOOOORK
  */
 var KIBScene = KIBScene || {};
@@ -8,7 +8,7 @@ var KIBScene = KIBScene || {};
 
   // ===== 기본 설정 =====
   var DEFAULTS = {
-    version: '3.5.1',
+    version: '3.5.2',
     command: '!sd',
     features: {
       audio: true,
@@ -718,6 +718,26 @@ var KIBScene = KIBScene || {};
         '스탠딩',
         '<code>standings</code> 덱에 <code>캐릭터명</code>, <code>캐릭터명-표정명</code> 카드',
       );
+    var strokeControls = [
+      ['name', '이름'],
+      ['script', '스크립트'],
+      ['dialogue', '대사'],
+    ].map(function (item) {
+      var enabled = vd[item[0] + '_stroke_enabled'];
+      return (
+        actionButton(
+          item[1] + ' 외곽선 ' + (enabled ? '끄기' : '켜기'),
+          '!비주얼 설정|' + item[1] + '외곽선|' + (enabled ? '끄기' : '켜기'),
+          '#237a8b',
+        ) +
+        ' ' +
+        actionButton(
+          item[1] + ' 외곽선색',
+          '!비주얼 설정|' + item[1] + '외곽선색|?{색|' + vd[item[0] + '_stroke_color'] + '}',
+          '#7654a8',
+        )
+      );
+    }).join(' ');
     var controls =
       actionButton(
         '창 구성',
@@ -737,17 +757,7 @@ var KIBScene = KIBScene || {};
         '#53657d',
       ) +
       ' ' +
-      actionButton(
-        vd.stroke_enabled ? '외곽선 끄기' : '외곽선 켜기',
-        '!비주얼 설정|외곽선|' + (vd.stroke_enabled ? '끄기' : '켜기'),
-        '#237a8b',
-      ) +
-      ' ' +
-      actionButton(
-        '외곽선색',
-        '!비주얼 설정|외곽선색|?{색|' + vd.stroke_color + '}',
-        '#7654a8',
-      ) +
+      strokeControls +
       '<br>' +
       actionButton(
         '스탠딩 크기',
@@ -1060,8 +1070,12 @@ var KIBScene = KIBScene || {};
       dialogue_font_color: 'rgb(255, 255, 255)',
       desc_font_size: 22,
       desc_font_color: '#c0c0c0',
-      stroke_enabled: false,
-      stroke_color: '#000000',
+      name_stroke_enabled: false,
+      name_stroke_color: '#000000',
+      script_stroke_enabled: false,
+      script_stroke_color: '#000000',
+      dialogue_stroke_enabled: false,
+      dialogue_stroke_color: '#000000',
       desc_offset_y: 0,
       dialogue_panel_mode: 'split',
       width: 415,

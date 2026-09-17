@@ -171,6 +171,15 @@ assert(
   '일반 대사와 스크립트는 서로 다른 글자 객체를 사용해야 합니다.',
 );
 assert(
+  visualDialogueText.includes("stroke: vdTextStroke(is_script_mode ? 'script' : 'dialogue')"),
+  '대사 출력 때 스크립트와 대사 외곽선을 구별해야 합니다.',
+);
+assert(
+  sceneDirectorText.includes("['script', '스크립트']") &&
+    appText.includes("codeKey: 'script_stroke_enabled'"),
+  '관리 화면과 설치 페이지에도 영역별 외곽선 설정이 있어야 합니다.',
+);
+assert(
   visualDialogueText.includes(
     'clearTextWithout(text_name, text_dialogue, inactive_text);',
   ),
@@ -205,6 +214,12 @@ assert.strictEqual(
   vdRuntime.state.KIBSceneVD.config.dialogue_panel_mode,
   'split',
 );
+vdRuntime.state = { KIBSceneVD: { config: { stroke_enabled: true, stroke_color: '#123456' } } };
+vdRuntime.vdInitState();
+for (const part of ['name', 'script', 'dialogue']) {
+  assert.strictEqual(vdRuntime.state.KIBSceneVD.config[`${part}_stroke_enabled`], true);
+  assert.strictEqual(vdRuntime.vdTextStroke(part), '#123456');
+}
 vdRuntime.state = {};
 vdRuntime.vdInitState();
 assert.strictEqual(
@@ -238,6 +253,33 @@ assert.deepStrictEqual(
   Array.from(vdRuntime.vdDialogueTexts('page-1'), (text) => text.id),
   ['name-text', 'dialogue-text', 'script-text'],
 );
+vdRuntime.state.KIBSceneVD.config.name_stroke_enabled = true;
+vdRuntime.state.KIBSceneVD.config.name_stroke_color = '#112233';
+vdRuntime.vdInitState();
+vdRuntime.findObjs = (query) =>
+  query && query.name === 'vd_name'
+    ? [vdGuides[0]]
+    : query && query.name === 'vd_dialogue'
+      ? [vdGuides[1]]
+      : [];
+vdRuntime.vdApplyTextStyle();
+assert.strictEqual(vdTexts.name.get('stroke'), '#112233');
+assert.strictEqual(vdTexts.dialogue.get('stroke'), 'transparent');
+assert.strictEqual(vdTexts.script.get('stroke'), 'transparent');
+vdRuntime.vdTrimStandingCount = () => {};
+vdRuntime.vdApplyStandingLayout = () => {};
+vdRuntime.vdRefreshHandout = () => {};
+vdRuntime.vdWhisperExclude = () => {};
+vdRuntime.vdHandleConfigCommand('!비주얼 설정|스크립트외곽선|켜기');
+vdRuntime.vdHandleConfigCommand('!비주얼 설정|스크립트외곽선색|#abcdef');
+assert.strictEqual(vdRuntime.vdTextStroke('script'), '#abcdef');
+assert.strictEqual(vdRuntime.vdTextStroke('dialogue'), 'transparent');
+vdRuntime.vdHandleConfigCommand('!비주얼 설정|외곽선|켜기');
+assert.strictEqual(vdRuntime.vdTextStroke('dialogue'), '#000000');
+vdRuntime.vdHandleConfigCommand('!비주얼 설정|외곽선색|#445566');
+for (const part of ['name', 'script', 'dialogue'])
+  assert.strictEqual(vdRuntime.vdTextStroke(part), '#445566');
+assert.strictEqual(vdRuntime.vdTextStroke(), '#445566');
 assert.strictEqual(
   vdRuntime.vdResolveCueCommand(['장면없음'], {
     explicitAs: true,

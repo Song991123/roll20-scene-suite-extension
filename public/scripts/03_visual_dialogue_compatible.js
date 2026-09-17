@@ -95,6 +95,17 @@ function vdInitState() {
     state.KIBSceneVD.config = {};
   if (migratedPanelMode)
     state.KIBSceneVD.config.dialogue_panel_mode = migratedPanelMode;
+  ['name', 'script', 'dialogue'].forEach(function (part) {
+    ['enabled', 'color'].forEach(function (field) {
+      var key = part + '_stroke_' + field;
+      var legacy = 'stroke_' + field;
+      if (
+        state.KIBSceneVD.config[key] === undefined &&
+        state.KIBSceneVD.config[legacy] !== undefined
+      )
+        state.KIBSceneVD.config[key] = state.KIBSceneVD.config[legacy];
+    });
+  });
   Object.keys(vd_config_defaults).forEach(function (key) {
     if (state.KIBSceneVD.config[key] === undefined)
       state.KIBSceneVD.config[key] = vd_config_defaults[key];
@@ -430,6 +441,12 @@ const vd_setting = {
   desc_font_color: '#c0c0c0',
   stroke_enabled: false,
   stroke_color: '#000000',
+  name_stroke_enabled: false,
+  name_stroke_color: '#000000',
+  script_stroke_enabled: false,
+  script_stroke_color: '#000000',
+  dialogue_stroke_enabled: false,
+  dialogue_stroke_color: '#000000',
   // 양수는 아래, 음수는 위
   desc_offset_y: 0,
 
@@ -451,6 +468,12 @@ const vd_config_defaults = {
   desc_font_color: vd_setting.desc_font_color,
   stroke_enabled: vd_setting.stroke_enabled,
   stroke_color: vd_setting.stroke_color,
+  name_stroke_enabled: vd_setting.name_stroke_enabled,
+  name_stroke_color: vd_setting.name_stroke_color,
+  script_stroke_enabled: vd_setting.script_stroke_enabled,
+  script_stroke_color: vd_setting.script_stroke_color,
+  dialogue_stroke_enabled: vd_setting.dialogue_stroke_enabled,
+  dialogue_stroke_color: vd_setting.dialogue_stroke_color,
   desc_offset_y: vd_setting.desc_offset_y,
   dialogue_panel_mode: vd_setting.dialogue_panel_mode,
   line_height: vd_setting.line_height,
@@ -498,6 +521,12 @@ function vdHandleConfigCommand(content) {
     선: 'stroke_enabled',
     외곽선색: 'stroke_color',
     선색: 'stroke_color',
+    이름외곽선: 'name_stroke_enabled',
+    이름외곽선색: 'name_stroke_color',
+    스크립트외곽선: 'script_stroke_enabled',
+    스크립트외곽선색: 'script_stroke_color',
+    대사외곽선: 'dialogue_stroke_enabled',
+    대사외곽선색: 'dialogue_stroke_color',
     강조위치: 'desc_offset_y',
     강조Y: 'desc_offset_y',
     창구성: 'dialogue_panel_mode',
@@ -535,12 +564,12 @@ function vdHandleConfigCommand(content) {
       value = vdPositiveNumber(value, 8, 300);
       if (!value)
         return vdWhisperExclude('글자 크기는 8~300 범위로 입력하세요.');
-    } else if (/_font_color$/.test(key) || key == 'stroke_color') {
+    } else if (/_font_color$|_stroke_color$/.test(key) || key == 'stroke_color') {
       if (!vdValidColor(value))
         return vdWhisperExclude(
           '색상은 <code>#ffffff</code> 또는 <code>rgb(255,255,255)</code> 형식으로 입력하세요.',
         );
-    } else if (key == 'stroke_enabled') {
+    } else if (key == 'stroke_enabled' || /_stroke_enabled$/.test(key)) {
       var enabled = String(value || '').toLowerCase();
       if (!/^(?:켜기|사용|on|true|1|끄기|미사용|off|false|0)$/.test(enabled))
         return vdWhisperExclude(
@@ -587,6 +616,10 @@ function vdHandleConfigCommand(content) {
         );
     }
     state.KIBSceneVD.config[key] = value;
+    if (key == 'stroke_enabled' || key == 'stroke_color')
+      ['name', 'script', 'dialogue'].forEach(function (part) {
+        state.KIBSceneVD.config[part + '_' + key] = value;
+      });
   }
   vdInitState();
   vdTrimStandingCount();
@@ -600,7 +633,7 @@ function vdHandleConfigCommand(content) {
   var shownValue =
     action == '스탠딩크기'
       ? state.KIBSceneVD.config.width + '×' + state.KIBSceneVD.config.height
-      : key == 'stroke_enabled'
+      : key == 'stroke_enabled' || /_stroke_enabled$/.test(key)
         ? value
           ? '켜기'
           : '끄기'
@@ -714,10 +747,9 @@ function vdConfigStatus() {
     c.dialogue_font_size +
     ' / 강조=' +
     c.desc_font_size +
-    '<br>외곽선=' +
-    (c.stroke_enabled
-      ? '켜짐 (' + vdEscapeHtml(c.stroke_color) + ')'
-      : '꺼짐') +
+    '<br>외곽선: 이름=' + vdStrokeStatus(c, 'name') +
+    ' / 스크립트=' + vdStrokeStatus(c, 'script') +
+    ' / 대사=' + vdStrokeStatus(c, 'dialogue') +
     ' / 강조위치=' +
     (c.desc_offset_y >= 0 ? '+' : '') +
     c.desc_offset_y +
@@ -731,6 +763,12 @@ function vdConfigStatus() {
     '명 / 맞춤=' +
     (c.standing_fit == 'contain-top' ? '비율 유지' : '지정 크기로 늘이기')
   );
+}
+
+function vdStrokeStatus(config, part) {
+  return config[part + '_stroke_enabled']
+    ? '켜짐 (' + vdEscapeHtml(config[part + '_stroke_color']) + ')'
+    : '꺼짐';
 }
 
 function vdPanelModeLabel(mode) {
@@ -762,8 +800,12 @@ function vdValidColor(value) {
   );
 }
 
-function vdTextStroke() {
-  return vd_setting.stroke_enabled ? vd_setting.stroke_color : 'transparent';
+function vdTextStroke(part) {
+  if (!part)
+    return vd_setting.stroke_enabled ? vd_setting.stroke_color : 'transparent';
+  return vd_setting[part + '_stroke_enabled']
+    ? vd_setting[part + '_stroke_color']
+    : 'transparent';
 }
 
 function vdStandingDeck() {
@@ -2150,7 +2192,7 @@ const showDialogue = function () {
       text: '',
       font_size: vd_setting['name_font_size'],
       color: vd_setting['name_font_color'],
-      stroke: vdTextStroke(),
+      stroke: vdTextStroke('name'),
     });
     bg_name.set({ gmnotes: text_name.get('_id') });
   }
@@ -2166,7 +2208,7 @@ const showDialogue = function () {
       text: '',
       font_size: vd_setting.dialogue_font_size,
       color: vd_setting.dialogue_font_color,
-      stroke: vdTextStroke(),
+      stroke: vdTextStroke('dialogue'),
     });
     bg_dialogue.set({ gmnotes: text_normal.get('_id') });
   }
@@ -2182,7 +2224,7 @@ const showDialogue = function () {
       text: '',
       font_size: vd_setting.desc_font_size,
       color: vd_setting.desc_font_color,
-      stroke: vdTextStroke(),
+      stroke: vdTextStroke('script'),
     });
     state.KIBSceneVD.scriptTexts[current_page_id] = text_script.get('_id');
   }
@@ -2363,7 +2405,7 @@ const showDialogue = function () {
     font_family: vd_setting.font_family,
     font_size: vd_setting['name_font_size'],
     color: vd_setting['name_font_color'],
-    stroke: vdTextStroke(),
+    stroke: vdTextStroke('name'),
     top: name_top,
   });
   const full_dialogue_text = split.join('\n');
@@ -2374,7 +2416,7 @@ const showDialogue = function () {
     font_family: vd_setting.font_family,
     font_size: font_size,
     color: font_color,
-    stroke: vdTextStroke(),
+    stroke: vdTextStroke(is_script_mode ? 'script' : 'dialogue'),
     width: width,
     height: text_height,
     left: is_script_mode ? script_left : dialogue_left,
@@ -3265,7 +3307,7 @@ function vdApplyTextStyle() {
           color: isName
             ? vd_setting.name_font_color
             : vd_setting.dialogue_font_color,
-          stroke: vdTextStroke(),
+          stroke: vdTextStroke(isName ? 'name' : 'dialogue'),
         });
       },
     );
@@ -3278,7 +3320,7 @@ function vdApplyTextStyle() {
       font_family: vd_setting.font_family,
       font_size: vd_setting.desc_font_size,
       color: vd_setting.desc_font_color,
-      stroke: vdTextStroke(),
+      stroke: vdTextStroke('script'),
     });
   });
 }
