@@ -1179,6 +1179,22 @@ assert(
       message.content.includes('journal.roll20.net/handout/help-handout')),
   '!도움은 설치된 기능의 세팅법과 명령어 핸드아웃을 갱신하고 열어야 합니다.',
 );
+directorRuntime.KIBScene.adapters.vd = {};
+directorEvents['chat:message']({ type: 'api', content: '!도움', playerid: 'gm' });
+assert(
+  directorHandoutData.notes.includes('03 비주얼 노벨') &&
+    directorHandoutData.notes.includes('!. 같은 차례에 보여줄 문장') &&
+    directorHandoutData.notes.includes('!... /as &quot;홍길동&quot; 대사 @다음줄 1.2초') &&
+    directorHandoutData.notes.includes('!sd set|timing.lineInterval|3000'),
+  '01과 03을 함께 설치하면 비주얼 노벨 도움말에도 동시 출력과 다음 줄 간격이 보여야 합니다.',
+);
+delete directorRuntime.KIBScene.adapters.vd;
+assert(
+  appText.includes('01 나레이터와 함께 설치하면 !. 문장') &&
+    visualDialogueText.includes('01 나레이터와 함께 설치했을 때:') &&
+    readmeText.includes('`!.`만 입력하는 명령은 아니며'),
+  '설치 페이지와 03 단독 도움말에서도 나레이터 전용 명령임을 구분해야 합니다.',
+);
 let directorFeatureChanged = null;
 directorRuntime.KIBScene.adapters.avatar = {
   events: {

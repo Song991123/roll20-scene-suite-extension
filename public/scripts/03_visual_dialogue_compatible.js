@@ -1474,7 +1474,7 @@ on('chat:message', function (msg) {
     ) {
       if (playerIsGM(msg.playerid))
         vdWhisperExclude(
-          '<b>비주얼 노벨 도움말</b><br>토큰 이름은 업로드 파일명이 아니라 Roll20 보드의 이미지 토큰 설정에 입력합니다.<br><code>!@배경 장면명</code> 배경 전환<br><code>!@표정명</code> 현재 화자의 표정 변경<br><code>!대사 본문 @표정명</code> 명령 글자를 숨기고 대사와 표정 변경<br><code>!비주얼 설정|창구성|패널 하나 또는 분리</code> 창 구성 변경<br>패널 하나: 이미지 토큰 이름 <code>vd_panel</code><br>분리: 스크립트창 이미지 토큰 이름 <code>vd_panel</code>, 대사창 이미지 토큰 이름 <code>vd_dialogue_box</code><br><code>!비주얼 설정|항목|값</code> 글꼴, 크기, 색, 스탠딩 설정<br><code>!비주얼 순서|상태</code> 화면 앞뒤 순서 확인<br><code>!비주얼 비율|등록|카드명|가로|세로</code> 스탠딩 비율 등록<br><code>!비주얼 제외|추가|화자명</code> 특정 화자 숨김',
+          '<b>비주얼 노벨 도움말</b><br>토큰 이름은 업로드 파일명이 아니라 Roll20 보드의 이미지 토큰 설정에 입력합니다.<br><code>!@배경 장면명</code> 배경 전환<br><code>!@표정명</code> 현재 화자의 표정 변경<br><code>!대사 본문 @표정명</code> 명령 글자를 숨기고 대사와 표정 변경<br><code>!비주얼 설정|창구성|패널 하나 또는 분리</code> 창 구성 변경<br>패널 하나: 이미지 토큰 이름 <code>vd_panel</code><br>분리: 스크립트창 이미지 토큰 이름 <code>vd_panel</code>, 대사창 이미지 토큰 이름 <code>vd_dialogue_box</code><br><code>!비주얼 설정|항목|값</code> 글꼴, 크기, 색, 스탠딩 설정<br><code>!비주얼 순서|상태</code> 화면 앞뒤 순서 확인<br><code>!비주얼 비율|등록|카드명|가로|세로</code> 스탠딩 비율 등록<br><code>!비주얼 제외|추가|화자명</code> 특정 화자 숨김<br>01 나레이터와 함께 설치했을 때: <code>!. 함께 보여줄 문장</code>은 직전 <code>!...</code> 줄과 같은 차례에 출력(내용 필수), <code>!... 대사 @다음줄 1.2초</code>는 다음 나레이터 줄까지 1.2초 대기. 00 SceneDirector도 설치했다면 기본 간격은 <code>!sd set|timing.lineInterval|3000</code>(3초)으로 변경',
         );
       return;
     }

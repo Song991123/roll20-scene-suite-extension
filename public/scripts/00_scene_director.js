@@ -802,6 +802,18 @@ var KIBScene = KIBScene || {};
         ? commandRow(
             '!... /desc 지문 @인물A:불안 @인물B:기본',
             '한 줄에서 여러 캐릭터 표정 변경',
+          ) +
+          commandRow(
+            '!. 같은 차례에 보여줄 문장',
+            '직전 !... 줄과 함께 출력. !. 뒤에 내용 필요',
+          ) +
+          commandRow(
+            '!... /as "홍길동" 대사 @다음줄 1.2초',
+            '이 줄부터 다음 나레이터 줄까지 1.2초 대기',
+          ) +
+          commandRow(
+            '!sd set|timing.lineInterval|3000',
+            '모든 나레이터 줄의 기본 간격 3초',
           )
         : '') +
       commandRow('!비주얼 제외|추가|화자명', '해당 화자 숨김') +
