@@ -984,9 +984,8 @@ function vdWhisperPlayer(msg, text) {
   );
 }
 
-function vdApplyExpressionCard(character, card, options) {
+function vdApplyExpressionCard(character, card) {
   vdInitState();
-  options = options || {};
   state.KIBSceneVD.defaultExpressions[character.id] = card.id;
   var token = findTokenWithCharacter(character.id, character.get('name'));
   if (token) {
@@ -1000,88 +999,7 @@ function vdApplyExpressionCard(character, card, options) {
     });
   }
   vdScheduleExpressionHandouts();
-  if (options.broadcast !== false) vdBroadcastExpression(character, card);
   return token;
-}
-
-function vdAvatarExpressionAdapter() {
-  return KIBScene.adapters && KIBScene.adapters.avatar;
-}
-
-function vdBroadcastExpression(character, card) {
-  var payload = {
-    source: 'vd',
-    characterId: character.id,
-    characterName: String(character.get('name') || ''),
-    expression: vdExpressionName(card, character.get('name')),
-    standingCardId: card.id,
-  };
-  if (typeof KIBScene.broadcast === 'function')
-    return KIBScene.broadcast('expression:changed', payload);
-  Object.keys(KIBScene.adapters || {}).forEach(function (name) {
-    var listener =
-      KIBScene.adapters[name].events &&
-      KIBScene.adapters[name].events['expression:changed'];
-    if (typeof listener === 'function') listener(payload);
-  });
-  return { ok: true };
-}
-
-function vdExpressionCard(character, expression) {
-  if (!character) return null;
-  var value = String(expression || '').trim();
-  var cardName =
-    !value || value == '기본' || value.toLowerCase() == 'default'
-      ? String(character.get('name') || '')
-      : String(character.get('name') || '') + '-' + value;
-  return (
-    vdStandingCardsForCharacter(character.get('name')).filter(function (card) {
-      return card.get('name') == cardName;
-    })[0] || null
-  );
-}
-
-function vdValidateExternalExpression(payload) {
-  payload = payload || {};
-  if (payload.targets && payload.targets.vd === false)
-    return { ok: true, skipped: true };
-  var character =
-    getObj('character', payload.characterId) ||
-    findCharacterWithName(payload.characterName);
-  if (!character)
-    return { ok: false, error: '표정을 바꿀 캐릭터를 찾지 못했습니다.' };
-  var card = vdExpressionCard(character, payload.expression);
-  return card
-    ? { ok: true, cardId: card.id }
-    : {
-        ok: false,
-        error:
-          vd_setting.deck_name +
-          ' 덱에 ' +
-          character.get('name') +
-          (payload.expression && payload.expression != '기본'
-            ? '-' + payload.expression
-            : '') +
-          ' 카드가 없습니다.',
-      };
-}
-
-function vdApplyExternalExpression(payload) {
-  payload = payload || {};
-  if (
-    payload.source == 'vd' ||
-    (payload.targets && payload.targets.vd === false)
-  )
-    return { ok: true, skipped: true };
-  var validation = vdValidateExternalExpression(payload);
-  if (!validation.ok || validation.skipped) return validation;
-  var character =
-    getObj('character', payload.characterId) ||
-    findCharacterWithName(payload.characterName);
-  vdApplyExpressionCard(character, getObj('card', validation.cardId), {
-    broadcast: false,
-  });
-  return { ok: true };
 }
 
 function vdHandleInlineExpression(msg) {
@@ -1091,12 +1009,7 @@ function vdHandleInlineExpression(msg) {
     (msg.type != 'general' && msg.type != 'emote')
   )
     return false;
-  var avatar = vdAvatarExpressionAdapter();
-  if (avatar && typeof avatar.handleInline === 'function') {
-    var delegated = avatar.handleInline(msg);
-    if (delegated && delegated.handled) return true;
-  }
-  var content = String(msg.content || '');
+  var content = String(msg.kibSceneOriginalContent || msg.content || '');
   var match = content.match(/(?:^|\s)@([^\s@|{}]+)\s*$/);
   if (!match) return false;
   var speaker = String(msg.who || '')
@@ -1105,6 +1018,7 @@ function vdHandleInlineExpression(msg) {
   var character = findCharacterWithName(speaker);
   if (!character) return false;
 
+  msg.kibSceneOriginalContent = content;
   msg.content = content.substring(0, match.index).replace(/\s+$/, '');
   if (!vdCanControlCharacter(character, msg.playerid)) {
     vdWhisperPlayer(msg, '이 캐릭터의 표정을 변경할 권한이 없습니다.');
@@ -1136,11 +1050,6 @@ function vdHandleHiddenExpressionChat(msg) {
     String(msg.content || '').indexOf('!대사 ') !== 0
   )
     return false;
-  var avatar = vdAvatarExpressionAdapter();
-  if (avatar && typeof avatar.handleHiddenChat === 'function') {
-    var delegated = avatar.handleHiddenChat(msg);
-    if (delegated && delegated.handled) return true;
-  }
   var speaker = String(msg.who || '')
     .replace(/ \(GM\)$/, '')
     .trim();
@@ -1163,11 +1072,13 @@ function vdHandleHiddenExpressionChat(msg) {
     content: String(msg.content).substring('!대사 '.length),
   };
   vdHandleInlineExpression(forwarded);
-  if (forwarded.content.trim())
+  if (forwarded.content.trim() && !msg.kibSceneHiddenSent) {
     sendChat(
       'character|' + character.id,
       forwarded.content + state.api_tag + state.vd_explicit_as_tag,
     );
+    msg.kibSceneHiddenSent = true;
+  }
   return true;
 }
 
@@ -1410,9 +1321,6 @@ on('ready', function () {
       applyLayerOrder: vdApplyLayerOrder,
       mapSheetBounds: vdMapSheetBounds,
       suppressCutinText: vdSuppressCutinText,
-      validateExpression: vdValidateExternalExpression,
-      applyExpression: vdApplyExternalExpression,
-      events: { 'expression:changed': vdApplyExternalExpression },
       status: vdPluginStatus,
       help: [
         '<code>!@배경 장면명</code> 배경 전환',
@@ -1721,14 +1629,6 @@ on('chat:message', function (msg) {
           }
         }
       } else if (vd_setting.use_emotion) {
-        var avatarAdapter = vdAvatarExpressionAdapter();
-        if (avatarAdapter && typeof avatarAdapter.handleApi === 'function') {
-          var avatarResult = avatarAdapter.handleApi(msg);
-          if (avatarResult && avatarResult.ok === false)
-            vdWhisperPlayer(msg, vdEscapeHtml(avatarResult.error));
-          return;
-        }
-
         let cha_name = String(msg.who || '')
           .replace(/ \(GM\)$/, '')
           .trim();
@@ -1814,7 +1714,6 @@ on('chat:message', function (msg) {
               return;
             }
             current_token.set(opt);
-            if (chat_cha) vdBroadcastExpression(chat_cha, rt_items[0]);
           }
         } else if (chat_cha) {
           let rt = findObjs({ _type: 'deck', name: vd_setting.deck_name });
@@ -1837,7 +1736,6 @@ on('chat:message', function (msg) {
           else {
             state.KIBSceneVD.defaultExpressions[chat_cha.id] = cards[0].id;
             vdScheduleExpressionHandouts();
-            vdBroadcastExpression(chat_cha, cards[0]);
           }
         } else {
           vdWhisperPlayer(

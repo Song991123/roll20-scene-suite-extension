@@ -66,21 +66,19 @@ const scriptText = scripts
   .join('\n');
 const releaseText = `${publicText}\n${scriptText}`;
 new Function(scriptText);
-execFileSync(process.execPath, [path.join(root, 'tools', 'check-sheet-contract.js')], {
-  stdio: 'inherit',
-});
-execFileSync(process.execPath, [path.join(root, 'tools', 'check-sheet-room-recognition.js')], {
-  stdio: 'inherit',
-});
-execFileSync(process.execPath, [path.join(root, 'tools', 'check-sheet-helper.js')], {
-  stdio: 'inherit',
-});
-execFileSync(process.execPath, [path.join(root, 'tools', 'check-sheet-cutin.js')], {
-  stdio: 'inherit',
-});
-execFileSync(process.execPath, [path.join(root, 'tools', 'check-handout-cutin-optimization.js')], {
-  stdio: 'inherit',
-});
+if (!process.argv.includes('--expression-hotfix') && !process.argv.includes('--fast')) {
+  [
+    'check-sheet-contract.js',
+    'check-sheet-room-recognition.js',
+    'check-sheet-helper.js',
+    'check-sheet-cutin.js',
+    'check-handout-cutin-optimization.js',
+  ].forEach((name) =>
+    execFileSync(process.execPath, [path.join(root, 'tools', name)], {
+      stdio: 'inherit',
+    }),
+  );
+}
 
 const vdHandlers = {};
 const vdRuntime = {
@@ -345,13 +343,25 @@ narratorRuntime.KIBScene.adapters.vd = {};
   assert.strictEqual(parsed.cues[0].args[0], command);
 });
 const expressionCue = narratorRuntime.ntExtractCues('대사 @난감').cues[0];
-assert.strictEqual(expressionCue.type, 'avatar');
+assert.strictEqual(expressionCue.type, 'vd');
 assert.strictEqual(expressionCue.args[0], '난감');
+assert.strictEqual(
+  narratorRuntime.ntExtractCues('대사 @인물A:난감').cues[0].type,
+  'vd',
+  '03이 설치된 방의 표정 명령은 09 설정과 무관하게 03 경로를 사용해야 합니다.',
+);
+narratorRuntime.KIBScene.isFeatureEnabled = (name) => name !== 'vd';
+assert.strictEqual(
+  narratorRuntime.ntExtractCues('대사 @난감').cues[0].type,
+  'avatar',
+  '03이 꺼진 방에서는 09의 표정 명령을 유지해야 합니다.',
+);
+delete narratorRuntime.KIBScene.isFeatureEnabled;
 const namedExpression = narratorRuntime.ntExtractCues(
   '/desc [ 인물A는 아쉬운 듯 돌아봅니다. @인물A:불안 ](#" style="font-size:13px;")',
 );
 assert.strictEqual(namedExpression.cues.length, 1);
-assert.strictEqual(namedExpression.cues[0].type, 'avatar');
+assert.strictEqual(namedExpression.cues[0].type, 'vd');
 assert.strictEqual(namedExpression.cues[0].args[0], '인물A:불안');
 assert(!namedExpression.text.includes('@인물A:불안'));
 assert(namedExpression.text.includes('](#" style="font-size:13px;")'));
@@ -370,14 +380,14 @@ const mixedExpressions = narratorRuntime.ntExtractCues(
 );
 assert.deepStrictEqual(
   Array.from(mixedExpressions.cues, (cue) => cue.type),
-  ['audio', 'apng', 'avatar', 'avatar'],
+  ['audio', 'apng', 'vd', 'vd'],
 );
 const expressionBeforeCue = narratorRuntime.ntExtractCues(
   '대사 @웃음 @오디오 재생|BGM 이름',
 );
 assert.deepStrictEqual(
   Array.from(expressionBeforeCue.cues, (cue) => cue.type),
-  ['audio', 'avatar'],
+  ['audio', 'vd'],
 );
 assert.strictEqual(expressionBeforeCue.text, '대사');
 const expressionAndExit = narratorRuntime.ntExtractCues(
@@ -385,7 +395,7 @@ const expressionAndExit = narratorRuntime.ntExtractCues(
 );
 assert.deepStrictEqual(
   Array.from(expressionAndExit.cues, (cue) => cue.type),
-  ['avatar', 'vd'],
+  ['vd', 'vd'],
 );
 const lineDelayCue = narratorRuntime.ntExtractCues(
   '전환 @APNG 블라인드페이드아웃|1회|영역|1.2초 @퇴장:전원 @다음줄 1.2초',
@@ -673,28 +683,17 @@ const avatarCharacterValues = {
   controlledby: '',
 };
 const avatarCharacter = roll20Object('character-1', avatarCharacterValues);
-const avatarEvents = [];
 let avatarCards = [];
 let avatarWhispers = 0;
-let avatarVdEnabled = true;
-let avatarRefreshSchedules = 0;
 const avatarRuntime = {
   state: {},
   KIBScene: {
     adapters: {
       vd: {
-        validateExpression(payload) {
-          avatarEvents.push(['validate', payload]);
-          return { ok: true };
+        validateExpression() {
+          throw new Error('09 must not call 03');
         },
       },
-    },
-    broadcast(name, payload) {
-      avatarEvents.push([name, payload]);
-      return { ok: true };
-    },
-    isFeatureEnabled(name) {
-      return name !== 'vd' || avatarVdEnabled;
     },
   },
   on() {},
@@ -721,8 +720,7 @@ const avatarRuntime = {
     avatarWhispers += 1;
   },
   setTimeout() {
-    avatarRefreshSchedules += 1;
-    return avatarRefreshSchedules;
+    return 1;
   },
   clearTimeout() {},
 };
@@ -756,125 +754,90 @@ let avatarResult = avatarRuntime.avValidateChange(avatarRequest);
 assert.strictEqual(avatarResult.ok, true);
 assert.strictEqual(avatarResult.targets.avatar, false);
 assert.strictEqual(avatarResult.targets.token, false);
-assert.strictEqual(avatarResult.targets.vd, true);
+assert.strictEqual(avatarResult.targets.vd, undefined);
 avatarResult = avatarRuntime.avApplyChange(avatarRequest);
 assert.strictEqual(avatarResult.ok, true);
 assert.strictEqual(avatarCharacterValues.avatar, 'original.png');
-assert.strictEqual(
-  avatarEvents.filter((event) => event[0] === 'expression:changed').length,
-  1,
-);
-const whispersBeforeSync = avatarWhispers;
-avatarResult = avatarRuntime.avSyncExternal({
-  source: 'vd',
-  characterId: avatarCharacter.id,
-  expression: '난감',
-});
-assert.strictEqual(avatarResult.skipped, true);
-assert.strictEqual(avatarWhispers, whispersBeforeSync);
-
-avatarVdEnabled = false;
-const avatarValidationsBeforeDisable = avatarEvents.filter(
-  (event) => event[0] === 'validate',
-).length;
-avatarResult = avatarRuntime.avValidateChange({
-  characterId: avatarCharacter.id,
-  expression: '난감',
-  playerId: 'API',
-  targets: { avatar: false, token: false, vd: true },
-});
-assert.strictEqual(avatarResult.ok, true);
-assert.strictEqual(avatarResult.targets.vd, false);
-assert.strictEqual(
-  avatarEvents.filter((event) => event[0] === 'validate').length,
-  avatarValidationsBeforeDisable,
-  '전체 비주얼 노벨이 꺼지면 09가 standings 표정을 검사하지 않아야 합니다.',
-);
 assert(
   !avatarRuntime
-    .avTargetButtons('기본', { avatar: true, token: false, vd: true })
+    .avTargetButtons('기본', { avatar: true, token: false })
     .includes('비주얼 노벨'),
-  '전체 비주얼 노벨이 꺼지면 09 관리의 비주얼 노벨 버튼을 숨겨야 합니다.',
+  '09 관리에는 03 설정 버튼이 없어야 합니다.',
 );
-assert.strictEqual(
-  avatarRuntime.state.KIBSceneAvatar.defaults.vd,
-  true,
-  '전체 기능을 꺼도 기존 09 대상 저장값은 보존해야 합니다.',
-);
-const schedulesBeforeFeatureChange = avatarRefreshSchedules;
-avatarRuntime.avHandleFeatureChanged({ name: 'vd', enabled: false });
-assert.strictEqual(
-  avatarRefreshSchedules,
-  schedulesBeforeFeatureChange + 1,
-  '전체 비주얼 노벨 변경 시 09 관리 핸드아웃을 갱신해야 합니다.',
-);
-avatarVdEnabled = true;
-assert(
-  avatarRuntime
-    .avTargetButtons('기본', { avatar: true, token: false, vd: true })
-    .includes('비주얼 노벨'),
-  '전체 비주얼 노벨을 다시 켜면 저장된 09 대상 버튼을 복원해야 합니다.',
-);
-
 avatarRuntime.state.KIBSceneAvatar.characterTargets[avatarCharacter.id] = {
-  avatar: true,
+  avatar: false,
   token: false,
   vd: true,
 };
-avatarRuntime.avHandleTargetCommand({
-  content: '!아바타 대상|기본|비주얼|끄기',
-  playerid: 'gm',
-});
-assert.strictEqual(avatarRuntime.state.KIBSceneAvatar.defaults.vd, false);
 assert.strictEqual(
   avatarRuntime.avTargets(avatarCharacter).vd,
-  false,
-  '09 기본 비주얼 노벨이 꺼지면 캐릭터별 저장값이 켜져 있어도 실행 대상에서 제외해야 합니다.',
+  undefined,
+  '예전 09 비주얼 대상 저장값도 03에 영향을 주면 안 됩니다.',
 );
-assert(
-  avatarRuntime
-    .avTargetButtons('기본', avatarRuntime.state.KIBSceneAvatar.defaults)
-    .includes('비주얼 노벨'),
-  '09 기본 비주얼 노벨 버튼은 다시 켤 수 있도록 남겨야 합니다.',
-);
-assert(
-  !avatarRuntime
-    .avTargetButtons(avatarCharacter.id, avatarRuntime.avTargets(avatarCharacter))
-    .includes('비주얼 노벨'),
-  '09 기본 비주얼 노벨이 꺼지면 캐릭터별 비주얼 노벨 버튼을 숨겨야 합니다.',
-);
-const avatarValidationsBeforeDefaultDisable = avatarEvents.filter(
-  (event) => event[0] === 'validate',
-).length;
-avatarResult = avatarRuntime.avValidateChange({
-  characterId: avatarCharacter.id,
-  expression: '난감',
-  playerId: 'API',
-  targets: { avatar: false, token: false, vd: true },
-});
-assert.strictEqual(avatarResult.ok, true);
-assert.strictEqual(avatarResult.targets.vd, false);
-assert.strictEqual(
-  avatarEvents.filter((event) => event[0] === 'validate').length,
-  avatarValidationsBeforeDefaultDisable,
-  '09 기본 비주얼 노벨이 꺼지면 standings 표정을 검사하지 않아야 합니다.',
-);
+const whispersBeforeOldSetting = avatarWhispers;
 avatarRuntime.avHandleTargetCommand({
   content: '!아바타 대상|기본|비주얼|켜기',
   playerid: 'gm',
 });
-assert.strictEqual(avatarRuntime.state.KIBSceneAvatar.defaults.vd, true);
+assert.strictEqual(avatarWhispers, whispersBeforeOldSetting + 1);
+assert.strictEqual(avatarRuntime.state.KIBSceneAvatar.defaults.vd, undefined);
+
+const standingValues = {
+  name: 'vd_standing',
+  represents: avatarCharacter.id,
+  _pageid: 'page-1',
+  bar1_value: '인물A',
+  width: 100,
+  height: 100,
+  imgsrc: 'before.png',
+};
+const standingToken = roll20Object('standing-1', standingValues);
+const standingDeck = roll20Object('standing-deck', {
+  _id: 'standing-deck',
+  name: 'standings',
+});
+const standingCard = roll20Object('standing-card', {
+  _id: 'standing-card',
+  _deckid: 'standing-deck',
+  name: '인물A-난감',
+  avatar: 'https://files.d20.io/images/1/max.png',
+});
+vm.runInContext(
+  "vd_setting.page_list = 'conversation'; vd_setting.use_emotion = true; vd_setting.standing_fit = 'stretch';",
+  vdRuntime,
+);
+vdRuntime.Campaign = () => ({ get: () => 'page-1' });
+vdRuntime.getObj = (type, id) =>
+  type === 'page' && id === 'page-1'
+    ? roll20Object('page-1', { name: 'conversation' })
+    : null;
+vdRuntime.findObjs = (query) => {
+  if (query._type === 'character' && query.name === '인물A')
+    return [avatarCharacter];
+  if (query._type === 'deck' && query.name === 'standings')
+    return [standingDeck];
+  if (query._type === 'card' && (!query.name || query.name === '인물A-난감'))
+    return [standingCard];
+  if (query._type === 'graphic' && query.name === 'vd_standing')
+    return [standingToken];
+  return [];
+};
+vdRuntime.vdScheduleExpressionHandouts = () => {};
+const sharedExpression = {
+  type: 'api',
+  content: '!@인물A:난감',
+  who: 'GM',
+  playerid: 'gm',
+};
+assert.strictEqual(avatarRuntime.avHandleApi(sharedExpression).ok, true);
+vdHandlers['chat:message'][0](sharedExpression);
 assert.strictEqual(
-  avatarRuntime.avTargets(avatarCharacter).vd,
-  true,
-  '09 기본 비주얼 노벨을 다시 켜면 캐릭터별 저장값을 복원해야 합니다.',
+  standingValues.imgsrc,
+  'https://files.d20.io/images/1/thumb.png',
+  '09 대상이 모두 꺼져 있어도 03은 같은 !@ 명령으로 스탠딩을 바꿔야 합니다.',
 );
-assert(
-  avatarRuntime
-    .avTargetButtons(avatarCharacter.id, avatarRuntime.avTargets(avatarCharacter))
-    .includes('비주얼 노벨'),
-  '09 기본 비주얼 노벨을 다시 켜면 캐릭터별 버튼을 복원해야 합니다.',
-);
+
+avatarRuntime.state.KIBSceneAvatar.characterTargets[avatarCharacter.id].avatar = true;
 
 avatarCards = [
   roll20Object('avatar-base', { name: '인물A', avatar: 'base.png' }),
@@ -896,6 +859,51 @@ assert.strictEqual(
   avatarRuntime.state.KIBSceneAvatar.selectedCards[avatarCharacter.id],
   'avatar-expression',
 );
+const bothTargetsExpression = {
+  type: 'api',
+  content: '!@인물A:난감',
+  who: 'GM',
+  playerid: 'gm',
+};
+standingValues.imgsrc = 'before.png';
+avatarCharacterValues.avatar = 'original.png';
+vdHandlers['chat:message'][0](bothTargetsExpression);
+avatarRuntime.avHandleApi(bothTargetsExpression);
+assert.strictEqual(standingValues.imgsrc, 'https://files.d20.io/images/1/thumb.png');
+assert.strictEqual(avatarCharacterValues.avatar, 'awkward.png');
+for (const handlers of [
+  [vdRuntime.vdHandleInlineExpression, avatarRuntime.avHandleInline],
+  [avatarRuntime.avHandleInline, vdRuntime.vdHandleInlineExpression],
+]) {
+  const message = {
+    type: 'general',
+    content: '대사 @난감',
+    who: '인물A',
+    playerid: 'gm',
+  };
+  standingValues.imgsrc = 'before.png';
+  avatarCharacterValues.avatar = 'original.png';
+  handlers.forEach((handler) => handler(message));
+  assert.strictEqual(message.content, '대사');
+  assert.strictEqual(standingValues.imgsrc, 'https://files.d20.io/images/1/thumb.png');
+  assert.strictEqual(avatarCharacterValues.avatar, 'awkward.png');
+}
+let hiddenChatCount = 0;
+vdRuntime.sendChat = avatarRuntime.sendChat = () => { hiddenChatCount += 1; };
+for (const handlers of [
+  [vdRuntime.vdHandleHiddenExpressionChat, avatarRuntime.avHandleHiddenChat],
+  [avatarRuntime.avHandleHiddenChat, vdRuntime.vdHandleHiddenExpressionChat],
+]) {
+  const message = {
+    type: 'api',
+    content: '!대사 대사 @난감',
+    who: '인물A',
+    playerid: 'gm',
+  };
+  hiddenChatCount = 0;
+  handlers.forEach((handler) => handler(message));
+  assert.strictEqual(hiddenChatCount, 1, '03/09의 !대사는 어느 쪽이 먼저 실행돼도 한 번만 표시해야 합니다.');
+}
 avatarResult = avatarRuntime.avValidateCue(
   ['인물A:난감'],
   { explicitAs: false, chatType: 'desc' },
@@ -916,6 +924,11 @@ avatarResult = avatarRuntime.avValidateCue(
   { explicitAs: false, chatType: 'desc' },
 );
 assert.strictEqual(avatarResult.ok, false);
+
+if (process.argv.includes('--expression-hotfix')) {
+  console.log('03/09 expression isolation: checked');
+  process.exit(0);
+}
 
 assert(
   !releaseText.includes('·'),

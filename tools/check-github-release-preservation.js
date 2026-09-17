@@ -12,6 +12,20 @@ const scriptIndexes = Array.from({ length: 10 }, (_, index) =>
 const allowedRemovals = {
   '05:namedFunctions:wrapText':
     '05의 글자 단위 처리를 없애면서 호출부 안으로 내부화한 함수',
+  '03:namedFunctions:vdAvatarExpressionAdapter':
+    '03과 09를 분리하면서 09 직접 호출 제거',
+  '03:namedFunctions:vdBroadcastExpression':
+    '03과 09 사이 표정 동기화 제거',
+  '03:namedFunctions:vdExpressionCard':
+    '09 전용 외부 표정 검증 제거 후 사용처 없음',
+  '03:namedFunctions:vdValidateExternalExpression':
+    '09 전용 외부 표정 검증 제거',
+  '03:namedFunctions:vdApplyExternalExpression':
+    '09 전용 외부 표정 적용 제거',
+  '09:namedFunctions:avBroadcast':
+    '03으로 보내던 표정 동기화 제거',
+  '09:namedFunctions:avSyncExternal':
+    '03에서 받던 표정 동기화 제거',
 };
 
 function fail(message) {

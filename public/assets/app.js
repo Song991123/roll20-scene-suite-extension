@@ -171,7 +171,6 @@ const MODULES = [
       { id: 'handoutPrefix', group: '기본', label: '표정 핸드아웃 앞글자', type: 'text', value: '🎭 캐릭터 이미지 | ', codeKey: 'expression_handout_prefix' },
       { id: 'character', group: '변경 대상', label: '캐릭터 시트 이미지', type: 'checkbox', value: true, codeKey: 'update_character_avatar' },
       { id: 'token', group: '변경 대상', label: '맵 토큰 이미지', type: 'checkbox', value: false, codeKey: 'update_map_tokens' },
-      { id: 'vd', group: '변경 대상', label: '비주얼 노벨 표정', type: 'checkbox', value: true, codeKey: 'update_visual_dialogue' },
     ],
   },
   {

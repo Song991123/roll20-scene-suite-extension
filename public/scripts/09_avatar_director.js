@@ -1,5 +1,5 @@
 /*
- * Scene Suite 09 - Avatar Expression Director 1.0.4
+ * Scene Suite 09 - Avatar Expression Director 1.0.5
  * 제작 및 통합: @EOOOOORK
  */
 
@@ -15,7 +15,6 @@ var avatar_setting = {
   expression_handout_prefix: '🎭 캐릭터 이미지 | ',
   update_character_avatar: true,
   update_map_tokens: false,
-  update_visual_dialogue: true,
 };
 
 // ===== 실행 상태 =====
@@ -32,10 +31,9 @@ function avInitState() {
     data.defaults = {
       avatar: avatar_setting.update_character_avatar,
       token: avatar_setting.update_map_tokens,
-      vd: avatar_setting.update_visual_dialogue,
     };
   }
-  ['avatar', 'token', 'vd'].forEach(function (key) {
+  ['avatar', 'token'].forEach(function (key) {
     data.defaults[key] = data.defaults[key] === true;
   });
   if (
@@ -157,28 +155,13 @@ function avIsExcluded(character) {
   );
 }
 
-function avVisualDialogueAvailable() {
-  var vd = KIBScene.adapters && KIBScene.adapters.vd;
-  if (!vd) return false;
-  return (
-    typeof KIBScene.isFeatureEnabled !== 'function' ||
-    KIBScene.isFeatureEnabled('vd')
-  );
-}
-
-function avVisualDialogueEnabled() {
-  return avVisualDialogueAvailable() && avInitState().defaults.vd === true;
-}
-
-function avTargets(character, includeUnavailable) {
+function avTargets(character) {
   var data = avInitState();
   var saved = character && data.characterTargets[character.id];
   var result = {
     avatar: saved ? saved.avatar === true : data.defaults.avatar === true,
     token: saved ? saved.token === true : data.defaults.token === true,
-    vd: saved ? saved.vd === true : data.defaults.vd === true,
   };
-  if (includeUnavailable !== true && !avVisualDialogueEnabled()) result.vd = false;
   if (avIsExcluded(character)) {
     result.avatar = false;
     result.token = false;
@@ -220,7 +203,6 @@ function avValidateChange(request) {
   if (!avCanControl(character, request.playerId || 'API'))
     return { ok: false, error: '이 캐릭터의 표정을 변경할 권한이 없습니다.' };
   var targets = Object.assign({}, request.targets || avTargets(character));
-  if (!avVisualDialogueEnabled()) targets.vd = false;
   var card = null;
   if (targets.avatar || targets.token) {
     var decks =
@@ -267,17 +249,6 @@ function avValidateChange(request) {
         };
     }
   }
-  var vd = KIBScene.adapters && KIBScene.adapters.vd;
-  if (targets.vd && vd && typeof vd.validateExpression === 'function') {
-    var vdResult = vd.validateExpression({
-      characterId: character.id,
-      characterName: character.get('name'),
-      expression: request.expression,
-      targets: targets,
-      source: 'avatar',
-    });
-    if (vdResult && vdResult.ok === false) return vdResult;
-  }
   return { ok: true, character: character, card: card, targets: targets };
 }
 
@@ -294,17 +265,6 @@ function avApplyChange(request) {
     if (targets.token)
       changedTokens = avUpdateTokens(character, card.get('avatar'));
   }
-  var payload = {
-    source: 'avatar',
-    characterId: character.id,
-    characterName: String(character.get('name') || ''),
-    expression: card
-      ? avExpressionName(card, character)
-      : String(request.expression || '기본'),
-    avatarCardId: card ? card.id : '',
-    targets: targets,
-  };
-  if (targets.vd) avBroadcast('expression:changed', payload);
   avScheduleRefresh();
   return {
     ok: true,
@@ -337,57 +297,6 @@ function avUpdateTokens(character, image) {
   return tokens.length;
 }
 
-function avBroadcast(eventName, payload) {
-  if (typeof KIBScene.broadcast === 'function')
-    return KIBScene.broadcast(eventName, payload);
-  var result = { ok: true, values: [] };
-  Object.keys(KIBScene.adapters || {}).forEach(function (name) {
-    var listener =
-      KIBScene.adapters[name].events &&
-      KIBScene.adapters[name].events[eventName];
-    if (typeof listener !== 'function') return;
-    try {
-      var value = listener(payload || {});
-      if (value && value.ok === false) result = value;
-    } catch (err) {
-      result = {
-        ok: false,
-        error:
-          '연결된 표정 기능을 처리하지 못했습니다: ' +
-          String(err && err.message ? err.message : err),
-      };
-    }
-  });
-  return result;
-}
-
-function avSyncExternal(payload) {
-  payload = payload || {};
-  if (payload.source == 'avatar') return { ok: true, skipped: true };
-  var character = avCharacter(payload.characterId || payload.characterName);
-  if (!character) return { ok: true, skipped: true };
-  var targets = avTargets(character);
-  if (!targets.avatar && !targets.token) return { ok: true, skipped: true };
-  var cards = avCards(character);
-  if (!cards.length) return { ok: true, skipped: true };
-  var card = avExpressionCard(character, payload.expression, '', cards);
-  if (!card) {
-    avWhisperGm(
-      '<b>' +
-        avEscape(character.get('name')) +
-        '</b>의 <b>' +
-        avEscape(payload.expression || '기본') +
-        '</b> 카드가 <code>avatars</code> 덱에 없습니다.',
-    );
-    return { ok: true, skipped: true };
-  }
-  avInitState().selectedCards[character.id] = card.id;
-  if (targets.avatar) character.set('avatar', card.get('avatar'));
-  if (targets.token) avUpdateTokens(character, card.get('avatar'));
-  avScheduleRefresh();
-  return { ok: true };
-}
-
 function avHandleApi(msg) {
   if (
     !msg ||
@@ -401,8 +310,6 @@ function avHandleApi(msg) {
     .replace(state.api_tag || '', '')
     .trim();
   if (
-    KIBScene.adapters &&
-    KIBScene.adapters.vd &&
     /^(?:장면없음|숨김|hide|퇴장|exit|리셋|reset|강제진행|force-progress)(?::|\s|$)|^(?:배경|background)\s+/i.test(
       body,
     )
@@ -451,10 +358,11 @@ function avHandleInline(msg) {
     (msg.type != 'general' && msg.type != 'emote')
   )
     return { ok: true, handled: false };
-  var content = String(msg.content || '');
+  var content = String(msg.kibSceneOriginalContent || msg.content || '');
   var match = content.match(/(?:^|\s)@([^\s@|{}]+)\s*$/);
   if (!match) return { ok: true, handled: false };
   msg.kibAvatarExpressionHandled = true;
+  msg.kibSceneOriginalContent = content;
   msg.content = content.substring(0, match.index).replace(/\s+$/, '');
   var character = avSpeakerCharacter(msg);
   var result = avApplyChange({
@@ -502,11 +410,13 @@ function avHandleHiddenChat(msg) {
   };
   var inline = avHandleInline(forwarded);
   if (inline.handled && inline.ok === false) return inline;
-  if (forwarded.content.trim())
+  if (forwarded.content.trim() && !msg.kibSceneHiddenSent) {
     sendChat(
       'character|' + character.id,
       forwarded.content + (state.api_tag || ''),
     );
+    msg.kibSceneHiddenSent = true;
+  }
   return { ok: true, handled: true };
 }
 
@@ -591,10 +501,6 @@ function avHandleTargetCommand(msg) {
     token: 'token',
     '맵 토큰': 'token',
     맵토큰: 'token',
-    비주얼: 'vd',
-    vd: 'vd',
-    '비주얼 노벨': 'vd',
-    비주얼노벨: 'vd',
   }[String(parts[2] || '').toLowerCase()];
   var value = avBoolean(parts[3]);
   var data = avInitState();
@@ -606,7 +512,7 @@ function avHandleTargetCommand(msg) {
   if (reference == '기본') {
     if (!key || value === null)
       return avWhisperGm(
-        '캐릭터 이미지, 맵 토큰, 비주얼 노벨 중 하나와 켜기 또는 끄기를 입력하세요.',
+        '캐릭터 이미지 또는 맵 토큰과 켜기 또는 끄기를 입력하세요.',
       );
     data.defaults[key] = value;
     savedMessage =
@@ -624,7 +530,7 @@ function avHandleTargetCommand(msg) {
       if (value === null)
         return avWhisperGm('대상 설정은 켜기 또는 끄기를 입력하세요.');
       data.characterTargets[character.id] =
-        data.characterTargets[character.id] || avTargets(character, true);
+        data.characterTargets[character.id] || avTargets(character);
       data.characterTargets[character.id][key] = value;
       savedMessage =
         '<b>' +
@@ -643,7 +549,6 @@ function avTargetLabel(key) {
   return {
     avatar: '캐릭터 이미지',
     token: '맵 토큰',
-    vd: '비주얼 노벨',
   }[key];
 }
 
@@ -671,11 +576,6 @@ function avHandleExcludeCommand(msg) {
       '</b> 자동 변경: ' +
       (action == '추가' ? '제외' : '사용'),
   );
-}
-
-function avHandleFeatureChanged(payload) {
-  if (payload && payload.name == 'vd') avScheduleRefresh();
-  return { ok: true };
 }
 
 function avScheduleRefresh() {
@@ -866,18 +766,10 @@ function avRefreshManagementHandout(characters, deckCards, active) {
 }
 
 function avTargetButtons(reference, targets) {
-  var buttons =
+  return (
     avToggleButton('캐릭터', reference, '시트', targets.avatar) +
-    ' ' +
-    avToggleButton('맵 토큰', reference, '토큰', targets.token);
-  if (
-    reference == '기본'
-      ? avVisualDialogueAvailable()
-      : avVisualDialogueEnabled()
-  )
-    buttons +=
-      ' ' + avToggleButton('비주얼 노벨', reference, '비주얼', targets.vd);
-  return buttons;
+    ' ' + avToggleButton('맵 토큰', reference, '토큰', targets.token)
+  );
 }
 
 function avToggleButton(label, reference, key, enabled) {
@@ -982,19 +874,18 @@ on('ready', function () {
     handleInline: avHandleInline,
     handleHiddenChat: avHandleHiddenChat,
     applyExpression: avApplyChange,
-    events: {
-      'expression:changed': avSyncExternal,
-      'feature:changed': avHandleFeatureChanged,
-    },
     status: function () {
       return {
         deck: avatar_setting.deck_name,
-        defaults: avInitState().defaults,
+        defaults: {
+          avatar: avInitState().defaults.avatar,
+          token: avInitState().defaults.token,
+        },
         excluded: avInitState().excludedCharacters.length,
       };
     },
     help: [
-      '<code>!@표정명</code> 캐릭터 이미지, 맵 토큰, 비주얼 노벨 변경',
+      '<code>!@표정명</code> 캐릭터 이미지와 맵 토큰 변경',
       '<code>!... /desc 지문 @캐릭터명:표정</code> 지정한 캐릭터 표정 변경',
       '<code>!아바타 관리</code> 대상과 제외 캐릭터 설정',
     ],

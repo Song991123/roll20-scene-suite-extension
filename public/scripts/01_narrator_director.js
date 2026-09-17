@@ -676,7 +676,9 @@ function ntExpressionCueType(value) {
     )
   )
     return 'vd';
-  return ntHasPlugin('avatar') ? 'avatar' : 'vd';
+  return ntHasPlugin('vd') && ntFeature('vd', nt_setting.use_visual_dialogue)
+    ? 'vd'
+    : 'avatar';
 }
 
 function ntRunCues(cues, context) {
