@@ -345,6 +345,20 @@ narratorRuntime.KIBScene.adapters.vd = {};
 const expressionCue = narratorRuntime.ntExtractCues('대사 @난감').cues[0];
 assert.strictEqual(expressionCue.type, 'vd');
 assert.strictEqual(expressionCue.args[0], '난감');
+const avatarOnlyCue = narratorRuntime.ntExtractCues('대사 @인물A:난감').cues[0];
+narratorRuntime.KIBScene.validate = (cue) =>
+  cue.type === 'vd'
+    ? { ok: false, error: 'standings 카드 없음' }
+    : { ok: true, targets: { avatar: true, token: false } };
+assert.strictEqual(narratorRuntime.ntValidateCues([avatarOnlyCue], {}).ok, true);
+assert.strictEqual(avatarOnlyCue.type, 'avatar');
+const noAvatarTargetCue = narratorRuntime.ntExtractCues('대사 @인물A:난감').cues[0];
+narratorRuntime.KIBScene.validate = (cue) =>
+  cue.type === 'vd'
+    ? { ok: false, error: 'standings 카드 없음' }
+    : { ok: true, targets: { avatar: false, token: false } };
+assert.strictEqual(narratorRuntime.ntValidateCues([noAvatarTargetCue], {}).ok, false);
+delete narratorRuntime.KIBScene.validate;
 assert.strictEqual(
   narratorRuntime.ntExtractCues('대사 @인물A:난감').cues[0].type,
   'vd',

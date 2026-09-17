@@ -559,6 +559,7 @@ function ntExtractCues(source) {
         type: ntExpressionCueType(expressionMatch[2]),
         args: [expressionMatch[2]],
         raw: '@' + expressionMatch[2],
+        expressionShorthand: true,
       });
       text = text.substring(0, expressionMatch.index) + expressionMatch[1];
       expressionMatch = text.match(/(^|\s)!?@([^\s@|{}]*)\s*$/);
@@ -735,8 +736,29 @@ function ntValidateCues(cues, context) {
     if (!ntCueEnabled(cue.type)) continue;
     if (typeof KIBScene.validate === 'function') {
       const result = KIBScene.validate(cue, context);
-      if (result && result.ok === false)
+      if (result && result.ok === false) {
+        if (
+          cue.expressionShorthand &&
+          cue.type === 'vd' &&
+          ntHasPlugin('avatar') &&
+          ntCueEnabled('avatar')
+        ) {
+          const avatarResult = KIBScene.validate(
+            { type: 'avatar', args: cue.args, raw: cue.raw },
+            context,
+          );
+          if (
+            avatarResult &&
+            avatarResult.ok &&
+            avatarResult.targets &&
+            (avatarResult.targets.avatar || avatarResult.targets.token)
+          ) {
+            cue.type = 'avatar';
+            continue;
+          }
+        }
         return { ok: false, error: result.error, cue: cue };
+      }
     } else if (typeof KIBScene.handlers[cue.type] !== 'function') {
       return {
         ok: false,
