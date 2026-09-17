@@ -858,6 +858,61 @@ const standingCard = roll20Object('standing-card', {
   name: '인물A-난감',
   avatar: 'https://files.d20.io/images/1/max.png',
 });
+const ratioCards = [
+  roll20Object('ratio-base', { _deckid: standingDeck.id, name: '인물A', avatar: 'base.png' }),
+  standingCard,
+  roll20Object('ratio-smile', { _deckid: standingDeck.id, name: '인물A-기쁨', avatar: 'smile.png' }),
+  roll20Object('ratio-other', { _deckid: standingDeck.id, name: '인물A-자매', avatar: 'other.png' }),
+  roll20Object('ratio-other-smile', { _deckid: standingDeck.id, name: '인물A-자매-기쁨', avatar: 'other-smile.png' }),
+];
+const ratioCharacters = [
+  roll20Object('ratio-char-a', { name: '인물A' }),
+  roll20Object('ratio-char-other', { name: '인물A-자매' }),
+];
+const priorFindObjs = vdRuntime.findObjs;
+const priorGetObj = vdRuntime.getObj;
+vdRuntime.findObjs = (query) => {
+  if (query._type === 'deck') return [standingDeck];
+  if (query._type === 'character') return ratioCharacters;
+  if (query._type === 'card')
+    return ratioCards.filter((card) => !query.name || card.get('name') === query.name);
+  return [];
+};
+vdRuntime.getObj = (type, id) =>
+  type === 'card' ? ratioCards.find((card) => card.id === id) : null;
+vdRuntime.vdInitState();
+vdRuntime.state.KIBSceneVD.standingRatios = {};
+vdRuntime.vdStoreRatio(standingCard, 100, 200);
+for (const card of ratioCards.slice(0, 3))
+  assert.strictEqual(vdRuntime.vdStandingRatio(card, '인물A'), 0.5);
+assert.strictEqual(vdRuntime.state.KIBSceneVD.standingRatios['ratio-other'], undefined);
+assert.strictEqual(vdRuntime.state.KIBSceneVD.standingRatios['ratio-other-smile'], undefined);
+vdRuntime.vdHandleRatioCommand('!비주얼 비율|등록|id:ratio-smile|200|100', { selected: [] });
+for (const card of ratioCards.slice(0, 3))
+  assert.strictEqual(vdRuntime.vdStandingRatio(card, '인물A'), 2);
+const baseSize = vdRuntime.vdStandingSize(ratioCards[0], '인물A');
+const expressionSize = vdRuntime.vdStandingSize(standingCard, '인물A');
+assert.strictEqual(baseSize.width, expressionSize.width);
+assert.strictEqual(baseSize.height, expressionSize.height);
+vdRuntime.vdHandleRatioCommand('!비주얼 비율|삭제|id:standing-card', { selected: [] });
+for (const card of ratioCards.slice(0, 3))
+  assert.strictEqual(vdRuntime.state.KIBSceneVD.standingRatios[card.id], undefined);
+const selectedRatioImage = roll20Object('selected-ratio-image', {
+  width: 300,
+  height: 600,
+  imgsrc: 'https://files.d20.io/images/1/thumb.png',
+});
+vdRuntime.getObj = (type, id) =>
+  type === 'card'
+    ? ratioCards.find((card) => card.id === id)
+    : type === 'graphic' && id === selectedRatioImage.id
+      ? selectedRatioImage
+      : null;
+assert.strictEqual(vdRuntime.vdRegisterSelectedRatios([{ _id: selectedRatioImage.id }]), 1);
+for (const card of ratioCards.slice(0, 3))
+  assert.strictEqual(vdRuntime.vdStandingRatio(card, '인물A'), 0.5);
+vdRuntime.findObjs = priorFindObjs;
+vdRuntime.getObj = priorGetObj;
 vm.runInContext(
   "vd_setting.page_list = 'conversation'; vd_setting.use_emotion = true; vd_setting.standing_fit = 'stretch';",
   vdRuntime,

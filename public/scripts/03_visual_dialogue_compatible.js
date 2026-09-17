@@ -687,12 +687,14 @@ function vdHandleRatioCommand(content, msg) {
   } else if (action == '삭제') {
     var removeCards = vdStandingCardsByReference(parts[2]);
     removeCards.forEach(function (card) {
-      delete ratios[card.id];
+      vdStandingFamilyCards(card).forEach(function (member) {
+        delete ratios[member.id];
+      });
     });
     vdRefreshHandout();
     return vdWhisperExclude(
       removeCards.length
-        ? '비율 등록을 삭제했습니다: ' + vdEscapeHtml(parts[2])
+        ? '같은 캐릭터의 스탠딩 비율을 삭제했습니다: ' + vdEscapeHtml(parts[2])
         : '스탠딩 카드를 찾지 못했습니다.',
     );
   } else if (action == '초기화') {
@@ -726,7 +728,7 @@ function vdHandleRatioCommand(content, msg) {
   vdWhisperExclude(
     '<b>' +
       vdEscapeHtml(parts[2]) +
-      '</b> 카드의 비율을 ' +
+      '</b> 및 같은 캐릭터의 표정 카드 비율을 ' +
       width +
       ':' +
       height +
@@ -834,13 +836,52 @@ function vdStandingCardsByReference(reference) {
 }
 
 function vdStoreRatio(card, width, height) {
-  state.KIBSceneVD.standingRatios[card.id] = {
-    ratio: width / height,
-    width: width,
-    height: height,
-    name: String(card.get('name') || ''),
-  };
-  delete vd_ratio_warned[card.id];
+  vdStandingFamilyCards(card).forEach(function (member) {
+    state.KIBSceneVD.standingRatios[member.id] = {
+      ratio: width / height,
+      width: width,
+      height: height,
+      name: String(member.get('name') || ''),
+    };
+    delete vd_ratio_warned[member.id];
+  });
+}
+
+function vdStandingFamilyCards(card) {
+  var deck = vdStandingDeck();
+  if (!deck || !card || card.get('_deckid') != deck.get('_id'))
+    return card ? [card] : [];
+  var cards = findObjs({ _type: 'card', _deckid: deck.get('_id') }) || [];
+  var names = cards.map(function (item) {
+    return String(item.get('name') || '');
+  });
+  var characters = (findObjs({ _type: 'character' }) || []).map(function (item) {
+    return String(item.get('name') || '');
+  });
+  function base(name) {
+    var exactOrPrefix = function (candidate) {
+      return (
+        candidate && (name == candidate || name.indexOf(candidate + '-') === 0)
+      );
+    };
+    var known = characters.filter(exactOrPrefix).sort(function (a, b) {
+      return b.length - a.length;
+    })[0];
+    if (known) return known;
+    return (
+      names
+        .filter(function (candidate) {
+          return candidate != name && name.indexOf(candidate + '-') === 0;
+        })
+        .sort(function (a, b) {
+          return a.length - b.length;
+        })[0] || name
+    );
+  }
+  var characterName = base(String(card.get('name') || ''));
+  return cards.filter(function (item) {
+    return base(String(item.get('name') || '')) == characterName;
+  });
 }
 
 function vdCanonicalImage(url) {
