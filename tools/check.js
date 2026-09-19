@@ -290,9 +290,23 @@ assert.strictEqual(
 vdRuntime.findObjs = (query) =>
   query && (query.type === 'page' || query._type === 'page')
     ? [{ get(key) { return key === '_id' ? 'page-1' : 'conversation'; } }]
-    : [];
+    : query && query._type === 'deck' && query.name === 'standings'
+      ? [{ get(key) { return key === '_id' ? 'standings-deck' : 'standings'; } }]
+      : query && query._type === 'character' && query.name === '인물B'
+        ? [{ get() { return '인물B'; } }]
+        : query &&
+            query._type === 'card' &&
+            query._deckid === 'standings-deck' &&
+            query.name === '인물B'
+          ? [{ get() { return '인물B'; } }]
+          : [];
 assert.strictEqual(vdRuntime.vdValidateCue(['퇴장:인물A'], {}).ok, true);
 assert.strictEqual(vdRuntime.vdValidateCue(['장면없음'], {}).ok, true);
+assert.strictEqual(
+  vdRuntime.vdValidateCue(['인물B:'], {}).ok,
+  true,
+  '나레이터의 빈 표정명은 캐릭터 기본 표정 카드로 검증되어야 합니다.',
+);
 const tabletopCards = [
   roll20Object('card-front', {
     _subtype: 'card',
@@ -422,17 +436,17 @@ assert.strictEqual(namedExpression.cues[0].args[0], '인물A:불안');
 assert(!namedExpression.text.includes('@인물A:불안'));
 assert(namedExpression.text.includes('](#" style="font-size:13px;")'));
 const multipleExpressions = narratorRuntime.ntExtractCues(
-  '/desc [ 인물A는 아쉬운 듯 몇 번이나 당신을 돌아보지만 @인물A:불안 @인물B:기본 ](#" style="font-size:13px;")',
+  '/desc [ 인물A는 아쉬운 듯 몇 번이나 당신을 돌아보지만 @인물A:불안 @인물B: ](#" style="font-size:13px;")',
 );
 assert.deepStrictEqual(
   Array.from(multipleExpressions.cues, (cue) => cue.args[0]),
-  ['인물A:불안', '인물B:기본'],
+  ['인물A:불안', '인물B:'],
 );
 assert(!multipleExpressions.text.includes('@인물A:불안'));
-assert(!multipleExpressions.text.includes('@인물B:기본'));
+assert(!multipleExpressions.text.includes('@인물B:'));
 assert(multipleExpressions.text.includes('](#" style="font-size:13px;")'));
 const mixedExpressions = narratorRuntime.ntExtractCues(
-  '대사 @오디오 재생|BGM @APNG 재생|연출 @인물A:불안 @인물B:기본',
+  '대사 @오디오 재생|BGM @APNG 재생|연출 @인물A:불안 @인물B:',
 );
 assert.deepStrictEqual(
   Array.from(mixedExpressions.cues, (cue) => cue.type),
@@ -1084,7 +1098,7 @@ assert(
   '!. 동시에 출력할 줄',
   '@다음줄 1.2초',
   '!@배경 장면명',
-  '@인물A:불안 @인물B:기본',
+  '@인물A:불안 @인물B:',
   '!컷인 URL|Roll20이미지주소|3초',
   '@컷인 카드명|줄=3',
   '!!도움말',

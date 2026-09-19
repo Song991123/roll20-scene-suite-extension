@@ -54,7 +54,7 @@ const MODULES = [
     file: '03_visual_dialogue_compatible.js',
     title: '비주얼 노벨',
     description: '스크립트창, 대사창, 이름, 스탠딩, 표정, 배경 표시',
-    setup: ['적용 페이지의 GM 레이어에 이미지 토큰을 놓고 토큰 이름을 각각 vd_area, vd_name, vd_dialogue로 지정합니다.', '오브젝트 레이어에 이미지 토큰을 놓고 토큰 이름을 vd_panel로 지정합니다. 창 분리를 고르면 대사창 이미지 토큰 이름을 vd_dialogue_box로 지정합니다.', 'standings 덱을 만들고 캐릭터명, 캐릭터명-표정명 카드를 넣습니다.', '배경을 쓸 때 background 덱을 만들고 맵 레이어에 배경 이미지 토큰을 놓은 뒤 토큰 이름을 vd_background로 지정합니다.', '01 나레이터와 함께 설치하면 !. 문장으로 직전 !... 줄과 같은 차례에 출력합니다. !... 대사 @다음줄 1.2초는 다음 나레이터 줄까지 1.2초 대기하며, !sd set|timing.lineInterval|3000으로 기본 줄 간격을 3초로 바꿉니다.'],
+    setup: ['적용 페이지의 GM 레이어에 이미지 토큰을 놓고 토큰 이름을 각각 vd_area, vd_name, vd_dialogue로 지정합니다.', '오브젝트 레이어에 이미지 토큰을 놓고 토큰 이름을 vd_panel로 지정합니다. 창 분리를 고르면 대사창 이미지 토큰 이름을 vd_dialogue_box로 지정합니다.', 'standings 덱을 만들고 캐릭터명, 캐릭터명-표정명 카드를 넣습니다.', '배경을 쓸 때 background 덱을 만들고 맵 레이어에 배경 이미지 토큰을 놓은 뒤 토큰 이름을 vd_background로 지정합니다.', '01 나레이터와 함께 설치하면 !. 문장으로 직전 !... 줄과 같은 차례에 출력합니다. !... /desc 지문 @인물A:불안 @인물B: 형식처럼 캐릭터명 뒤의 콜론을 비우면 해당 캐릭터를 기본 표정으로 변경합니다. !... 대사 @다음줄 1.2초는 다음 나레이터 줄까지 1.2초 대기하며, !sd set|timing.lineInterval|3000으로 기본 줄 간격을 3초로 바꿉니다.'],
     settings: [
       { id: 'page', shared: 'page', group: '기본', label: '적용할 페이지', note: '쉼표로 여러 페이지 지정, 05와 06 공통', type: 'text', value: 'conversation', codeKey: 'page_list' },
       { id: 'deck', group: '기본', label: '스탠딩 덱 이름', type: 'text', value: 'standings', codeKey: 'deck_name' },
