@@ -220,7 +220,11 @@ KIBScene.adapters = KIBScene.adapters || {};
       clearActive(true);
       return;
     }
-    if (action === '설정') return saveDuration(parts);
+    if (action === '설정') {
+      if (parts.length) return saveDuration(parts);
+      refreshManager();
+      return whisper(managerLink());
+    }
     if (action === '기본크기' || action === '크기')
       return saveDefaultSize(parts);
     if (action === '부류크기' || action === '그룹크기')

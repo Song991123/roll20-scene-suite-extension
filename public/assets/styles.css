@@ -38,8 +38,7 @@ a {
 }
 
 header,
-main,
-footer {
+main {
   width: min(920px, calc(100% - 40px));
   margin: 0 auto;
 }
@@ -64,12 +63,6 @@ header strong {
 .site-title span {
   color: var(--gray-700);
   font-size: 11px;
-}
-
-header a,
-footer a {
-  font-size: 12px;
-  text-underline-offset: 3px;
 }
 
 main {
@@ -364,22 +357,13 @@ button:disabled {
   font-size: 11px;
 }
 
-footer {
-  min-height: 72px;
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  border-top: 1px solid var(--black);
-}
-
 [hidden] {
   display: none !important;
 }
 
 @media (max-width: 720px) {
   header,
-  main,
-  footer {
+  main {
     width: min(100% - 24px, 920px);
   }
 

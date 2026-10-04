@@ -129,7 +129,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (action === 'help' || action === '도움말') return gm(helpHtml());
 
     if (action === '매크로') return runMacro(parts);
-    if (action === '관리' || action === '갱신') {
+    if (action === '관리' || action === '갱신' || action === '설정') {
       refreshAll();
       var manager = getManager();
       return gm(

@@ -34,12 +34,12 @@ state.last_displayed_time = 0;
 // type: desc, general, emote
 state.VD_INJECT = function (text, type, who, options) {
   var t = type === 'general' || type === 'emote' ? type : 'desc';
-  var speaker = String(who || '').trim();
+  var speaker = String(who || '');
   var opts = options || {};
 
   if (
     vd_setting.require_as &&
-    !speaker &&
+    !speaker.trim() &&
     !((t === 'desc' || t === 'emote') && opts.allowNoAs === true)
   )
     return false;
@@ -199,10 +199,10 @@ function vdIsExcludedAs(name) {
 
 function vdContextSpeaker(context) {
   if (!context || context.explicitAs !== true) return '';
-  var as = String(context.as || '').trim();
+  var as = String(context.as || '');
   if (as.indexOf('character|') === 0) {
     var character = getObj('character', as.substring('character|'.length));
-    return character ? String(character.get('name') || '').trim() : '';
+    return character ? String(character.get('name') || '') : '';
   }
   if (as.indexOf('player|') === 0) return '';
   return as;
@@ -681,6 +681,7 @@ function vdHandleRatioCommand(content, msg) {
       );
     vdApplyStandingLayout();
     vdRefreshHandout();
+    vdScheduleExpressionHandouts();
     return vdWhisperExclude(
       count + '개 스탠딩 비율을 등록했습니다.',
     );
@@ -691,7 +692,9 @@ function vdHandleRatioCommand(content, msg) {
         delete ratios[member.id];
       });
     });
+    vdApplyStandingLayout();
     vdRefreshHandout();
+    vdScheduleExpressionHandouts();
     return vdWhisperExclude(
       removeCards.length
         ? '같은 캐릭터의 스탠딩 비율을 삭제했습니다: ' + vdEscapeHtml(parts[2])
@@ -701,6 +704,7 @@ function vdHandleRatioCommand(content, msg) {
     state.KIBSceneVD.standingRatios = {};
     vdApplyStandingLayout();
     vdRefreshHandout();
+    vdScheduleExpressionHandouts();
     return vdWhisperExclude('스탠딩 비율을 모두 초기화했습니다.');
   } else if (action == '목록') {
     var rows = Object.keys(ratios).map(function (id) {
@@ -725,6 +729,7 @@ function vdHandleRatioCommand(content, msg) {
     );
   vdApplyStandingLayout();
   vdRefreshHandout();
+  vdScheduleExpressionHandouts();
   vdWhisperExclude(
     '<b>' +
       vdEscapeHtml(parts[2]) +
@@ -763,7 +768,48 @@ function vdConfigStatus() {
     ' / 동시 표시=' +
     c.max_number +
     '명 / 맞춤=' +
-    (c.standing_fit == 'contain-top' ? '비율 유지' : '지정 크기로 늘이기')
+    (c.standing_fit == 'contain-top' ? '비율 유지' : '지정 크기로 늘이기') +
+    '<div style="margin-top:7px">' +
+    vdConfigButton(
+      '창 구성',
+      '!비주얼 설정|창구성|?{창 구성|패널 하나,패널 하나|스크립트창과 대사창 분리,분리}',
+    ) +
+    vdConfigButton(
+      '글꼴',
+      '!비주얼 설정|글꼴|?{글꼴|' + c.font_family + '|Arial|Patrick Hand|Contrail One|Shadows Into Light|Candal}',
+    ) +
+    vdConfigButton('이름 글자', '!비주얼 설정|이름크기|?{이름 글자 크기|' + c.name_font_size + '}') +
+    vdConfigButton('대사 글자', '!비주얼 설정|대사크기|?{대사 글자 크기|' + c.dialogue_font_size + '}') +
+    vdConfigButton('강조 글자', '!비주얼 설정|강조크기|?{강조 글자 크기|' + c.desc_font_size + '}') +
+    vdConfigButton('이름 색', '!비주얼 설정|이름색|?{이름 색|' + c.name_font_color + '}') +
+    vdConfigButton('대사 색', '!비주얼 설정|대사색|?{대사 색|' + c.dialogue_font_color + '}') +
+    vdConfigButton('강조 색', '!비주얼 설정|강조색|?{강조 색|' + c.desc_font_color + '}') +
+    vdConfigButton('이름 외곽선 ' + (c.name_stroke_enabled ? '끄기' : '켜기'), '!비주얼 설정|이름외곽선|' + (c.name_stroke_enabled ? '끄기' : '켜기')) +
+    vdConfigButton('스크립트 외곽선 ' + (c.script_stroke_enabled ? '끄기' : '켜기'), '!비주얼 설정|스크립트외곽선|' + (c.script_stroke_enabled ? '끄기' : '켜기')) +
+    vdConfigButton('대사 외곽선 ' + (c.dialogue_stroke_enabled ? '끄기' : '켜기'), '!비주얼 설정|대사외곽선|' + (c.dialogue_stroke_enabled ? '끄기' : '켜기')) +
+    vdConfigButton('이름 외곽선 색', '!비주얼 설정|이름외곽선색|?{이름 외곽선 색|' + c.name_stroke_color + '}') +
+    vdConfigButton('스크립트 외곽선 색', '!비주얼 설정|스크립트외곽선색|?{스크립트 외곽선 색|' + c.script_stroke_color + '}') +
+    vdConfigButton('대사 외곽선 색', '!비주얼 설정|대사외곽선색|?{대사 외곽선 색|' + c.dialogue_stroke_color + '}') +
+    vdConfigButton('강조 위치', '!비주얼 설정|강조위치|?{강조 Y 위치|' + c.desc_offset_y + '}') +
+    vdConfigButton('줄 간격', '!비주얼 설정|줄간격|?{줄 간격|' + c.line_height + '}') +
+    vdConfigButton('글자 폭', '!비주얼 설정|글자폭|?{글자 폭|' + c.letter_spacing + '}') +
+    vdConfigButton('스탠딩 최대 크기', '!비주얼 설정|스탠딩크기|?{가로|' + c.width + '}|?{세로|' + c.height + '}') +
+    vdConfigButton('스탠딩 인원', '!비주얼 설정|스탠딩개수|?{동시 표시 인원|' + c.max_number + '}') +
+    vdConfigButton('스탠딩 맞춤', '!비주얼 설정|스탠딩맞춤|?{맞춤|비율 유지,상단비율|지정 크기로 늘이기,늘이기}') +
+    vdConfigButton('초기화', '!비주얼 설정|초기화', '#8b3f4d') +
+    '</div>'
+  );
+}
+
+function vdConfigButton(label, command, color) {
+  return (
+    '<a href="' +
+    vdEscapeHtml(command).replace(/\?/g, '&#63;') +
+    '" style="display:inline-block;margin:3px 3px 0 0;padding:4px 7px;background:' +
+    (color || '#53657d') +
+    ';color:#fff;text-decoration:none">' +
+    vdEscapeHtml(label) +
+    '</a>'
   );
 }
 
@@ -829,10 +875,11 @@ function vdStandingCardsByName(name) {
 
 function vdStandingCardsByReference(reference) {
   var value = String(reference || '').trim();
-  if (value.indexOf('id:') !== 0) return vdStandingCardsByName(value);
   var deck = vdStandingDeck();
-  var card = getObj('card', value.substring(3));
-  return deck && card && card.get('_deckid') == deck.get('_id') ? [card] : [];
+  var explicitId = value.indexOf('id:') === 0;
+  var card = getObj('card', explicitId ? value.substring(3) : value);
+  if (deck && card && card.get('_deckid') == deck.get('_id')) return [card];
+  return explicitId ? [] : vdStandingCardsByName(value);
 }
 
 function vdStoreRatio(card, width, height) {
@@ -987,7 +1034,7 @@ function vdStandingCardsForCharacter(characterName, deckCards) {
     if (!deck) return [];
     deckCards = findObjs({ _type: 'card', _deckid: deck.get('_id') }) || [];
   }
-  var base = String(characterName || '').trim();
+  var base = String(characterName || '');
   return deckCards
     .filter(function (card) {
       var name = String(card.get('name') || '');
@@ -1012,7 +1059,7 @@ function vdCardBelongsToCharacter(card, characterName) {
   if (!deck || card.get('_deckid') != deck.get('_id') || !card.get('avatar'))
     return false;
   var name = String(card.get('name') || '');
-  var base = String(characterName || '').trim();
+  var base = String(characterName || '');
   return (
     name == base || (vd_setting.use_emotion && name.indexOf(base + '-') === 0)
   );
@@ -1228,6 +1275,20 @@ function vdUpdateExpressionHandouts() {
       });
     state.KIBSceneVD.expressionHandouts[character.id] = handout.id;
     var selected = vdDefaultStandingCard(character, cards);
+    var savedRatio = selected && state.KIBSceneVD.standingRatios[selected.id];
+    var ratioWidth = savedRatio ? savedRatio.width : state.KIBSceneVD.config.width;
+    var ratioHeight = savedRatio ? savedRatio.height : state.KIBSceneVD.config.height;
+    var ratioControls = selected
+      ? '<div style="margin:0 4px 8px;padding:7px;background:#f1f1f1"><b>스탠딩 크기:</b> ' +
+        (savedRatio ? savedRatio.width + '×' + savedRatio.height : '미등록') +
+        ' <a href="!비주얼 비율|등록|' +
+        selected.id +
+        '|&#63;{가로|' +
+        ratioWidth +
+        '}|&#63;{세로|' +
+        ratioHeight +
+        '}" style="display:inline-block;margin-left:5px;padding:4px 8px;background:#7654a8;color:#fff;text-decoration:none">크기 설정</a></div>'
+      : '';
     var cells = cards
       .map(function (card) {
         var expression = vdExpressionName(card, character.get('name'));
@@ -1264,7 +1325,7 @@ function vdUpdateExpressionHandouts() {
         vdEscapeHtml(
           selected ? vdExpressionName(selected, character.get('name')) : '없음',
         ) +
-        '</div>' +
+        '</div>' + ratioControls +
         cells +
         '</div></div>',
     });

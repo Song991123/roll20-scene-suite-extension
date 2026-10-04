@@ -150,7 +150,8 @@ KIBScene.adapters = KIBScene.adapters || {};
       stopActive(stop.card ? stop.card.id : null, true);
       return;
     }
-    if (action == '설정') return saveCardSetting(parts);
+    if (action == '설정')
+      return parts.length ? saveCardSetting(parts) : whisper(statusHtml());
     if (action == '연결') return bindAudio(parts);
     if (action == '연결해제') return unbindAudio(parts);
     if (action == '연결목록') return whisper(audioLinkStatus());
@@ -910,6 +911,11 @@ KIBScene.adapters = KIBScene.adapters || {};
           (mode == 'loop'
             ? '반복, 한 사이클 ' + formatSeconds(duration)
             : '1회, 한 사이클 ' + formatSeconds(duration)) +
+          '</td><td style="border:1px solid #ddd;padding:4px"><a href="!APNG 설정|' +
+          escapeHtml(card.get('name')) +
+          '|&#63;{재생 방식|반복,반복|1회,1회}|&#63;{한 사이클 시간|' +
+          formatSeconds(duration) +
+          '}" style="display:inline-block;padding:3px 6px;background:#53657d;color:#fff;text-decoration:none">변경</a>' +
           '</td></tr>'
         );
       })

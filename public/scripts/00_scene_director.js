@@ -283,7 +283,7 @@ var KIBScene = KIBScene || {};
     if (command === 'help' || command === '도움말')
       return whisper(helpHtml(false));
     if (command === 'status') return whisper(statusHtml());
-    if (command === 'config') return whisper(configHtml());
+    if (command === 'config' || command === '설정') return whisper(configHtml());
     if (command === 'handout') {
       var handout = refreshHandout();
       return whisper(
@@ -410,18 +410,49 @@ var KIBScene = KIBScene || {};
   }
 
   function configHtml() {
-    var firstFeature = Object.keys(DEFAULTS.features).filter(hasPlugin)[0];
+    var features = KIBScene.get('features', {});
+    var featureButtons = Object.keys(DEFAULTS.features)
+      .filter(function (name) {
+        return name !== 'page' && hasPlugin(name);
+      })
+      .map(function (name) {
+        return actionButton(
+          featureName(name) + ' ' + (features[name] ? '끄기' : '켜기'),
+          '!sd feature|' + name + '|' + (features[name] ? 'off' : 'on'),
+          features[name] ? '#8b3f4d' : '#287a4b',
+        );
+      })
+      .join(' ');
+    var timing = KIBScene.get('timing', {});
     return (
       '<b>전체 설정</b><br>' +
       featureRows() +
       '<br>' +
       timingRows() +
-      '<br>' +
-      '<code>!sd set|timing.lineInterval|3000</code><br>' +
-      (firstFeature
-        ? '<code>!sd feature|' + escapeHtml(firstFeature) + '|off</code><br>'
-        : '') +
-      '<code>!sd reset|all</code>'
+      (featureButtons ? '<div style="margin-top:7px">' + featureButtons + '</div>' : '') +
+      '<div style="margin-top:7px">' +
+      actionButton(
+        '첫 출력 시간',
+        '!sd set|timing.firstDelay|?{첫 출력까지 시간(ms)|' + timing.firstDelay + '}',
+        '#53657d',
+      ) + ' ' +
+      actionButton(
+        '줄 간격',
+        '!sd set|timing.lineInterval|?{줄 사이 간격(ms)|' + timing.lineInterval + '}',
+        '#53657d',
+      ) + ' ' +
+      actionButton(
+        '글자 속도',
+        '!sd set|timing.typeSpeed|?{글자당 시간(ms)|' + timing.typeSpeed + '}',
+        '#7654a8',
+      ) + ' ' +
+      actionButton(
+        timing.typeAllLines ? '모든 줄 타자 끄기' : '모든 줄 타자 켜기',
+        '!sd set|timing.typeAllLines|' + (timing.typeAllLines ? 'false' : 'true'),
+        '#287a4b',
+      ) + ' ' +
+      actionButton('전체 초기화', '!sd reset|all', '#8b3f4d') +
+      '</div>'
     );
   }
 
@@ -1208,7 +1239,7 @@ var KIBScene = KIBScene || {};
   function actionButton(label, command, color) {
     return (
       '<a href="' +
-      escapeHtml(command) +
+      escapeHtml(command).replace(/\?/g, '&#63;') +
       '" style="display:inline-block;margin:2px 1px;padding:5px 8px;border-radius:0;background:' +
       color +
       ';color:#fff;text-decoration:none;font-weight:bold;font-size:12px">' +

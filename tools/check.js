@@ -59,8 +59,11 @@ const sceneDirectorText = readText(path.join(scriptsRoot, '00_scene_director.js'
 const narratorText = readText(path.join(scriptsRoot, '01_narrator_director.js'));
 const audioText = readText(path.join(scriptsRoot, '02_audio_bridge.js'));
 const visualDialogueText = readText(path.join(scriptsRoot, '03_visual_dialogue_compatible.js'));
+const imageText = readText(path.join(scriptsRoot, '04_image_switcher_compatible.js'));
+const apngText = readText(path.join(scriptsRoot, '06_apng_director.js'));
 const handoutText = readText(path.join(scriptsRoot, '07_handout_director.js'));
 const avatarText = readText(path.join(scriptsRoot, '09_avatar_director.js'));
+const sheetHelperText = readText(path.join(scriptsRoot, '10_sheet_helper.js'));
 const scriptText = scripts
   .map((name) => readText(path.join(scriptsRoot, name)))
   .join('\n');
@@ -81,6 +84,7 @@ if (!process.argv.includes('--expression-hotfix') && !process.argv.includes('--f
 }
 
 const vdHandlers = {};
+let vdScheduledTimeouts = 0;
 const vdRuntime = {
   state: { KIBSceneVD: { config: { font_family: 'Candal' } } },
   on(event, handler) {
@@ -106,6 +110,7 @@ const vdRuntime = {
   toFront() {},
   toBack() {},
   setTimeout() {
+    vdScheduledTimeouts += 1;
     return 1;
   },
   clearTimeout() {},
@@ -116,6 +121,21 @@ const vdRuntime = {
 };
 vm.createContext(vdRuntime);
 vm.runInContext(visualDialogueText, vdRuntime);
+vdRuntime.state.vd_stock = [];
+assert.strictEqual(
+  vdRuntime.state.VD_INJECT('공백 화자', 'general', '인물A ', {}),
+  true,
+);
+assert.strictEqual(
+  vdRuntime.state.vd_stock[0].who,
+  '인물A ',
+  '나레이터가 넘긴 화자의 공백 차이를 비주얼 노벨이 제거하면 안 됩니다.',
+);
+assert.strictEqual(
+  vdRuntime.vdContextSpeaker({ explicitAs: true, as: '인물A ' }),
+  '인물A ',
+);
+vdRuntime.state.vd_stock = [];
 assert.strictEqual(
   vdRuntime.vdDecorationForMessage('desc', 'split'),
   'vd_panel',
@@ -536,7 +556,7 @@ narratorRuntime.KIBScene.broadcast = (name, payload) => {
   return { ok: true, values: [] };
 };
 narratorRuntime.state.narration = [
-  { as: 'GM', msg: '/w HO4 비밀 지문 @스크립트', explicitAs: false },
+  { as: 'GM', msg: '/w gm 비밀 지문 @스크립트', explicitAs: false },
 ];
 narratorRuntime.state.is_narrating = 2;
 narratorRuntime.state.nt_linebreaker = 'Uk3jmApq-*QzfkMA';
@@ -544,7 +564,7 @@ narratorRuntime.state.api_tag = '<a href="#vd-permitted-api-chat"></a>';
 narratorRuntime.state.vd_explicit_as_tag = '<a href="#vd-explicit-as"></a>';
 narratorRuntime.narrate();
 assert.strictEqual(narratorSent.length, 1);
-assert.strictEqual(narratorSent[0].content, '/w HO4 비밀 지문');
+assert.strictEqual(narratorSent[0].content, '/w gm 비밀 지문');
 assert.strictEqual(narratorInjected.length, 0);
 assert.strictEqual(
   narratorExecuted.filter((cue) => cue.type === 'type').length,
@@ -564,9 +584,9 @@ narratorRuntime.state.narration = [
   {
     as: 'GM',
     msg:
-      '/w HO1 첫 번째' +
+      '/w gm 첫 번째' +
       narratorRuntime.state.nt_linebreaker +
-      '/w "공백 있는 대상" 두 번째',
+      '/w GM 두 번째',
     explicitAs: false,
   },
 ];
@@ -574,35 +594,161 @@ narratorRuntime.state.is_narrating = 2;
 narratorRuntime.narrate();
 assert.deepStrictEqual(
   Array.from(narratorSent, (entry) => entry.content),
-  ['/w HO1 첫 번째', '/w "공백 있는 대상" 두 번째'],
+  ['/w gm 첫 번째', '/w GM 두 번째'],
 );
 
 narratorSent.length = 0;
+const narratorPlayers = [
+  {
+    id: 'gm-1',
+    get(key) {
+      if (key === '_displayname') return '테스터 GM';
+      return key === '_online';
+    },
+  },
+  {
+    id: 'ho1-player',
+    get(key) {
+      if (key === '_displayname') return '수신자 계정';
+      return key === '_online';
+    },
+  },
+  {
+    id: 'ho1-prefix-player',
+    get(key) {
+      if (key === '_displayname') return 'HO1 계정';
+      return key === '_online';
+    },
+  },
+  {
+    id: 'ho3-online-player',
+    get(key) {
+      if (key === '_displayname') return '현재 접속자';
+      return key === '_online';
+    },
+  },
+  {
+    id: 'ho3-offline-player',
+    get(key) {
+      if (key === '_displayname') return '퇴장한 플레이어';
+      return false;
+    },
+  },
+];
+const narratorCharacters = [
+  {
+    id: 'ho1-character',
+    get(key) {
+      return key === 'name'
+        ? 'HO1 조사자'
+        : key === 'controlledby'
+          ? 'gm-1,ho1-player'
+          : '';
+    },
+  },
+  {
+    id: 'ho3-online-character',
+    get(key) {
+      return key === 'name'
+        ? 'HO3 고봉밥'
+        : key === 'controlledby'
+          ? 'ho3-online-player'
+          : '';
+    },
+  },
+  {
+    id: 'ho3-offline-character',
+    get(key) {
+      return key === 'name'
+        ? 'HO3 춘삼'
+        : key === 'controlledby'
+          ? 'ho3-offline-player'
+          : '';
+    },
+  },
+  {
+    id: 'ho4-offline-character',
+    get(key) {
+      return key === 'name'
+        ? 'HO4 유령'
+        : key === 'controlledby'
+          ? 'ho3-offline-player'
+          : '';
+    },
+  },
+];
 narratorRuntime.getObj = (type, id) =>
-  type === 'player' && id === 'gm-1'
-    ? {
-        id,
-        get(key) {
-          return key === '_displayname' ? '테스터 GM' : '';
-        },
-      }
+  type === 'player'
+    ? narratorPlayers.find((player) => player.id === id) || null
     : null;
-narratorRuntime.findObjs = (query) =>
-  query._type === 'player'
-    ? [
-        {
-          id: 'gm-1',
-          get(key) {
-            return key === '_displayname' ? '테스터 GM' : '';
-          },
-        },
-      ]
-    : [];
+narratorRuntime.findObjs = (query) => {
+  if (query._type === 'player') return narratorPlayers;
+  if (query._type === 'character') return narratorCharacters;
+  return [];
+};
 narratorRuntime.playerIsGM = (id) => id === 'gm-1';
+assert.strictEqual(
+  narratorRuntime.ntWhisperNameMatches('HO1 계정', {
+    target: 'HO1',
+    quoted: false,
+  }),
+  true,
+);
+assert.strictEqual(
+  narratorRuntime.ntWhisperNameMatches('HO1 계정', {
+    target: 'HO1',
+    quoted: true,
+  }),
+  false,
+);
+assert.strictEqual(
+  narratorRuntime.ntWhisperNameMatches('HO1   조사자', {
+    target: 'HO1',
+    quoted: false,
+  }),
+  true,
+  '따옴표 없는 귓말은 캐릭터명의 첫 공백 앞부분을 인식해야 합니다.',
+);
 narratorRuntime.state.narration = [
   {
     as: 'character|gm-character',
-    msg: '/w HO4 비밀 지문',
+    msg: '/w HO1 비밀 지문',
+    explicitAs: false,
+    originPlayerId: 'gm-1',
+  },
+];
+narratorRuntime.state.is_narrating = 2;
+narratorRuntime.narrate();
+assert.deepStrictEqual(
+  Array.from(narratorSent, (entry) => ({
+    as: entry.as,
+    content: entry.content,
+  })),
+  [
+    {
+      as: 'character|gm-character',
+      content: '/w "HO1 계정" 비밀 지문',
+    },
+    {
+      as: 'character|gm-character',
+      content: '/w "수신자 계정" 비밀 지문',
+    },
+    {
+      as: '나레이터 서버',
+      content: '/w "테스터 GM" → HO1 조사자 : 비밀 지문',
+    },
+  ],
+);
+assert(
+  narratorSent.every((entry) => !entry.options || entry.options.noarchive !== true),
+  '전달된 귓말과 서버 전달 기록은 채팅 로그에 남아야 합니다.',
+);
+
+narratorSent.length = 0;
+narratorRuntime.state.narration = [
+  {
+    as: 'character|gm-character',
+    msg: '/w HO3 현재 접속자만',
     explicitAs: false,
     originPlayerId: 'gm-1',
   },
@@ -611,9 +757,54 @@ narratorRuntime.state.is_narrating = 2;
 narratorRuntime.narrate();
 assert.deepStrictEqual(
   Array.from(narratorSent, (entry) => entry.content),
-  ['/w HO4 비밀 지문', '/w "테스터 GM" (To HO4): 비밀 지문'],
+  [
+    '/w "현재 접속자" 현재 접속자만',
+    '/w "테스터 GM" → HO3 고봉밥 : 현재 접속자만',
+  ],
+  '퇴장한 플레이어와 그 캐릭터는 수신자 및 전달 기록에서 제외해야 합니다.',
 );
-assert.strictEqual(narratorSent[1].options.noarchive, true);
+
+narratorSent.length = 0;
+narratorRuntime.state.narration = [
+  {
+    as: 'character|gm-character',
+    msg: '/w HO4 접속자 없음',
+    explicitAs: false,
+    originPlayerId: 'gm-1',
+  },
+];
+narratorRuntime.state.is_narrating = 2;
+narratorRuntime.narrate();
+assert.strictEqual(narratorSent.length, 1);
+assert(narratorSent[0].content.includes('현재 접속 중인 수신자가 없습니다: HO4 유령'));
+assert(!narratorSent[0].options || narratorSent[0].options.noarchive !== true);
+
+narratorSent.length = 0;
+narratorRuntime.state.narration = [
+  {
+    as: 'character|gm-character',
+    msg:
+      '/w 없는캐릭터 첫 번째' +
+      narratorRuntime.state.nt_linebreaker +
+      '/w HO1 두 번째',
+    explicitAs: false,
+    originPlayerId: 'gm-1',
+  },
+];
+narratorRuntime.state.is_narrating = 2;
+narratorRuntime.narrate();
+assert.strictEqual(narratorSent.length, 1);
+assert.strictEqual(narratorSent[0].as, '나레이터');
+assert(narratorSent[0].content.includes('없는 캐릭터명 또는 플레이어명입니다'));
+assert(
+  !narratorSent[0].options || narratorSent[0].options.noarchive !== true,
+  '없는 귓말 대상 오류도 채팅 로그에 남아야 합니다.',
+);
+assert.strictEqual(
+  narratorRuntime.state.narration.length,
+  0,
+  '없는 귓말 대상이 포함된 묶음은 전부 취소해야 합니다.',
+);
 const captureNarratorChat = narratorRuntime.sendChat;
 narratorRuntime.sendChat = () => {
   throw new Error('sender copy failed');
@@ -621,7 +812,7 @@ narratorRuntime.sendChat = () => {
 assert.doesNotThrow(() =>
   narratorRuntime.ntMirrorWhisper(
     { as: 'character|gm-character', originPlayerId: 'gm-1' },
-    '/w HO4 비밀 지문',
+    '/w HO1 비밀 지문',
   ),
 );
 narratorRuntime.sendChat = captureNarratorChat;
@@ -746,6 +937,152 @@ function roll20Object(id, values) {
   };
 }
 
+const imageHandlers = {};
+let imageAdapter;
+const legacyImageTokenValues = {
+  _type: 'graphic',
+  name: 'img_HO1',
+  imgsrc: 'https://files.d20.io/images/old/thumb.png?1',
+};
+const legacyImageDeckValues = {
+  _type: 'deck',
+  _id: 'legacy-image-deck',
+  name: 'img_HO1',
+};
+const legacyImageCardValues = {
+  _type: 'card',
+  _deckid: 'legacy-image-deck',
+  name: 'ON',
+  avatar: 'https://files.d20.io/images/new/med.png?2',
+};
+const imageObjects = [
+  roll20Object('legacy-image-token', legacyImageTokenValues),
+  roll20Object('legacy-image-deck', legacyImageDeckValues),
+  roll20Object('legacy-image-card', legacyImageCardValues),
+];
+const imageRuntime = {
+  KIBScene: {
+    handlers: {},
+    adapters: {},
+    register(name, adapter) {
+      if (name === 'image') imageAdapter = adapter;
+    },
+  },
+  on(event, handler) {
+    (imageHandlers[event] ||= []).push(handler);
+  },
+  findObjs(query) {
+    return imageObjects.filter((object) =>
+      Object.keys(query || {}).every((key) => object.get(key) === query[key]),
+    );
+  },
+  filterObjs(callback) {
+    return imageObjects.filter(callback);
+  },
+  getObj(type, id) {
+    return imageObjects.find(
+      (object) => object.id === id && object.get('_type') === type,
+    ) || null;
+  },
+  playerIsGM() {
+    return true;
+  },
+  sendChat() {},
+  createObj() {
+    return null;
+  },
+  setTimeout(callback) {
+    callback();
+    return 1;
+  },
+};
+vm.createContext(imageRuntime);
+vm.runInContext(imageText, imageRuntime);
+imageHandlers.ready.forEach((handler) => handler());
+assert.strictEqual(imageRuntime.isDeckName('image_scene'), true);
+assert.strictEqual(imageRuntime.isDeckName('img_HO1'), true);
+assert.strictEqual(imageAdapter.validate(['img_HO1', 'ON']).ok, true);
+imageHandlers['chat:message'][0]({
+  type: 'api',
+  playerid: 'GM',
+  content: '!#img_HO1 ON',
+});
+assert.strictEqual(
+  legacyImageTokenValues.imgsrc,
+  'https://files.d20.io/images/new/thumb.png?2',
+  '기존 img_ 매크로 명령도 이미지 토큰을 변경해야 합니다.',
+);
+
+const audioHandlers = {};
+let audioAdapter;
+let audioFolder = JSON.stringify([{ i: ['audio-visible'] }]);
+const audioTrackValues = [
+  { title: '바깥 비소리', volume: 30, loop: false },
+  { title: '바깥 비소리', volume: 30, loop: false },
+  { title: '바깥 비소리', volume: 30, loop: false },
+];
+const audioTracks = [
+  roll20Object('audio-ghost', audioTrackValues[0]),
+  roll20Object('audio-visible', audioTrackValues[1]),
+  roll20Object('audio-real-duplicate', audioTrackValues[2]),
+];
+const audioRuntime = {
+  state: {},
+  KIBScene: {
+    adapters: {},
+    handlers: {},
+    register(name, adapter) {
+      if (name === 'audio') audioAdapter = adapter;
+    },
+  },
+  on(event, handler) {
+    audioHandlers[event] = handler;
+  },
+  findObjs(query) {
+    return query && query._type === 'jukeboxtrack' ? audioTracks : [];
+  },
+  getObj(type, id) {
+    return type === 'jukeboxtrack'
+      ? audioTracks.find((track) => track.id === id) || null
+      : null;
+  },
+  Campaign() {
+    return { get: () => audioFolder };
+  },
+  playerIsGM() {
+    return true;
+  },
+  sendChat() {},
+  createObj() {
+    return null;
+  },
+  setTimeout() {
+    return 1;
+  },
+  clearTimeout() {},
+  log() {},
+};
+vm.createContext(audioRuntime);
+vm.runInContext(audioText, audioRuntime);
+audioHandlers.ready();
+assert.strictEqual(
+  audioAdapter.validate(['재생', '바깥 비소리']).ok,
+  true,
+  '현재 주크박스 구조에 없는 숨은 음원은 제목 중복으로 세면 안 됩니다.',
+);
+assert.strictEqual(audioAdapter.cue(['재생', '바깥 비소리']).ok, true);
+assert.strictEqual(audioTrackValues[1].playing, true);
+assert.strictEqual(audioTrackValues[0].playing, undefined);
+audioFolder = JSON.stringify([
+  { i: ['audio-visible', 'audio-real-duplicate'] },
+]);
+const duplicateAudio = audioAdapter.validate(['재생', '바깥 비소리']);
+assert.strictEqual(duplicateAudio.ok, false);
+assert(
+  duplicateAudio.error.includes('2개'),
+  '화면에 실제로 같은 제목 음원이 둘이면 중복 오류를 유지해야 합니다.',
+);
+
 const avatarDeck = roll20Object('avatar-deck', { name: 'avatars' });
 const avatarCharacterValues = {
   name: '인물A',
@@ -796,6 +1133,11 @@ const avatarRuntime = {
 };
 vm.createContext(avatarRuntime);
 vm.runInContext(avatarText, avatarRuntime);
+assert.strictEqual(
+  avatarRuntime.avContextCharacter({ explicitAs: true, as: '인물A ' }),
+  null,
+  '공백으로 구분한 화자를 09가 실제 캐릭터로 자동 인식하면 안 됩니다.',
+);
 
 let avatarAsyncFieldUpdate = null;
 avatarRuntime.avSetChanged(
@@ -883,6 +1225,10 @@ const ratioCharacters = [
   roll20Object('ratio-char-a', { name: '인물A' }),
   roll20Object('ratio-char-other', { name: '인물A-자매' }),
 ];
+vdRuntime.setTimeout = () => {
+  vdScheduledTimeouts += 1;
+  return 1;
+};
 const priorFindObjs = vdRuntime.findObjs;
 const priorGetObj = vdRuntime.getObj;
 vdRuntime.findObjs = (query) => {
@@ -894,6 +1240,16 @@ vdRuntime.findObjs = (query) => {
 };
 vdRuntime.getObj = (type, id) =>
   type === 'card' ? ratioCards.find((card) => card.id === id) : null;
+assert.strictEqual(
+  vdRuntime.vdStandingCardsForCharacter('인물A ', ratioCards).length,
+  0,
+  '공백이 포함된 캐릭터 이름을 공백 없는 스탠딩 카드와 같게 취급하면 안 됩니다.',
+);
+assert.strictEqual(
+  vdRuntime.vdCardBelongsToCharacter(ratioCards[0], '인물A '),
+  false,
+  '스탠딩 카드 소유 확인에서도 캐릭터 이름의 공백을 보존해야 합니다.',
+);
 vdRuntime.vdInitState();
 vdRuntime.state.KIBSceneVD.standingRatios = {};
 vdRuntime.vdStoreRatio(standingCard, 100, 200);
@@ -901,7 +1257,12 @@ for (const card of ratioCards.slice(0, 3))
   assert.strictEqual(vdRuntime.vdStandingRatio(card, '인물A'), 0.5);
 assert.strictEqual(vdRuntime.state.KIBSceneVD.standingRatios['ratio-other'], undefined);
 assert.strictEqual(vdRuntime.state.KIBSceneVD.standingRatios['ratio-other-smile'], undefined);
-vdRuntime.vdHandleRatioCommand('!비주얼 비율|등록|id:ratio-smile|200|100', { selected: [] });
+const ratioRefreshBefore = vdScheduledTimeouts;
+vdRuntime.vdHandleRatioCommand('!비주얼 비율|등록|ratio-smile|200|100', { selected: [] });
+assert(
+  vdScheduledTimeouts > ratioRefreshBefore,
+  '비율 등록 뒤 캐릭터별 표정 핸드아웃 갱신을 예약해야 합니다.',
+);
 for (const card of ratioCards.slice(0, 3))
   assert.strictEqual(vdRuntime.vdStandingRatio(card, '인물A'), 2);
 const baseSize = vdRuntime.vdStandingSize(ratioCards[0], '인물A');
@@ -1335,8 +1696,38 @@ assert(
   '예전 설명형 주석 표기를 남기지 않습니다.',
 );
 assert(
-  publicText.includes('2089133134201995610'),
-  '제작 기록 링크가 필요합니다.',
+  !publicText.includes('x.com/EOOOOORK') &&
+    !publicText.includes('distribution.php?dist=dist-scene-suite-340') &&
+    !publicText.includes('>배포 글</a') &&
+    !publicText.includes('>제작 기록</a') &&
+    !publicText.includes('>원본 출처</a'),
+  '공개 설치 페이지에 개인 배포·제작 기록 링크를 노출하지 않습니다.',
+);
+[
+  [sceneDirectorText, "command === 'config' || command === '설정'"],
+  [narratorText, '나레이터 설정'],
+  [audioText, "action == '설정'"],
+  [visualDialogueText, '비주얼 노벨 설정'],
+  [imageText, 'help|도움말|설정|매크로갱신'],
+  [apngText, "parts.length ? saveCardSetting(parts) : whisper(statusHtml())"],
+  [handoutText, "action === '관리' || action === '갱신' || action === '설정'"],
+  [cutinText, "if (action === '설정')"],
+  [sheetHelperText, "else if (action === '설정') action = '관리'"],
+].forEach(([text, marker]) =>
+  assert(text.includes(marker), `모듈별 설정 진입점이 필요합니다: ${marker}`),
+);
+assert(
+  /var action = normalizeAction\(parts\.shift\(\)\);/.test(audioText) &&
+    audioText.includes('명령 맨 앞에 재생 또는 중지를 입력하세요.'),
+  '오디오 동작은 명령 맨 앞에서만 읽고 정확한 오류를 보여야 합니다.',
+);
+assert(
+  visualDialogueText.includes('<b>스탠딩 크기:</b>') &&
+    visualDialogueText.includes('>크기 설정</a>') &&
+    visualDialogueText.includes('&#63;{가로|') &&
+    !visualDialogueText.includes('<br><a href="!비주얼 비율|등록|id:') &&
+    !visualDialogueText.includes('전체 스탠딩 최대 크기:</b>'),
+  '스탠딩 표정 핸드아웃에서 캐릭터 공통 크기/비율을 설정할 수 있어야 합니다.',
 );
 assert(
   publicText.includes(

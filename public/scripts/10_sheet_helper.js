@@ -5682,7 +5682,7 @@ var sheet_helper_setting = {
       return true;
     }
 
-    var direct = body.match(/^(도움말|help|관리|새로고침|상태|목록|점검)$/i);
+    var direct = body.match(/^(도움말|help|관리|설정|새로고침|상태|목록|점검)$/i);
     if (direct) {
       handleNamespaced(msg, '!시트 ' + direct[1]);
       return true;
@@ -5736,6 +5736,7 @@ var sheet_helper_setting = {
     var action = normalize(parts.shift() || '도움말');
     if (action === '추적') action = '변화알림';
     else if (action === 'gm전용추적') action = 'gm캐릭터알림';
+    else if (action === '설정') action = '관리';
     if (action === '도움말' || action === 'help') return whisper(msg, helpHtml());
     if (action === '검색')
       return withCharacter(msg, '', function (character) {

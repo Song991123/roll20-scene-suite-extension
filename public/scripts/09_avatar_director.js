@@ -181,10 +181,12 @@ function avCanControl(character, playerId) {
 
 function avContextCharacter(context) {
   if (!context || context.explicitAs !== true) return null;
-  var as = String(context.as || '').trim();
+  var as = String(context.as || '');
   if (as.indexOf('character|') === 0)
     return getObj('character', as.substring('character|'.length));
-  return as.indexOf('player|') === 0 ? null : avCharacter(as);
+  return as.indexOf('player|') === 0
+    ? null
+    : (findObjs({ _type: 'character', name: as }) || [])[0] || null;
 }
 
 function avSpeakerCharacter(msg) {

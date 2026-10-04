@@ -18,6 +18,8 @@ var is_compat_setting = {
 const is_setting = {
   // 덱과 토큰 이름 앞글자
   keyword: 'image',
+  // 기존 방에서 사용하던 접두어
+  legacy_keywords: ['img_'],
   // 이미지 매크로 이름
   macro_name: '이미지변경',
 };
@@ -60,13 +62,24 @@ on('destroy:card', isRefreshForCard);
 on('chat:message', function (msg) {
   if (msg.type == 'api') {
     try {
-      if (
-        /^!이미지(?:\s+(?:help|도움말))?$/i.test(String(msg.content || '')) &&
-        playerIsGM(msg.playerid)
-      ) {
+      var imageCommand = String(msg.content || '').match(
+        /^!이미지(?:\s+(help|도움말|설정|매크로갱신))?$/i,
+      );
+      if (imageCommand && playerIsGM(msg.playerid)) {
+        if (imageCommand[1] == '매크로갱신') {
+          isUpdateMacroSafe();
+          sendChat('이미지 전환', '/w gm 이미지 변경 매크로를 갱신했습니다.', null, { noarchive: true });
+          return;
+        }
         sendChat(
           '이미지 전환',
-          '/w gm <b>이미지 전환</b><br><code>!#image이름 카드 이름</code> 카드 이미지로 변경<br><code>!#image이름 이미지 주소</code> 주소 이미지로 변경<br><code>!... 대사 @이미지 image이름|카드 이름</code> 나레이터 스크립트와 동시에 변경<br>Roll20 보드에 이미지 토큰을 놓고 토큰 이름을 덱 이름과 같게 지정해 주세요. 이름 앞에는 <code>image</code>를 붙입니다. 토큰 이름은 업로드 파일명이 아닙니다.',
+          '/w gm <b>이미지 전환' +
+            (imageCommand[1] == '설정' ? ' 설정' : '') +
+            '</b><br>덱과 토큰 접두어: <b>' +
+            isEscape(is_setting.keyword) +
+            '</b> (기존 <b>img_</b>도 인식) / 매크로: <b>' +
+            isEscape(is_setting.macro_name) +
+            '</b><br><a href="!이미지 매크로갱신" style="display:inline-block;margin:5px 0;padding:4px 7px;background:#53657d;color:#fff;text-decoration:none">매크로 갱신</a><br><code>!#image이름 카드 이름</code> 카드 이미지로 변경<br><code>!#image이름 이미지 주소</code> 주소 이미지로 변경<br><code>!... 대사 @이미지 image이름|카드 이름</code> 나레이터 스크립트와 동시에 변경<br>Roll20 보드에 이미지 토큰을 놓고 토큰 이름을 덱 이름과 같게 지정해 주세요. 새 이름은 <code>image</code>로 시작하며, 기존 <code>img_</code> 이름도 그대로 사용할 수 있습니다. 토큰 이름은 업로드 파일명이 아닙니다.',
           null,
           { noarchive: true },
         );
@@ -74,7 +87,8 @@ on('chat:message', function (msg) {
       }
       if (
         (playerIsGM(msg.playerid) || msg.playerid == 'API') &&
-        msg.content.startsWith('!#' + is_setting.keyword)
+        msg.content.startsWith('!#') &&
+        isDeckName(msg.content.split(' ')[0].replace('!#', ''))
       ) {
         const deck_name = msg.content.split(' ')[0].replace('!#', '');
         const new_bg = msg.content.replace('!#' + deck_name + ' ', '').trim();
@@ -181,13 +195,11 @@ function validateImageCue(args) {
       ok: false,
       error: '덱과 토큰 이름에는 띄어쓰기를 사용할 수 없습니다: ' + deckName,
     };
-  if (deckName.indexOf(is_setting.keyword) !== 0)
+  if (!isDeckName(deckName))
     return {
       ok: false,
       error:
-        '덱과 토큰 이름 앞에 ' +
-        is_setting.keyword +
-        '를 붙여 주세요: ' +
+        '덱과 토큰 이름 앞에 image 또는 img_를 붙여 주세요: ' +
         deckName,
     };
   if (!(findObjs({ _type: 'graphic', name: deckName }) || []).length)
@@ -230,7 +242,7 @@ const updateImageMacro = function () {
   let background_deck = filterObjs(function (obj) {
     return (
       obj.get('_type') == 'deck' &&
-      obj.get('name').startsWith(is_setting.keyword)
+      isDeckName(obj.get('name'))
     );
   });
   if (background_deck.length > 0) {
@@ -320,7 +332,12 @@ function isUpdateMacroSafe(obj) {
 }
 
 function isDeckName(name) {
-  return String(name || '').indexOf(is_setting.keyword) === 0;
+  name = String(name || '');
+  return [is_setting.keyword]
+    .concat(is_setting.legacy_keywords || [])
+    .some(function (keyword) {
+      return name.indexOf(keyword) === 0;
+    });
 }
 
 function isRefreshForCard(obj, prev) {

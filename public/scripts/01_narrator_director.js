@@ -71,10 +71,43 @@ on('ready', function () {
 
 on('chat:message', function (msg) {
   if (msg.type == 'api') {
-    if (
-      /^!나레이터(?:\s+(?:help|도움말))?$/i.test(String(msg.content || '')) &&
-      playerIsGM(msg.playerid)
-    ) {
+    var narratorCommand = String(msg.content || '').match(
+      /^!나레이터(?:\s+(help|도움말|설정))?$/i,
+    );
+    if (narratorCommand && playerIsGM(msg.playerid)) {
+      if (narratorCommand[1] == '설정') {
+        var typeEnabled = ntFeature('type', true);
+        var typeAllLines = ntCentral('timing.typeAllLines', nt_setting.type_all_lines);
+        var typeSpeed = ntCentral('timing.typeSpeed', 45);
+        var lineInterval = ntCentral('timing.lineInterval', nt_setting.interval);
+        sendChat(
+          '나레이터',
+          '/w GM <b>나레이터 설정</b><br>타자 출력=' +
+            (typeEnabled ? '켜짐' : '꺼짐') +
+            ' / 모든 줄=' +
+            (typeAllLines ? '켜짐' : '꺼짐') +
+            '<br>글자당 ' +
+            typeSpeed +
+            'ms / 줄 간격 ' +
+            lineInterval +
+            'ms<br><a href="!sd feature|type|' +
+            (typeEnabled ? 'off' : 'on') +
+            '" style="display:inline-block;margin:5px 3px 0 0;padding:4px 7px;background:#7654a8;color:#fff;text-decoration:none">타자 출력 ' +
+            (typeEnabled ? '끄기' : '켜기') +
+            '</a><a href="!sd set|timing.typeAllLines|' +
+            (typeAllLines ? 'false' : 'true') +
+            '" style="display:inline-block;margin:5px 3px 0 0;padding:4px 7px;background:#287a4b;color:#fff;text-decoration:none">모든 줄 ' +
+            (typeAllLines ? '끄기' : '켜기') +
+            '</a><a href="!sd set|timing.typeSpeed|&#63;{글자당 시간(ms)|' +
+            typeSpeed +
+            '}" style="display:inline-block;margin:5px 3px 0 0;padding:4px 7px;background:#53657d;color:#fff;text-decoration:none">글자 속도</a><a href="!sd set|timing.lineInterval|&#63;{줄 사이 간격(ms)|' +
+            lineInterval +
+            '}" style="display:inline-block;margin:5px 3px 0 0;padding:4px 7px;background:#53657d;color:#fff;text-decoration:none">줄 간격</a>',
+          null,
+          { noarchive: true },
+        );
+        return;
+      }
       var cueHelp = [];
       if (ntHasPlugin('vd') || ntHasPlugin('avatar'))
         cueHelp.push('<code>@표정</code>', '<code>@캐릭터명:표정</code>');
@@ -245,6 +278,22 @@ function narrate() {
           lineDelay = parsed.lineDelay;
         }
         const privateChat = /^\s*\/w(?:\s|$)/i.test(parsed.text);
+        let whisperResolution = null;
+        if (privateChat) {
+          const whisper = ntParseWhisper(parsed.text);
+          if (!whisper)
+            return ntCancelOnError(
+              {
+                ok: false,
+                error: '귓말 형식을 확인하세요. 예: /w HO1 내용',
+              },
+              element,
+              true,
+            );
+          whisperResolution = ntResolveWhisperTarget(whisper);
+          if (!whisperResolution.ok)
+            return ntCancelOnError(whisperResolution, element, true);
+        }
         const typeEnabled = ntFeature('type', nt_setting.use_dialog_overlay);
         const context = {
           as: current.as,
@@ -325,6 +374,7 @@ function narrate() {
           parsed: parsed,
           context: context,
           typeEnabled: typeEnabled,
+          whisperResolution: whisperResolution,
           source: element,
         });
       }
@@ -365,8 +415,9 @@ function narrate() {
                 (item.typeEnabled && item.parsed.directType
                   ? '<a href="#sd-direct-type"></a>'
                   : ''));
-          sendChat(current.as, chatText);
-          if (item.context.privateChat) ntMirrorWhisper(current, chatText);
+          if (item.context.privateChat)
+            ntSendWhisper(current, chatText, item.whisperResolution);
+          else sendChat(current.as, chatText);
         }
       }
       state.narration_error = null;
@@ -387,35 +438,162 @@ function narrate() {
   }
 }
 
-// API 귓말은 발신자 화면에 송신 기록이 남지 않으므로 휘발성 사본을 보냄
-function ntMirrorWhisper(current, text) {
+// API 귓말은 발신자 화면에 송신 기록이 남지 않으므로 전달 기록을 따로 보냄
+function ntSendWhisper(current, text, resolution) {
+  const whisper = ntParseWhisper(text);
+  if (!whisper) return;
+  resolution = resolution || ntResolveWhisperTarget(whisper);
+  if (!resolution.ok) return;
+  if (whisper.target.toLowerCase() == 'gm') {
+    sendChat(current.as, text);
+    ntMirrorWhisper(current, whisper, resolution.resolvedName);
+    return;
+  }
+  const originPlayerId = String((current && current.originPlayerId) || '');
+  const sentNames = {};
+  const recipients = resolution.recipients;
+  recipients.forEach(function (player) {
+    const playerId = String(player.id || player.get('_id') || '');
+    if (playerId && playerId == originPlayerId) return;
+    const displayName = ntPlayerDisplayName(player);
+    const nameKey = displayName.toLowerCase();
+    if (!displayName || sentNames[nameKey]) return;
+    sentNames[nameKey] = true;
+    sendChat(current.as, '/w "' + displayName.replace(/"/g, '') + '" ' + whisper.body);
+  });
+  ntMirrorWhisper(current, whisper, resolution.resolvedName);
+}
+
+function ntParseWhisper(text) {
+  const match = String(text || '').match(
+    /^\s*\/w\s+(?:"([^"]+)"|(\S+))(?:\s+([\s\S]*))?$/i,
+  );
+  return match
+    ? { target: match[1] || match[2], body: match[3] || '', quoted: !!match[1] }
+    : null;
+}
+
+function ntResolveWhisperTarget(whisper) {
+  const target = String((whisper && whisper.target) || '').trim();
+  if (target.toLowerCase() == 'gm')
+    return { ok: true, recipients: [], resolvedName: 'GM' };
+  const players = findObjs({ _type: 'player' }) || [];
+  const characters = findObjs({ _type: 'character' }) || [];
+  const recipients = [];
+  const seen = {};
+  const matchedNames = [];
+  const playerNames = [];
+  const characterNames = [];
+  const addName = function (names, name) {
+    name = String(name || '').trim();
+    if (
+      name &&
+      !names.some(function (value) {
+        return value.toLowerCase() == name.toLowerCase();
+      })
+    )
+      names.push(name);
+  };
+  const addPlayer = function (player) {
+    if (!ntPlayerIsOnline(player)) return false;
+    const playerId = String(player.id || player.get('_id') || '');
+    const key = playerId || ntPlayerDisplayName(player).toLowerCase();
+    if (!key) return false;
+    if (seen[key]) return true;
+    seen[key] = true;
+    recipients.push(player);
+    return true;
+  };
+  players.forEach(function (player) {
+    const name = ntPlayerDisplayName(player);
+    if (!ntWhisperNameMatches(name, whisper)) return;
+    addName(matchedNames, name);
+    if (addPlayer(player)) addName(playerNames, name);
+  });
+  characters.forEach(function (character) {
+    const name = String(character.get('name') || '').trim();
+    if (!ntWhisperNameMatches(name, whisper)) return;
+    addName(matchedNames, name);
+    let hasOnlineRecipient = false;
+    String(character.get('controlledby') || '')
+      .split(',')
+      .map(function (id) {
+        return id.trim();
+      })
+      .filter(Boolean)
+      .forEach(function (id) {
+        if (id == 'all')
+          players.forEach(function (player) {
+            if (addPlayer(player)) hasOnlineRecipient = true;
+          });
+        else if (addPlayer(getObj('player', id))) hasOnlineRecipient = true;
+      });
+    if (hasOnlineRecipient) addName(characterNames, name);
+  });
+  const resolvedNames = characterNames.length ? characterNames : playerNames;
+  if (!matchedNames.length)
+    return {
+      ok: false,
+      error: '없는 캐릭터명 또는 플레이어명입니다: ' + target,
+    };
+  if (!recipients.length || !resolvedNames.length)
+    return {
+      ok: false,
+      error: '현재 접속 중인 수신자가 없습니다: ' + matchedNames.join(', '),
+    };
+  return {
+    ok: true,
+    recipients: recipients,
+    resolvedName: resolvedNames.join(', '),
+  };
+}
+
+function ntWhisperRecipients(whisper) {
+  const resolved = ntResolveWhisperTarget(whisper);
+  return resolved.ok ? resolved.recipients : [];
+}
+
+function ntWhisperNameMatches(name, whisper) {
+  const candidate = String(name || '').trim().toLowerCase();
+  const target = String(whisper.target || '').trim().toLowerCase();
+  if (!candidate || !target) return false;
+  return whisper.quoted
+    ? candidate == target
+    : candidate == target ||
+        (candidate.indexOf(target) == 0 && /^\s/.test(candidate.substring(target.length)));
+}
+
+function ntPlayerDisplayName(player) {
+  return String(
+    (player && (player.get('_displayname') || player.get('displayname'))) || '',
+  ).trim();
+}
+
+function ntPlayerIsOnline(player) {
+  return !!player && player.get('_online') === true;
+}
+
+function ntMirrorWhisper(current, text, resolvedName) {
   try {
     const playerId = String((current && current.originPlayerId) || '');
     if (!playerId || playerId == 'API') return;
-    const match = String(text || '').match(
-      /^\s*\/w\s+(?:"([^"]+)"|(\S+))(?:\s+([\s\S]*))?$/i,
-    );
-    if (!match) return;
-    const target = match[1] || match[2];
+    const whisper = typeof text == 'string' ? ntParseWhisper(text) : text;
+    if (!whisper) return;
     const player = getObj('player', playerId);
     if (!player) return;
-    if (ntWhisperIncludesPlayer(target, playerId, player)) return;
-    const displayName = String(
-      player.get('_displayname') || player.get('displayname') || '',
-    )
+    const displayName = ntPlayerDisplayName(player)
       .replace(/"/g, '')
       .trim();
     if (!displayName || ntDuplicatePlayerName(displayName)) return;
     sendChat(
-      current.as,
+      '나레이터 서버',
       '/w "' +
         displayName +
-        '" (To ' +
-        ntEscape(target) +
-        '): ' +
-        (match[3] || ''),
+        '" → ' +
+        ntEscape(resolvedName || whisper.target) +
+        ' : ' +
+        whisper.body,
       null,
-      { noarchive: true },
     );
   } catch (err) {
     if (typeof log === 'function')
@@ -434,30 +612,6 @@ function ntDuplicatePlayerName(displayName) {
       );
     }).length > 1
   );
-}
-
-function ntWhisperIncludesPlayer(target, playerId, player) {
-  const name = String(target || '').trim().toLowerCase();
-  if (name == 'gm') return playerIsGM(playerId);
-  if (
-    String(player.get('_displayname') || player.get('displayname') || '')
-      .trim()
-      .toLowerCase() == name
-  )
-    return true;
-  let characters = findObjs({ _type: 'character', name: target });
-  if (!characters.length)
-    characters = findObjs({ _type: 'character' }).filter(function (character) {
-      return String(character.get('name') || '').trim().toLowerCase() == name;
-    });
-  return characters.some(function (character) {
-    const controlledBy = String(character.get('controlledby') || '')
-      .split(',')
-      .filter(Boolean);
-    return controlledBy.length
-      ? controlledBy.indexOf('all') >= 0 || controlledBy.indexOf(playerId) >= 0
-      : playerIsGM(playerId);
-  });
 }
 
 function ntInjectVisualDialogue(item, current) {
@@ -772,7 +926,7 @@ function ntValidateCues(cues, context) {
   return { ok: true };
 }
 
-function ntCancelOnError(result, source) {
+function ntCancelOnError(result, source, archive) {
   const cancelled = state.narration.length;
   state.last_narration_error = {
     error: String((result && result.error) || '알 수 없는 오류'),
@@ -796,7 +950,7 @@ function ntCancelOnError(result, source) {
       cancelled +
       '개',
     null,
-    { noarchive: true },
+    archive ? undefined : { noarchive: true },
   );
   return { ok: false };
 }

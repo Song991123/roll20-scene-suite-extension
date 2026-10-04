@@ -6,8 +6,6 @@
 - `03_visual_dialogue_compatible.js`: 원본 `visual_dialogue.js`, [Visual Dialogue](https://github.com/kibkibe/roll20-api-scripts/tree/master/visual_dialogue)
 - `04_image_switcher_compatible.js`: 원본 `image_switcher.js`, [Image Switcher](https://github.com/kibkibe/roll20-api-scripts/tree/master/image_switcher)
 
-확장 및 통합: [@EOOOOORK](https://x.com/EOOOOORK)
-
 - 원본 작성자: 양천일염
 - 원본 저장소: [kibkibe/roll20-api-scripts](https://github.com/kibkibe/roll20-api-scripts)
 - 원본 라이선스: CC BY-NC (저작자표시-비영리)

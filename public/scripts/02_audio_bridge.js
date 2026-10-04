@@ -127,6 +127,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     var action = parts.shift();
     if (!action) return audioUsage('동작이 없습니다.');
     if (normalize(action) == 'help' || action == '도움말') return audioUsage();
+    if (action == '설정') return whisper(audioSettingsHtml());
     if (action == '분류') return configureClassification(parts);
     if (action == '분류상태') return showClassification();
     if (action == '매크로없음')
@@ -300,20 +301,13 @@ KIBScene.adapters = KIBScene.adapters || {};
         return String(part || '').trim();
       })
       .filter(Boolean);
-    var actionIndex = -1;
-    for (var i = 0; i < parts.length; i++) {
-      if (normalizeAction(parts[i])) {
-        actionIndex = i;
-        break;
-      }
-    }
-    if (actionIndex < 0)
+    var action = normalizeAction(parts.shift());
+    if (!action)
       return {
         ok: false,
         error:
-          '재생, 중지, 볼륨, 페이드인, 페이드아웃 중 동작을 하나 입력하세요.',
+          '명령 맨 앞에 재생 또는 중지를 입력하세요. 예: !오디오 재생|음원 제목',
       };
-    var action = normalizeAction(parts.splice(actionIndex, 1)[0]);
     if (action == 'stopall') {
       var stopAllOptions = parseOptions(parts);
       if (stopAllOptions.error)
@@ -418,12 +412,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     var saved = state.KIBSceneAudio.aliases[normalize(aliasOrTitle)];
     var savedTrack = saved && getObj('jukeboxtrack', saved.id);
     if (savedTrack) return { ok: true, track: savedTrack };
-    var target = normalize(aliasOrTitle);
-    var tracks = findObjs({ _type: 'jukeboxtrack' }) || [];
-    var matches = [];
-    for (var i = 0; i < tracks.length; i++) {
-      if (normalize(tracks[i].get('title')) == target) matches.push(tracks[i]);
-    }
+    var matches = findTracksByTitle(aliasOrTitle);
     if (matches.length > 1)
       return {
         ok: false,
@@ -445,12 +434,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   }
 
   function findTrackByTitle(title) {
-    var target = normalize(title);
-    var tracks = findObjs({ _type: 'jukeboxtrack' }) || [];
-    var matches = [];
-    for (var i = 0; i < tracks.length; i++) {
-      if (normalize(tracks[i].get('title')) == target) matches.push(tracks[i]);
-    }
+    var matches = findTracksByTitle(title);
     if (matches.length > 1) {
       whisper(
         '같은 제목의 음원이 ' +
@@ -462,6 +446,27 @@ KIBScene.adapters = KIBScene.adapters || {};
       return null;
     }
     return matches[0] || null;
+  }
+
+  function findTracksByTitle(title) {
+    var target = normalize(title);
+    var seen = {};
+    var matches = (findObjs({ _type: 'jukeboxtrack' }) || []).filter(
+      function (track) {
+        if (!track || seen[track.id]) return false;
+        seen[track.id] = true;
+        return normalize(track.get('title')) == target;
+      },
+    );
+    var folder = '';
+    try {
+      folder = String(Campaign().get('_jukeboxfolder') || '');
+    } catch (ignored) {}
+    if (!folder) return matches;
+    var visible = matches.filter(function (track) {
+      return folder.indexOf('"' + track.id + '"') > -1;
+    });
+    return visible.length ? visible : matches;
   }
 
   function sendRoll20Am(action, target, options) {
@@ -774,6 +779,25 @@ KIBScene.adapters = KIBScene.adapters || {};
         '<code>!오디오 분류|자동</code> / <code>!오디오 분류|지정|🌧️|🎻</code>',
     );
     return { ok: false, error: '오디오 사용법' };
+  }
+
+  function audioSettingsHtml() {
+    var classification = state.KIBSceneAudio.classification;
+    var driver = state.KIBSceneAudio.driver;
+    return (
+      '<b>오디오 설정</b><br>재생 방식: <b>' +
+      (driver == 'native' ? 'Roll20 쥬크박스 직접 제어' : 'Roll20AM 연결') +
+      '</b><br>분류: <b>' +
+      (classification.mode == 'prefix'
+        ? '지정 ' + escapeHtml(classification.prefixes.join(' '))
+        : '자동') +
+      '</b><br><a href="!sd audio driver|' +
+      (driver == 'native' ? 'roll20am' : 'native') +
+      '" style="display:inline-block;margin:5px 3px 0 0;padding:4px 7px;background:#53657d;color:#fff;text-decoration:none">재생 방식 전환</a>' +
+      '<a href="!오디오 분류|자동" style="display:inline-block;margin:5px 3px 0 0;padding:4px 7px;background:#287a4b;color:#fff;text-decoration:none">자동 분류</a>' +
+      '<a href="!오디오 분류|지정|&#63;{BGM 제목 앞 이모지}" style="display:inline-block;margin:5px 3px 0 0;padding:4px 7px;background:#7654a8;color:#fff;text-decoration:none">지정 분류</a>' +
+      '<a href="!오디오 매크로갱신" style="display:inline-block;margin:5px 3px 0 0;padding:4px 7px;background:#9b6b20;color:#fff;text-decoration:none">매크로 갱신</a>'
+    );
   }
 
   function clamp(value, fallback, min, max) {
