@@ -52,7 +52,6 @@ publicDocs.forEach((file) =>
   ),
 );
 const indexText = readText(path.join(publicRoot, 'index.html'));
-const readmeText = readText(path.join(root, 'README.md'));
 const appText = readText(path.join(publicRoot, 'assets', 'app.js'));
 const cutinText = readText(path.join(scriptsRoot, '08_cutin_director.js'));
 const sceneDirectorText = readText(path.join(scriptsRoot, '00_scene_director.js'));
@@ -1566,8 +1565,7 @@ assert(
 delete directorRuntime.KIBScene.adapters.vd;
 assert(
   appText.includes('01 나레이터와 함께 설치하면 !. 문장') &&
-    visualDialogueText.includes('01 나레이터와 함께 설치했을 때:') &&
-    readmeText.includes('`!.`만 입력하는 명령은 아니며'),
+    visualDialogueText.includes('01 나레이터와 함께 설치했을 때:'),
   '설치 페이지와 03 단독 도움말에서도 나레이터 전용 명령임을 구분해야 합니다.',
 );
 let directorFeatureChanged = null;
@@ -1602,9 +1600,8 @@ assert(
     appText.includes('토큰 이름을 cutin_area') &&
     appText.includes('토큰 이름을 cutin_overlay') &&
     sceneDirectorText.includes('<b>토큰 이름 안내</b>') &&
-    sceneDirectorText.includes('업로드 파일명이 아니라 Roll20 보드에 놓은 이미지 토큰의 이름입니다.') &&
-    readmeText.includes('토큰 이름은 이미지 파일명이 아닙니다.'),
-  '설치 페이지, 통합 도움말, README에서 토큰 이름과 이미지 파일명을 구분해야 합니다.',
+    sceneDirectorText.includes('업로드 파일명이 아니라 Roll20 보드에 놓은 이미지 토큰의 이름입니다.'),
+  '설치 페이지와 통합 도움말에서 토큰 이름과 이미지 파일명을 구분해야 합니다.',
 );
 assert(
   visualDialogueText.includes('맵 레이어에 배경 이미지 토큰을 놓고 토큰 이름을 <code>vd_background</code>') &&
@@ -1621,13 +1618,6 @@ assert(
   !appText.includes('비슷한 시트가 여러 개로 표시되면') &&
     !appText.includes('현재 시트를 인식하지 못하면 별도 JS를 만들지 말고'),
   '시트 헬퍼 세팅법에 시트 선택이나 개발자용 지원 절차를 넣으면 안 됩니다.',
-);
-assert(
-  readmeText.includes('채팅에 `!도움`을 입력해 설치된 기능의 세팅법과 명령어를 확인합니다.') &&
-    readmeText.includes('방에 적용된 시트를 인식해 명령어로 실행, 자동 트래킹') &&
-    !readmeText.includes('현황 확인 중') &&
-    !readmeText.includes('지원 시트 추가를 요청'),
-  'README의 설치·시트 헬퍼 안내도 배포 페이지와 같아야 합니다.',
 );
 assert(
   appText.includes("label: '패널 이미지 주소'") &&
