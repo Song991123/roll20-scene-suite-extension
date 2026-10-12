@@ -824,7 +824,7 @@ function vdPanelModeLabel(mode) {
 }
 
 function vdDecorationForMessage(type, mode) {
-  return mode == 'shared' || type == 'desc' || type == 'emote'
+  return mode == 'shared' || type == 'desc'
     ? 'vd_panel'
     : 'vd_dialogue_box';
 }
@@ -2128,8 +2128,8 @@ const showDialogue = function () {
     return;
   }
 
-  let is_general = msg.type == 'general';
-  let is_script_mode = msg.type == 'desc' || msg.type == 'emote';
+  let is_general = msg.type == 'general' || msg.type == 'emote';
+  let is_script_mode = msg.type == 'desc';
   const decoration_name = vdDecorationForMessage(
     msg.type,
     vd_setting.dialogue_panel_mode,

@@ -141,7 +141,7 @@ assert.strictEqual(
 );
 assert.strictEqual(
   vdRuntime.vdDecorationForMessage('emote', 'split'),
-  'vd_panel',
+  'vd_dialogue_box',
 );
 assert.strictEqual(
   vdRuntime.vdDecorationForMessage('general', 'split'),
@@ -188,6 +188,12 @@ assert(
     'let text_dialogue = is_script_mode ? text_script : text_normal;',
   ),
   '일반 대사와 스크립트는 서로 다른 글자 객체를 사용해야 합니다.',
+);
+assert(
+  visualDialogueText.includes(
+    "let is_general = msg.type == 'general' || msg.type == 'emote';",
+  ) && visualDialogueText.includes("let is_script_mode = msg.type == 'desc';"),
+  '/emas는 이름과 행동문을 대사창에 함께 배치해야 합니다.',
 );
 assert(
   visualDialogueText.includes("stroke: vdTextStroke(is_script_mode ? 'script' : 'dialogue')"),
