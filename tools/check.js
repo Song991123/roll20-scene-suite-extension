@@ -537,6 +537,22 @@ assert.strictEqual(
 );
 
 const narratorSent = [];
+const battleDecoration = '/desc [ 전 투 시 작 ]\\(#" style="box-sizing: content-box;background-color: #000;color: #b22222;padding: 2px;box-shadow: #000000 -9px 0px 0px 7px, #000000 7px 0px 0px 7px;display: block;margin: auto;text-decoration: none;text-align: center;font-style: normal; font-size:18px;font-family:\'Diphylleia\')';
+const hospitalDecoration = '/desc <div style="[보건소](#" style="font-weight: bold; font-family:\'Diphylleia\'; background-image:url(example.png);)<div style="[: 전원](#" style="font-size: 11px; color: #fff;)';
+[battleDecoration, hospitalDecoration].forEach((markup) => {
+  assert.strictEqual(narratorRuntime.ntExtractCues(markup).text, markup);
+  const parsed = narratorRuntime.ntExtractCues(markup + ' @오디오 재생|BGM @인물A:불안');
+  assert.strictEqual(parsed.text.trimEnd(), markup);
+  assert.deepStrictEqual(Array.from(parsed.cues, cue => cue.type), ['audio', 'vd']);
+  assert.deepStrictEqual(Array.from(parsed.cues[0].args), ['재생', 'BGM']);
+});
+const multiDecorated = narratorRuntime.ntExtractCues(
+  '/desc [장면 @인물A:불안](#" style="color:red;) [대상 @비주얼 퇴장:전원](#" style="color:white;) @다음줄 1초',
+);
+assert.deepStrictEqual(Array.from(multiDecorated.cues, cue => cue.args[0]), ['인물A:불안', '퇴장:전원']);
+assert(!multiDecorated.text.includes('@'));
+assert.strictEqual(multiDecorated.lineDelay, 1000);
+assert.strictEqual(narratorRuntime.ntExtractCues('[메일](#" style="content:\'@example\';)').cues.length, 0);
 const narratorInjected = [];
 const narratorExecuted = [];
 const narratorBroadcasts = [];
@@ -560,6 +576,16 @@ narratorRuntime.KIBScene.broadcast = (name, payload) => {
   narratorBroadcasts.push({ name, payload });
   return { ok: true, values: [] };
 };
+narratorRuntime.KIBScene.handlers.audio = function () {};
+[battleDecoration, hospitalDecoration].forEach((markup) => {
+  narratorRuntime.state.narration = [{ as: 'GM', msg: markup + ' @오디오 재생|BGM @인물A:불안', explicitAs: false }];
+  narratorRuntime.state.is_narrating = 2;
+  narratorRuntime.narrate();
+  assert.deepStrictEqual(Array.from(narratorExecuted, cue => cue.type), ['audio', 'vd']);
+  assert.strictEqual(narratorSent[0].content, markup);
+  assert.strictEqual(narratorRuntime.state.narration.length, 0);
+  narratorSent.length = narratorExecuted.length = narratorInjected.length = narratorBroadcasts.length = 0;
+});
 narratorRuntime.state.narration = [
   { as: 'GM', msg: '/w gm 비밀 지문 @스크립트', explicitAs: false },
 ];

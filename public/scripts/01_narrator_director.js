@@ -674,6 +674,42 @@ function ntExtractCues(source) {
       },
     );
   }
+  // 롤꾸의 표시 문자열과 CSS 목적지를 분리해 명령 인자가 CSS를 삼키지 않게 한다.
+  const decoratedSource = String(source || '');
+  const decoration = /\[([^\[\]]*)\](?:\\)?\(\s*#"/g;
+  let decorationMatch;
+  let cursor = 0;
+  let decoratedText = '';
+  function extractPart(value) {
+    const parsed = ntExtractCues(value);
+    cues.push.apply(cues, parsed.cues);
+    directType = directType || parsed.directType;
+    if (parsed.lineDelay !== null) useLineDelay(parsed.lineDelay + 'ms');
+    if (parsed.lineDelayError) lineDelayError = parsed.lineDelayError;
+    return parsed.text;
+  }
+  while ((decorationMatch = decoration.exec(decoratedSource))) {
+    let end = decoration.lastIndex;
+    let depth = 1;
+    for (; end < decoratedSource.length && depth; end++) {
+      if (decoratedSource[end] === '\\') { end++; continue; }
+      if (decoratedSource[end] === '(') depth++;
+      else if (decoratedSource[end] === ')') depth--;
+    }
+    if (depth) break;
+    const label = decorationMatch[1];
+    decoratedText += extractPart(decoratedSource.slice(cursor, decorationMatch.index));
+    decoratedText += '[' + extractPart(label) + decoratedSource.slice(
+      decorationMatch.index + label.length + 1, end,
+    );
+    cursor = end;
+    decoration.lastIndex = end;
+  }
+  if (cursor) {
+    decoratedText += extractPart(decoratedSource.slice(cursor));
+    return { text: decoratedText, cues: cues, directType: directType,
+      lineDelay: lineDelay, lineDelayError: lineDelayError };
+  }
   let text = String(source || '').replace(
     /\{\{@([^{}]+)\}\}/g,
     function (all, body) {
