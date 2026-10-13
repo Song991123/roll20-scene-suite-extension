@@ -370,6 +370,8 @@ function narrate() {
         }
         const validation = ntValidateCues(parsed.cues, context);
         if (!validation.ok) return ntCancelOnError(validation, element);
+        parsed.text = ntResolveRandomText(parsed.text);
+        context.text = privateChat ? '' : parsed.text;
         prepared.push({
           parsed: parsed,
           context: context,
@@ -801,6 +803,46 @@ function ntExtractCues(source) {
     lineDelay: lineDelay,
     lineDelayError: lineDelayError,
   };
+}
+
+// 출력 문구만 추첨한다. @명령, Roll20 매크로, 꾸미기 속성은 보존한다.
+function ntResolveRandomText(source) {
+  const text = String(source || '');
+  let result = '';
+  for (let i = 0; i < text.length;) {
+    let end = i + 1;
+    if (text[i] === '<') {
+      const close = text.indexOf('>', i + 1);
+      if (close >= 0) end = close + 1;
+    } else if (text[i] === '(' && (text[i - 1] === ']' || (text[i - 1] === '\\' && text[i - 2] === ']'))) {
+      let depth = 1;
+      while (end < text.length && depth) {
+        if (text[end] === '\\') { end += 2; continue; }
+        if (text[end] === '(') depth++;
+        else if (text[end] === ')') depth--;
+        end++;
+      }
+    } else if (text[i] === '{') {
+      let depth = 1;
+      while (end < text.length && depth) {
+        if (text[end] === '{') depth++;
+        else if (text[end] === '}') depth--;
+        end++;
+      }
+      const body = text.slice(i + 1, end - 1);
+      const reserved = /[?@%&\\]/.test(text[i - 1] || '') || body.includes('{') || body.includes('}');
+      const choices = body.split('|').map(value => value.trim());
+      if (!depth && !reserved && choices.length > 1 && choices.every(Boolean)) {
+        const chosen = choices[randomInteger(choices.length) - 1];
+        result += '<u>' + chosen.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</u>';
+        i = end;
+        continue;
+      }
+    }
+    result += text.slice(i, end);
+    i = end;
+  }
+  return result;
 }
 
 function ntParseLineDelay(value) {

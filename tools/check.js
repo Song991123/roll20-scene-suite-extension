@@ -537,6 +537,16 @@ assert.strictEqual(
 );
 
 const narratorSent = [];
+let randomDraws = 0;
+narratorRuntime.randomInteger = (max) => { randomDraws++; return max; };
+assert.strictEqual(narratorRuntime.ntResolveRandomText('안녕하세요 {사과|포도}를 골랐습니다.'), '안녕하세요 <u>포도</u>를 골랐습니다.');
+assert.strictEqual(narratorRuntime.ntResolveRandomText('{A|B} {C|D}'), '<u>B</u> <u>D</u>');
+[
+  '?{질문|선택1|선택2}', '@{캐릭터|hp}', '%{캐릭터|굴림}', '&{template:default}',
+  '{{name=값|내용}}', '{A|{B|C}}', '{A|}', '{미완성|값',
+  '<span data-x="{A|B}">내용</span>', '[내용](#" style="content:\'{A|B}\';)',
+].forEach(value => assert.strictEqual(narratorRuntime.ntResolveRandomText(value), value));
+randomDraws = 0;
 const battleDecoration = '/desc [ 전 투 시 작 ]\\(#" style="box-sizing: content-box;background-color: #000;color: #b22222;padding: 2px;box-shadow: #000000 -9px 0px 0px 7px, #000000 7px 0px 0px 7px;display: block;margin: auto;text-decoration: none;text-align: center;font-style: normal; font-size:18px;font-family:\'Diphylleia\')';
 const hospitalDecoration = '/desc <div style="[보건소](#" style="font-weight: bold; font-family:\'Diphylleia\'; background-image:url(example.png);)<div style="[: 전원](#" style="font-size: 11px; color: #fff;)';
 [battleDecoration, hospitalDecoration].forEach((markup) => {
@@ -577,6 +587,14 @@ narratorRuntime.KIBScene.broadcast = (name, payload) => {
   return { ok: true, values: [] };
 };
 narratorRuntime.KIBScene.handlers.audio = function () {};
+narratorRuntime.state.narration = [{ as: 'GM', msg: '/desc {사과|포도} @인물A:불안', explicitAs: false }];
+narratorRuntime.state.is_narrating = 2;
+narratorRuntime.narrate();
+assert.strictEqual(randomDraws, 1, '채팅과 비주얼 출력이 추첨 결과를 공유해야 합니다.');
+assert.strictEqual(narratorSent[0].content, '/desc <u>포도</u>');
+assert.strictEqual(narratorInjected[0].text, '<u>포도</u>');
+assert.strictEqual(narratorExecuted[0].args[0], '인물A:불안');
+narratorSent.length = narratorExecuted.length = narratorInjected.length = narratorBroadcasts.length = 0;
 [battleDecoration, hospitalDecoration].forEach((markup) => {
   narratorRuntime.state.narration = [{ as: 'GM', msg: markup + ' @오디오 재생|BGM @인물A:불안', explicitAs: false }];
   narratorRuntime.state.is_narrating = 2;
