@@ -642,6 +642,7 @@ var KIBScene = KIBScene || {};
   function narratorHelpSection() {
     var rows =
       commandRow('!... 대사', '줄을 차례대로 출력') +
+      commandRow('!... {사과|포도|딸기}를 골랐습니다.', '하나를 무작위로 선택, 채팅에서 선택된 부분에 밑줄 표시') +
       commandRow('!,,, 다음 줄', '이전 항목에 줄바꿈으로 이어쓰기') +
       commandRow('!. 동시에 출력할 줄', '직전 항목과 같은 차례에 출력') +
       commandRow(

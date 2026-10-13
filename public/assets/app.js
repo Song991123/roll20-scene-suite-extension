@@ -23,7 +23,7 @@ const MODULES = [
     file: '01_narrator_director.js',
     title: '나레이터',
     description: '대사 순차 출력, 줄 끝 연출 명령 실행',
-    setup: ['캐릭터 대사를 쓸 때 Roll20 캐릭터를 만듭니다.', '/as와 /emas 이름을 캐릭터 이름에 맞춥니다.', '채팅에 !... 대사를 입력합니다.'],
+    setup: ['캐릭터 대사를 쓸 때 Roll20 캐릭터를 만듭니다.', '/as와 /emas 이름을 캐릭터 이름에 맞춥니다.', '채팅에 !... 대사를 입력합니다.', '!... {사과|포도|딸기}를 골랐습니다.처럼 적으면 하나를 무작위로 선택합니다. 채팅에서는 선택된 부분에 밑줄을 표시하며, 비주얼 노벨에는 같은 결과를 일반 글씨로 표시합니다. 중첩 선택지는 지원하지 않습니다.'],
     settings: [
       { id: 'lineInterval', shared: 'lineInterval', group: '출력', label: '대사 간격(ms)', note: 'Scene Director와 공통', type: 'number', value: 2800, min: 0, codeKey: 'interval' },
       { id: 'typeAllLines', shared: 'typeAllLines', group: '출력', label: '모든 줄에 스크립트 적용', type: 'checkbox', value: true, codeKey: 'type_all_lines' },
