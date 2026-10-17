@@ -570,6 +570,9 @@ var KIBScene = KIBScene || {};
       (hasPlugin('handout')
         ? actionButton('핸드아웃 관리', '!핸드아웃 관리', '#7654a8') + ' '
         : '') +
+      (hasPlugin('apng')
+        ? actionButton('APNG 관리', '!APNG 관리', '#7654a8') + ' '
+        : '') +
       (hasPlugin('cutin')
         ? actionButton('컷인 관리', '!컷인 관리', '#7654a8') + ' '
         : '') +
@@ -943,7 +946,7 @@ var KIBScene = KIBScene || {};
 
   function apngHelpSection() {
     var rows =
-      commandRow('!APNG 관리', 'APNG 관리 핸드아웃 갱신과 장면전환 등록') +
+      commandRow('!APNG 관리', 'APNG 관리 핸드아웃 열기') +
       commandRow('!APNG 전환|전환명', '저장한 앞 연출 후 중간 명령 후 뒤 연출') +
       commandRow('!APNG 전환|전환명|@비주얼 배경 장면명', '이 실행의 중간 명령 지정, 해당 모듈 설치 시 사용') +
       commandRow('!APNG 전환|전환명|-', '중간 명령 없이 전환 효과만 실행') +
@@ -955,23 +958,22 @@ var KIBScene = KIBScene || {};
       ) +
       commandRow('!APNG 중지|카드명', '해당 APNG와 연결 음원 중지') +
       commandRow('!APNG 설정|카드명|1회|3초', '카드의 기본 재생 방식과 시간 저장') +
-      commandRow('!APNG 연결|카드명|효과음 제목', 'APNG와 음원을 서로 연결');
+      commandRow('!APNG 연결|카드명|효과음 제목', 'APNG와 음원을 서로 연결') +
+      commandRow('!APNG 연결해제|카드명', '해당 APNG의 음원 연결 해제') +
+      commandRow('!APNG 연결목록', '현재 음원 연결 확인');
     var setup = setupSteps([
       '페이지: <code>conversation</code>',
       '덱: <code>apng</code>, 카드 앞면에 애니메이션 등록',
       '전체: 맵시트 또는 페이지 전체',
       '영역(선택): GM 레이어에 이미지 토큰을 놓고 토큰 이름을 <code>apng_area</code>로 지정. 토큰 위치와 크기를 재생 영역으로 사용',
       '실행: <code>📽️apng</code> 매크로에서 카드, 위치, 재생 방식 선택',
-      '관리: <code>!APNG 관리</code>에서 카드별 실행, 반복 실행, 중지, 재생 시간 변경. 일반 재생과 장면전환은 별도 설정',
-      '장면전환: <code>[GM] APNG 관리</code>에서 이름, 앞뒤 카드와 시간, 전체 또는 영역 등록. 불투명 덮개 추가 없음',
-      '중간 명령: 생략 가능. 비주얼 배경, 이미지 전환, 오디오 등 설치한 모듈만 실행',
+      '관리: <code>[GM] APNG 관리</code>에서 카드 재생, 음원 연결, 장면전환 설정',
     ]);
     return moduleHelpSection(
       'apng',
       '06 APNG',
       setup +
-        (KIBScene.call('apng', 'transitionControls') || '') +
-        (hasPlugin('audio') ? apngAudioHelpControls() : '') +
+        actionButton('APNG 관리', '!APNG 관리', '#7654a8') +
         '<table style="width:100%;border-collapse:collapse">' +
         rows +
         '</table>',
@@ -1172,39 +1174,6 @@ var KIBScene = KIBScene || {};
       height:
         Number(saved.defaultHeight) > 0 ? Number(saved.defaultHeight) : 280,
     };
-  }
-
-  function apngAudioHelpControls() {
-    var deck = (findObjs({ _type: 'deck', name: 'apng' }) || [])[0];
-    var cards = deck ? findObjs({ _type: 'card', _deckid: deck.id }) || [] : [];
-    var tracks = findObjs({ _type: 'jukeboxtrack' }) || [];
-    cards.sort(function (a, b) {
-      return String(a.get('name') || '').localeCompare(
-        String(b.get('name') || ''),
-      );
-    });
-    tracks.sort(function (a, b) {
-      return String(a.get('title') || '').localeCompare(
-        String(b.get('title') || ''),
-      );
-    });
-    if (!cards.length || !tracks.length)
-      return '<div style="margin-bottom:8px;padding:7px;background:#f3f3f3;border-left:4px solid #111"><b>APNG 효과음 연결:</b> <code>apng</code> 카드와 쥬크박스 음원 필요</div>';
-    var cardQuery = idQuery('APNG 카드', cards, 'name');
-    var trackQuery = idQuery('효과음', tracks, 'title');
-    return (
-      '<div style="margin-bottom:8px;padding:7px;background:#f3f3f3;border-left:4px solid #111"><b>APNG 효과음 연결</b><br>' +
-      actionButton(
-        '연결 등록',
-        '!APNG 연결|' + cardQuery + '|' + trackQuery,
-        '#7654a8',
-      ) +
-      ' ' +
-      actionButton('연결 해제', '!APNG 연결해제|' + cardQuery, '#8b3940') +
-      ' ' +
-      actionButton('연결 목록', '!APNG 연결목록', '#237a8b') +
-      '</div>'
-    );
   }
 
   function standingRatioHelpControl() {

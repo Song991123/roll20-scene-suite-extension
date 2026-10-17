@@ -10,6 +10,8 @@ const scriptIndexes = Array.from({ length: 10 }, (_, index) =>
 );
 
 const allowedRemovals = {
+  '00:namedFunctions:apngAudioHelpControls':
+    'APNG 음원 연결 UI를 06 자체 관리 핸드아웃으로 이동. 기존 연결 명령과 검증은 유지',
   '05:namedFunctions:wrapText':
     '05의 글자 단위 처리를 없애면서 호출부 안으로 내부화한 함수',
   '03:namedFunctions:vdAvatarExpressionAdapter':

@@ -326,6 +326,72 @@ test('saved placement survives time updates, defaults and restart without affect
   r.advance(1000);
   r.chat('!APNG 전환|슬라이드'); assert.equal(r.graphics()[0].data.width, 1400);
 });
+test('00 links to the APNG manager without owning transition or audio controls', () => {
+  const r = room({ director: true, modules: ['02_audio_bridge.js'] }); r.save(); r.advance(2000);
+  const help = [...r.objects.values()].find(o => o.type === 'handout' && o.get('name') === '[GM] SceneDirector 사용법').get('notes');
+  assert.equal(button(help, 'APNG 관리'), '!APNG 관리');
+  assert(help.includes('!APNG 전환|전환명')); assert(help.includes('!APNG 연결|카드명|효과음 제목'));
+  for (const label of ['장면전환 만들기', '전환 설정 수정', '연결 등록', '음원 연결']) assert(!help.includes('>' + label + '</a>'));
+  assert.equal(r.context.KIBScene.adapters.apng.transitionControls, undefined);
+  assert(r.managerHtml().includes('>장면전환 만들기</a>'));
+  assert(!source('00_scene_director.js').includes('apngAudioHelpControls'));
+});
+test('manager commands open the existing journal without duplicating editable controls in chat', () => {
+  const r = room(); r.save(); const managerId = r.state.KIBSceneAPNG.managerId;
+  for (const command of ['!APNG 관리', '!APNG 설정']) {
+    r.chat(command);
+    assert.equal(button(r.messages.at(-1).content, '관리 핸드아웃 열기'), 'http://journal.roll20.net/handout/' + managerId);
+    assert(!r.messages.at(-1).content.includes('>장면전환 만들기</a>'));
+    assert.equal(r.messages.at(-1).options.noarchive, true);
+  }
+  const count = r.messages.length; r.chat('!APNG 관리', 'player'); assert.equal(r.messages.length, count);
+  assert.equal(r.state.KIBSceneAPNG.managerId, managerId); assert.equal(Object.keys(r.state.KIBSceneAPNG.transitions).length, 1);
+});
+test('06 owns audio bind change and unlink buttons without requiring 00 or 02', () => {
+  const r = room(); r.save();
+  r.object('jukeboxtrack', 'sound1', { title: '효과음: 밤, {문|소리} & <바람>' });
+  r.object('jukeboxtrack', 'sound2', { title: '효과음2' });
+  r.chat('!APNG 관리');
+  let html = r.managerHtml().slice(r.managerHtml().indexOf('<b>앞 연출</b>'));
+  assert(!button(html, '음원 연결').split('?')[0].includes(':'));
+  r.chat(answer(button(html, '음원 연결'), { '연결할 음원': 'id=sound1' }));
+  assert.equal(r.state.KIBSceneAPNG.audioLinks.front, 'sound1');
+  assert(r.managerHtml().includes('연결 음원: 효과음: 밤, {문|소리} &amp; &lt;바람&gt;'));
+  html = r.managerHtml().slice(r.managerHtml().indexOf('<b>앞 연출</b>'));
+  r.chat(answer(button(html, '음원 변경'), { '연결할 음원': 'id=sound2' }));
+  assert.equal(r.state.KIBSceneAPNG.audioLinks.front, 'sound2');
+  r.chat(button(r.managerHtml(), '연결 해제'), 'player'); assert.equal(r.state.KIBSceneAPNG.audioLinks.front, 'sound2');
+  r.chat(button(r.managerHtml(), '연결 해제')); assert.equal(r.state.KIBSceneAPNG.audioLinks.front, undefined);
+  assert.equal(r.state.KIBSceneAPNG.transitions.t1.name, '슬라이드');
+});
+test('audio links retain legacy id and title lookup, one-to-one binding, invalid input and restart behavior', () => {
+  const r = room(); r.object('jukeboxtrack', 'sound', { title: '문 소리' });
+  for (const reference of ['id:sound', 'id=sound', '문 소리']) {
+    r.chat('!APNG 연결|id=front|' + reference); assert.equal(r.state.KIBSceneAPNG.audioLinks.front, 'sound');
+  }
+  r.chat('!APNG 연결|id=back|id=sound'); assert.equal(r.state.KIBSceneAPNG.audioLinks.front, undefined);
+  r.chat('!APNG 연결|id=back|id=missing'); assert.equal(r.state.KIBSceneAPNG.audioLinks.back, 'sound');
+  r.emit('ready'); assert.equal(r.state.KIBSceneAPNG.audioLinks.back, 'sound');
+  assert(r.managerHtml().includes('연결 음원: 문 소리'));
+  r.chat('!APNG 연결목록'); assert(r.messages.at(-1).content.includes('뒤 연출: 문 소리'));
+});
+test('track inventory refreshes only on add rename and delete, not volume or playback', () => {
+  const r = room(); assert(!r.managerHtml().includes('>음원 연결</a>'));
+  const track = r.object('jukeboxtrack', 'sound', { title: '원래', playing: false, volume: 50 });
+  r.emit('add:jukeboxtrack', track); r.advance(100); assert(r.managerHtml().includes('id=sound'));
+  track.set('title', '새 제목'); r.emit('change:jukeboxtrack', track, { title: '원래', playing: false }); r.advance(100);
+  assert(r.managerHtml().includes('새 제목'));
+  r.chat('!APNG 연결|id=front|id=sound');
+  const manager = r.objects.get(r.state.KIBSceneAPNG.managerId), set = manager.set; let writes = 0;
+  manager.set = (...args) => { writes++; return set(...args); };
+  track.set('volume', 60); r.emit('change:jukeboxtrack', track, { title: '새 제목', playing: false }); r.advance(200);
+  assert.equal(writes, 0);
+  track.set('playing', true); r.emit('change:jukeboxtrack', track, { title: '새 제목', playing: false }); r.advance(200);
+  assert.equal(writes, 0);
+  track.remove(); assert.equal(r.state.KIBSceneAPNG.audioLinks.front, undefined);
+  assert(!r.managerHtml().includes('>음원 연결</a>')); assert(r.managerHtml().includes('주크박스 음원 없음'));
+});
+
 const previewIndex = process.argv.indexOf('--preview');
 if (previewIndex >= 0) {
   const r = room(); r.adapter('vd', { 비주얼: '' }); r.save('복도 장면전환', '@비주얼 배경 외부인숙소_2층복도');

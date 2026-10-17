@@ -1,5 +1,5 @@
 /*
- * Scene Suite 06 - APNG Director 1.2.2-dev
+ * Scene Suite 06 - APNG Director 1.2.3-dev
  * 제작 및 통합: @EOOOOORK
  */
 var KIBScene = KIBScene || {};
@@ -60,7 +60,6 @@ KIBScene.adapters = KIBScene.adapters || {};
           if (args[0] === '전환') return inspectTransition(args.slice(1));
           return inspectStopCue(args) || parsePlayArgs(args);
         },
-        transitionControls: transitionControls,
         events: { 'narrator:cancel': function () { cancelTransitions(true); } },
         onAudioPlay: playLinkedApngForAudio,
         playLinkedAPNGForAudio: playLinkedApngForAudio,
@@ -122,8 +121,10 @@ KIBScene.adapters = KIBScene.adapters || {};
     });
     refreshHelp();
   });
+  on('add:jukeboxtrack', scheduleMacro);
   on('change:jukeboxtrack', function (obj, prev) {
     initState();
+    if (obj.get('title') !== prev.title) scheduleMacro();
     if (obj.get('playing') === true && prev.playing !== true)
       playLinkedApngForAudio(obj.id);
   });
@@ -149,7 +150,13 @@ KIBScene.adapters = KIBScene.adapters || {};
       .replace(/^!APNG/i, '')
       .trim();
     var action = String(head || '도움말').toLowerCase();
-    if (action === '관리') { refreshManager(); return whisper(statusHtml()); }
+    if (action === '관리' || (action === '설정' && !parts.length)) {
+      var manager = refreshManager();
+      return whisper(manager
+        ? '<div style="padding:8px;background:#111;color:#fff"><b>📽️ APNG 관리</b><br>' +
+          transitionButton('관리 핸드아웃 열기', 'http://journal.roll20.net/handout/' + encodeURIComponent(manager.id), '#7654a8') + '</div>'
+        : '관리 핸드아웃 생성 오류');
+    }
     if (action === '전환저장') return saveTransition(parts);
     if (action === '전환삭제') {
       if (!Object.prototype.hasOwnProperty.call(state.KIBSceneAPNG.transitions, parts[0])) return whisper('장면전환 없음');
@@ -192,8 +199,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       stopActive(stop.card ? stop.card.id : null, true);
       return;
     }
-    if (action == '설정')
-      return parts.length ? saveCardSetting(parts) : whisper(statusHtml());
+    if (action == '설정') return saveCardSetting(parts);
     if (action == '연결') return bindAudio(parts);
     if (action == '연결해제') return unbindAudio(parts);
     if (action == '연결목록') return whisper(audioLinkStatus());
@@ -677,7 +683,7 @@ KIBScene.adapters = KIBScene.adapters || {};
 
   function findTrack(reference) {
     var ref = String(reference || '').trim();
-    if (ref.indexOf('id:') === 0) {
+    if (/^id[:=]/.test(ref)) {
       var track = getObj('jukeboxtrack', ref.substring(3));
       return track
         ? { ok: true, track: track }
@@ -1177,11 +1183,18 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (!manager) return;
     state.KIBSceneAPNG.managerId = manager.id;
     manager.set('notes', statusHtml());
+    return manager;
   }
 
   function statusHtml() {
     var deckResult = findDeck();
     var cards = deckResult.ok ? findObjs({ _type: 'card', _deckid: deckResult.deck.id }) || [] : [];
+    var tracks = (findObjs({ _type: 'jukeboxtrack' }) || []).sort(function (a, b) {
+      return String(a.get('title') || '').localeCompare(String(b.get('title') || ''));
+    });
+    var trackQuery = '?{연결할 음원|' + tracks.map(function (track) {
+      return String(track.get('title') || '').replace(/[|,{}]/g, ' ') + ',id=' + track.id;
+    }).join('|') + '}';
     var rows = cards
       .map(function (card) {
         var saved = state.KIBSceneAPNG.cardSettings[card.id] || {};
@@ -1191,6 +1204,8 @@ KIBScene.adapters = KIBScene.adapters || {};
         // Roll20 removes handout hrefs when an id: before any query is treated as a URL scheme.
         var reference = 'id=' + card.id;
         var settingCommand = '!APNG 설정|' + reference + '|' + mode + '|' + duration + 'ms|';
+        var trackId = state.KIBSceneAPNG.audioLinks[card.id];
+        var track = trackId ? getObj('jukeboxtrack', trackId) : null;
         return (
           '<div style="padding:7px;margin-top:7px;background:#fff;border:1px solid #bbb"><b>' +
           escapeHtml(card.get('name')) +
@@ -1202,6 +1217,9 @@ KIBScene.adapters = KIBScene.adapters || {};
           transitionButton('반복 실행', '!APNG 재생|' + reference + '|반복|' + duration + 'ms|' + placement, '#287a4b') +
           transitionButton('중지', '!APNG 중지|' + reference, '#8b3940') +
           transitionButton('재생 시간 변경', '!APNG 설정|' + reference + '|' + mode + '|?{재생 시간|' + formatSeconds(duration) + '}', '#7654a8') +
+          '<div style="margin-top:7px;font-size:12px">연결 음원: ' + escapeHtml(track ? track.get('title') : '없음') + '</div>' +
+          (tracks.length ? transitionButton(track ? '음원 변경' : '음원 연결', '!APNG 연결|' + reference + '|' + trackQuery, '#7654a8') : '<span style="font-size:12px">주크박스 음원 없음</span>') +
+          (track ? transitionButton('연결 해제', '!APNG 연결해제|' + reference, '#8b3940') : '') +
           '</div>'
         );
       })

@@ -1750,7 +1750,7 @@ assert(
   [audioText, "action == '설정'"],
   [visualDialogueText, '비주얼 노벨 설정'],
   [imageText, 'help|도움말|설정|매크로갱신'],
-  [apngText, "parts.length ? saveCardSetting(parts) : whisper(statusHtml())"],
+  [apngText, "action === '관리' || (action === '설정' && !parts.length)"],
   [handoutText, "action === '관리' || action === '갱신' || action === '설정'"],
   [cutinText, "if (action === '설정')"],
   [sheetHelperText, "else if (action === '설정') action = '관리'"],
