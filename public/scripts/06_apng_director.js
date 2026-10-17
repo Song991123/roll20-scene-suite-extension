@@ -1,5 +1,5 @@
 /*
- * Scene Suite 06 - APNG Director 1.2.1-dev
+ * Scene Suite 06 - APNG Director 1.2.2-dev
  * 제작 및 통합: @EOOOOORK
  */
 var KIBScene = KIBScene || {};
@@ -266,7 +266,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     var saved = state.KIBSceneAPNG.cardSettings[cardResult.card.id] || {};
     var mode = saved.mode || SETTING.DEFAULT_MODE;
     var duration = Number(saved.duration) || SETTING.DEFAULT_DURATION;
-    var placement = 'full';
+    var placement = saved.placement || 'full';
     for (var i = 0; i < values.length; i++) {
       var modeValue = parseMode(values[i]);
       var placementValue = parsePlacement(values[i]);
@@ -620,16 +620,20 @@ KIBScene.adapters = KIBScene.adapters || {};
     var duration = args[2] ? parseDuration(args[2]) : SETTING.DEFAULT_DURATION;
     if (!(duration >= 100 && duration <= 600000))
       return whisper('APNG 재생 시간은 0.1초에서 600초 사이여야 합니다.');
+    var saved = state.KIBSceneAPNG.cardSettings[cardResult.card.id] || {};
+    var placement = args[3] ? parsePlacement(args[3]) : saved.placement || 'full';
+    if (!placement) return whisper('재생 위치는 전체 또는 영역을 선택하세요.');
     state.KIBSceneAPNG.cardSettings[cardResult.card.id] = {
       mode: mode,
       duration: duration,
+      placement: placement,
     };
     updateMacro();
     refreshHelp();
     whisper(
       '<b>' +
         escapeHtml(cardResult.card.get('name')) +
-        '</b> / 재생 시간: ' + formatSeconds(duration),
+        '</b> / 재생 시간: ' + formatSeconds(duration) + ' / 재생 위치: ' + (placement === 'area' ? '지정 영역' : '전체'),
     );
   }
 
@@ -722,7 +726,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (!deckResult.ok) return deckResult;
     var ref = String(reference || '').trim();
     var cards;
-    if (ref.indexOf('id:') === 0) {
+    if (/^id[:=]/.test(ref)) {
       var card = getObj('card', ref.substring(3));
       cards = card && card.get('_deckid') == deckResult.deck.id ? [card] : [];
     } else
@@ -989,7 +993,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     var ref = String(args[0] || '').trim();
     var presets = state.KIBSceneAPNG.transitions;
     var matches = Object.keys(presets).filter(function (id) {
-      return ref.indexOf('id:') === 0 ? ref === 'id:' + id : presets[id].name === ref;
+      return /^id[:=]/.test(ref) ? ref.substring(3) === id : presets[id].name === ref;
     });
     if (matches.length !== 1) return { ok: false, error: '장면전환 이름 확인: ' + escapeHtml(ref) };
     var preset = presets[matches[0]];
@@ -1128,7 +1132,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       function cardQuery(label, selected) {
         var sorted = cards.slice().sort(function (a, b) { return (a.id === selected ? -1 : 0) - (b.id === selected ? -1 : 0); });
         return '?{' + label + '|' + sorted.map(function (card) {
-          return String(card.get('name')).replace(/[|,{}]/g, ' ') + ',id:' + card.id;
+          return String(card.get('name')).replace(/[|,{}]/g, ' ') + ',id=' + card.id;
         }).join('|') + '}';
       }
       return transitionButton(preset ? '전환 설정 수정' : '장면전환 만들기', '!APNG 전환저장|' + id +
@@ -1147,8 +1151,8 @@ KIBScene.adapters = KIBScene.adapters || {};
         '<br>앞 연출: ' + escapeHtml(coverCard ? coverCard.get('name') : '카드 없음') + ' / ' + formatSeconds(preset.coverMs) +
         '<br>뒤 연출: ' + escapeHtml(revealCard ? revealCard.get('name') : '카드 없음') + ' / ' + formatSeconds(preset.revealMs) +
         '<br>중간 명령: ' + (preset.commands && preset.commands !== '-' ? '<code>' + escapeHtml(preset.commands) + '</code>' : '없음') + '</div>' +
-        transitionButton('전환 실행', '!APNG 전환|id:' + id, '#287a4b') +
-        transitionButton('명령 지정 실행', '!APNG 전환|id:' + id + '|?{중간 명령 없으면 -|-}') + editButton(id, preset) +
+        transitionButton('전환 실행', '!APNG 전환|id=' + id, '#287a4b') +
+        transitionButton('명령 지정 실행', '!APNG 전환|id=' + id + '|?{중간 명령 없으면 -|-}') + editButton(id, preset) +
         transitionButton('중간 명령 수정', '!APNG 전환명령|' + id + '|?{새 중간 명령 비우면 없음|}', '#7654a8') +
         transitionButton('삭제', '!APNG 전환삭제|' + id, '#8b3940') + '</div>';
     }).join('');
@@ -1185,14 +1189,21 @@ KIBScene.adapters = KIBScene.adapters || {};
         var saved = state.KIBSceneAPNG.cardSettings[card.id] || {};
         var mode = saved.mode || SETTING.DEFAULT_MODE;
         var duration = Number(saved.duration) || SETTING.DEFAULT_DURATION;
+        var placement = saved.placement || 'full';
+        // Roll20 removes handout hrefs when an id: before any query is treated as a URL scheme.
+        var reference = 'id=' + card.id;
+        var settingCommand = '!APNG 설정|' + reference + '|' + mode + '|' + duration + 'ms|';
         return (
           '<div style="padding:7px;margin-top:7px;background:#fff;border:1px solid #bbb"><b>' +
           escapeHtml(card.get('name')) +
-          '</b><div style="margin:5px 0;font-size:12px">재생 시간: ' + formatSeconds(duration) + '</div>' +
-          transitionButton('실행', '!APNG 재생|id:' + card.id + '|1회|' + duration + 'ms|?{재생 위치|전체,전체|영역,영역}', '#287a4b') +
-          transitionButton('반복 실행', '!APNG 재생|id:' + card.id + '|반복|' + duration + 'ms|?{재생 위치|전체,전체|영역,영역}', '#287a4b') +
-          transitionButton('중지', '!APNG 중지|id:' + card.id, '#8b3940') +
-          transitionButton('재생 시간 변경', '!APNG 설정|id:' + card.id + '|' + mode + '|?{재생 시간|' + formatSeconds(duration) + '}', '#7654a8') +
+          '</b><div style="margin:5px 0;font-size:12px">재생 시간: ' + formatSeconds(duration) +
+          '<br>재생 위치: ' + (placement === 'area' ? '지정 영역 (' + escapeHtml(SETTING.AREA_NAME) + ')' : '전체') + '</div>' +
+          transitionButton('전체' + (placement === 'full' ? ' ✓' : ''), settingCommand + '전체', placement === 'full' ? '#287a4b' : '#53657d') +
+          transitionButton('지정 영역' + (placement === 'area' ? ' ✓' : ''), settingCommand + '영역', placement === 'area' ? '#287a4b' : '#53657d') + '<br>' +
+          transitionButton('실행', '!APNG 재생|' + reference + '|1회|' + duration + 'ms|' + placement, '#287a4b') +
+          transitionButton('반복 실행', '!APNG 재생|' + reference + '|반복|' + duration + 'ms|' + placement, '#287a4b') +
+          transitionButton('중지', '!APNG 중지|' + reference, '#8b3940') +
+          transitionButton('재생 시간 변경', '!APNG 설정|' + reference + '|' + mode + '|?{재생 시간|' + formatSeconds(duration) + '}', '#7654a8') +
           '</div>'
         );
       })
@@ -1206,6 +1217,7 @@ KIBScene.adapters = KIBScene.adapters || {};
         '<br><b>지정 영역:</b> <code>' + escapeHtml(SETTING.AREA_NAME) + '</code> 토큰의 위치와 크기를 사용합니다.</div>') +
       apngSection('APNG 재생', '<div style="padding:8px 9px;margin-bottom:7px;background:#f3f3f3;border-left:4px solid #111">' +
         '장면전환을 등록하지 않아도 카드별로 바로 재생할 수 있습니다.<br>' +
+        '카드에서 <b>전체</b> 또는 <b>지정 영역</b>을 먼저 선택한 뒤 실행하세요. 체크된 위치에 재생합니다.<br>' +
         '<b>실행:</b> 등록한 시간 동안 표시한 뒤 화면에서 제거합니다.<br>' +
         '<b>반복 실행:</b> 중지할 때까지 표시합니다. 연결된 음원이 있으면 기존 음원 연동 설정을 따릅니다.<br>' +
         '<b>중지:</b> 해당 카드가 표시 중이면 즉시 제거합니다.<br>' +

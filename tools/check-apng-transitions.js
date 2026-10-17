@@ -245,11 +245,17 @@ test('card buttons force once or repeat, preserve placement choice and stop only
   const r = room();
   r.chat('!APNG 설정|id:front|반복|2초');
   let html = r.managerHtml().slice(r.managerHtml().indexOf('<b>앞 연출</b>'));
-  r.chat(answer(button(html, '실행'), { '재생 위치': '영역' }));
+  r.chat(button(html, '지정 영역'));
+  html = r.managerHtml().slice(r.managerHtml().indexOf('<b>앞 연출</b>'));
+  assert(html.includes('재생 위치: 지정 영역 (apng_area)'));
+  assert(!button(html, '실행').includes('?{'));
+  r.chat(button(html, '실행'));
   assert.equal(r.graphics()[0].data.width, 400);
   r.advance(1999); assert.equal(r.graphics().length, 1);
   r.advance(1); assert.equal(r.graphics().length, 0);
-  r.chat(answer(button(html, '반복 실행'))); r.advance(12000);
+  r.chat(button(html, '전체'));
+  html = r.managerHtml().slice(r.managerHtml().indexOf('<b>앞 연출</b>'));
+  r.chat(button(html, '반복 실행')); r.advance(12000);
   assert.equal(r.graphics().length, 1); assert.equal(r.graphics()[0].data.width, 1400);
   r.chat('!APNG 재생|id:back|반복');
   r.chat(button(html, '중지')); assert.equal(r.graphics().length, 1);
@@ -259,13 +265,14 @@ test('card buttons force once or repeat, preserve placement choice and stop only
 });
 test('playback time button changes only normal playback duration and keeps exact milliseconds', () => {
   const r = room(); r.save();
-  r.chat('!APNG 설정|id:front|반복|2초');
+  r.chat('!APNG 설정|id:front|반복|2초|영역');
   let html = r.managerHtml().slice(r.managerHtml().indexOf('<b>앞 연출</b>'));
   const command = answer(button(html, '재생 시간 변경'), { '재생 시간': '1.234초' });
   assert(!command.includes('재생 방식'));
   r.chat(command);
   assert.equal(r.state.KIBSceneAPNG.cardSettings.front.duration, 1234);
   assert.equal(r.state.KIBSceneAPNG.cardSettings.front.mode, 'loop');
+  assert.equal(r.state.KIBSceneAPNG.cardSettings.front.placement, 'area');
   assert.equal(r.state.KIBSceneAPNG.transitions.t1.coverMs, 1200);
   assert(r.managerHtml().includes('재생 시간: 1.234초'));
   assert(!r.messages.at(-1).content.includes('한 사이클'));
@@ -278,6 +285,43 @@ test('normal play stop removes an in-flight once effect and remains GM-only', ()
   r.chat(answer(button(html, '실행'))); r.advance(100);
   r.chat(button(html, '중지'), 'player'); assert.equal(r.graphics().length, 1);
   r.chat(button(html, '중지')); r.advance(10000); assert.equal(r.graphics().length, 0);
+});
+
+test('manager hrefs avoid the id-colon prefix removed by Roll20 journal sanitization', () => {
+  const r = room(); r.adapter('image', { 이미지: '' }); r.save('기호: 이름', '@이미지 image_room|ON');
+  const links = [...r.managerHtml().matchAll(/<a href="([^"]*)"/g)].map(match => decode(match[1]));
+  assert(links.length > 15);
+  for (const href of links) {
+    assert(href.startsWith('!APNG '), href);
+    assert(!href.split('?')[0].includes(':'), 'Unsafe colon before query: ' + href);
+  }
+  assert.equal(button(r.managerHtml(), '중지'), '!APNG 중지|id=front');
+  assert.equal(button(r.managerHtml(), '전환 실행'), '!APNG 전환|id=t1');
+});
+
+test('safe id references and legacy id-colon commands select the same cards and presets', () => {
+  const r = room(); r.save();
+  for (const prefix of ['id:', 'id=']) {
+    r.chat('!APNG 재생|' + prefix + 'front|반복');
+    assert.equal(r.graphics()[0].data.name, 'sd_apng:front');
+    r.chat('!APNG 중지|' + prefix + 'front'); assert.equal(r.graphics().length, 0);
+    r.chat('!APNG 전환|' + prefix + 't1'); assert.equal(r.graphics().length, 1);
+    r.advance(2000); assert.equal(r.graphics().length, 0);
+  }
+});
+
+test('saved placement survives time updates, defaults and restart without affecting transition placement', () => {
+  const r = room(); r.save();
+  r.chat('!APNG 설정|id=front|1회|2초|영역');
+  r.chat('!APNG 설정|id=front|1회|1초');
+  r.chat('!APNG 설정|id=front|1회|1초|없는 위치');
+  assert.equal(r.state.KIBSceneAPNG.cardSettings.front.placement, 'area');
+  r.emit('ready');
+  r.chat('!APNG 재생|앞 연출'); assert.equal(r.graphics()[0].data.width, 400);
+  r.advance(1000); assert.equal(r.graphics().length, 0);
+  r.chat('!APNG 재생|id=front|1회|전체'); assert.equal(r.graphics()[0].data.width, 1400);
+  r.advance(1000);
+  r.chat('!APNG 전환|슬라이드'); assert.equal(r.graphics()[0].data.width, 1400);
 });
 const previewIndex = process.argv.indexOf('--preview');
 if (previewIndex >= 0) {
