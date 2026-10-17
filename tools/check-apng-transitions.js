@@ -82,10 +82,10 @@ test('06 alone: handout buttons create, edit, run and delete presets', () => {
   const r = room();
   r.chat(answer(button(r.managerHtml(), '장면전환 만들기'), { '장면전환 이름': '별빛', '뒤 연출 APNG': 'id:back', '위치': '영역' }));
   assert.equal(r.state.KIBSceneAPNG.transitions.t1.name, '별빛');
-  r.chat(answer(button(r.managerHtml(), '수정'), { '장면전환 이름': '별빛 수정', '앞 연출 시간': '0.5초', '뒤 연출 시간': '0.7초' }));
+  r.chat(answer(button(r.managerHtml(), '전환 설정 수정'), { '장면전환 이름': '별빛 수정', '앞 연출 시간': '0.5초', '뒤 연출 시간': '0.7초' }));
   assert.equal(r.state.KIBSceneAPNG.transitions.t1.coverMs, 500);
   assert.equal(r.state.KIBSceneAPNG.transitions.t1.reveal, 'back');
-  r.chat(button(r.managerHtml(), '실행')); assert.equal(r.graphics().length, 1);
+  r.chat(button(r.managerHtml(), '전환 실행')); assert.equal(r.graphics().length, 1);
   r.advance(500); assert.equal(r.graphics()[0].data.name, 'sd_apng:back');
   r.advance(700); assert.equal(r.graphics().length, 0);
   r.chat(button(r.managerHtml(), '삭제')); assert.equal(Object.keys(r.state.KIBSceneAPNG.transitions).length, 0);
@@ -197,10 +197,10 @@ test('legacy grouped cue format accepts per-run middle commands without early ex
 });
 test('buttons preserve query punctuation in names and pipe commands during edit', () => {
   const r = room(); r.adapter('image', { 이미지: '' }); r.save('별,빛 & 밤', '@이미지 image_room|ON');
-  r.chat(answer(button(r.managerHtml(), '수정'), { '앞 연출 시간': '0.9초' }));
+  r.chat(answer(button(r.managerHtml(), '전환 설정 수정'), { '앞 연출 시간': '0.9초' }));
   assert.equal(r.state.KIBSceneAPNG.transitions.t1.name, '별,빛 & 밤');
   assert.equal(r.state.KIBSceneAPNG.transitions.t1.commands, '@이미지 image_room|ON');
-  r.chat(button(r.managerHtml(), '실행')); r.advance(900);
+  r.chat(button(r.managerHtml(), '전환 실행')); r.advance(900);
   assert.deepEqual(r.changes[0].args, ['image_room', 'ON']);
 });
 test('missing reveal at midpoint prevents middle changes and removes front', () => {
@@ -229,4 +229,59 @@ test('real 02 audio and 04 image adapters execute only at midpoint', () => {
   assert.equal(track.data.playing, true); assert.equal(token.data.imgsrc, 'old');
   r.advance(1); assert.equal(track.data.playing, false); assert(token.data.imgsrc.includes('/room/'));
 });
+test('manager uses shared handout hierarchy and separates settings, playback and transitions', () => {
+  const r = room(); r.save();
+  const html = r.managerHtml();
+  ['📽️ APNG 관리', '적용 설정', 'APNG 재생', '장면전환'].forEach(label => assert(html.includes(label)));
+  assert(html.includes('font-family:Arial,sans-serif;color:#111;background:#fff;line-height:1.45'));
+  assert(html.includes('padding:6px 9px;background:#111;color:#fff;font-weight:bold'));
+  assert(html.includes('background:#f3f3f3;border-left:4px solid #111'));
+  assert(html.includes('재생 시간: 3초')); assert(!html.includes('한 사이클')); assert(!html.includes('·'));
+  assert(html.includes('장면전환을 등록하지 않아도'));
+  assert(html.includes('앞뒤 APNG는 각각 1회만'));
+  assert(html.includes('중간 명령은 비워도 됩니다'));
+});
+test('card buttons force once or repeat, preserve placement choice and stop only their card', () => {
+  const r = room();
+  r.chat('!APNG 설정|id:front|반복|2초');
+  let html = r.managerHtml().slice(r.managerHtml().indexOf('<b>앞 연출</b>'));
+  r.chat(answer(button(html, '실행'), { '재생 위치': '영역' }));
+  assert.equal(r.graphics()[0].data.width, 400);
+  r.advance(1999); assert.equal(r.graphics().length, 1);
+  r.advance(1); assert.equal(r.graphics().length, 0);
+  r.chat(answer(button(html, '반복 실행'))); r.advance(12000);
+  assert.equal(r.graphics().length, 1); assert.equal(r.graphics()[0].data.width, 1400);
+  r.chat('!APNG 재생|id:back|반복');
+  r.chat(button(html, '중지')); assert.equal(r.graphics().length, 1);
+  assert.equal(r.graphics()[0].data.name, 'sd_apng:back');
+  r.chat(button(html, '중지')); assert.equal(r.graphics().length, 1);
+  assert.equal(r.state.KIBSceneAPNG.cardSettings.front.mode, 'loop');
+});
+test('playback time button changes only normal playback duration and keeps exact milliseconds', () => {
+  const r = room(); r.save();
+  r.chat('!APNG 설정|id:front|반복|2초');
+  let html = r.managerHtml().slice(r.managerHtml().indexOf('<b>앞 연출</b>'));
+  const command = answer(button(html, '재생 시간 변경'), { '재생 시간': '1.234초' });
+  assert(!command.includes('재생 방식'));
+  r.chat(command);
+  assert.equal(r.state.KIBSceneAPNG.cardSettings.front.duration, 1234);
+  assert.equal(r.state.KIBSceneAPNG.cardSettings.front.mode, 'loop');
+  assert.equal(r.state.KIBSceneAPNG.transitions.t1.coverMs, 1200);
+  assert(r.managerHtml().includes('재생 시간: 1.234초'));
+  assert(!r.messages.at(-1).content.includes('한 사이클'));
+  r.chat('!APNG 전환|슬라이드'); r.advance(1199);
+  assert.equal(r.graphics()[0].data.name, 'sd_apng:front');
+  r.advance(1); assert.equal(r.graphics()[0].data.name, 'sd_apng:back');
+});
+test('normal play stop removes an in-flight once effect and remains GM-only', () => {
+  const r = room(); const html = r.managerHtml();
+  r.chat(answer(button(html, '실행'))); r.advance(100);
+  r.chat(button(html, '중지'), 'player'); assert.equal(r.graphics().length, 1);
+  r.chat(button(html, '중지')); r.advance(10000); assert.equal(r.graphics().length, 0);
+});
+const previewIndex = process.argv.indexOf('--preview');
+if (previewIndex >= 0) {
+  const r = room(); r.adapter('vd', { 비주얼: '' }); r.save('복도 장면전환', '@비주얼 배경 외부인숙소_2층복도');
+  fs.writeFileSync(path.resolve(process.argv[previewIndex + 1]), '<!doctype html><html lang="ko"><meta charset="utf-8"><title>APNG 관리 미리보기</title><body style="margin:24px;max-width:650px;background:#fff">' + r.managerHtml() + '</body></html>');
+}
 console.log('APNG transitions: ' + count + ' groups passed (mock only, not live Roll20 clicks).');

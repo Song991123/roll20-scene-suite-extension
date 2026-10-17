@@ -1,5 +1,5 @@
 /*
- * Scene Suite 06 - APNG Director 1.2.0-dev
+ * Scene Suite 06 - APNG Director 1.2.1-dev
  * 제작 및 통합: @EOOOOORK
  */
 var KIBScene = KIBScene || {};
@@ -332,7 +332,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (!(duration >= 100 && duration <= 600000))
       return {
         ok: false,
-        error: 'APNG 한 사이클 시간은 0.1초에서 600초 사이여야 합니다.',
+        error: 'APNG 재생 시간은 0.1초에서 600초 사이여야 합니다.',
       };
     return {
       ok: true,
@@ -619,7 +619,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       );
     var duration = args[2] ? parseDuration(args[2]) : SETTING.DEFAULT_DURATION;
     if (!(duration >= 100 && duration <= 600000))
-      return whisper('APNG 한 사이클 시간은 0.1초에서 600초 사이여야 합니다.');
+      return whisper('APNG 재생 시간은 0.1초에서 600초 사이여야 합니다.');
     state.KIBSceneAPNG.cardSettings[cardResult.card.id] = {
       mode: mode,
       duration: duration,
@@ -629,10 +629,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     whisper(
       '<b>' +
         escapeHtml(cardResult.card.get('name')) +
-        '</b> 재생 설정: ' +
-        (mode == 'loop'
-          ? '반복, 한 사이클 ' + formatSeconds(duration)
-          : '1회, 한 사이클 ' + formatSeconds(duration)),
+        '</b> / 재생 시간: ' + formatSeconds(duration),
     );
   }
 
@@ -823,7 +820,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     var playAction =
       '!APNG 재생|' +
       playTarget +
-      '|?{표시 위치|전체,전체|지정 영역,영역}|?{재생 방식|1회,1회|반복,반복}|?{APNG 한 사이클 시간|3초}';
+      '|?{표시 위치|전체,전체|지정 영역,영역}|?{재생 방식|1회,1회|반복,반복}|?{APNG 재생 시간|3초}';
     var stopAction = '!APNG 중지|?{중지할 APNG|전체,전체';
     cards.forEach(function (card) {
       stopAction += '|' + card.get('name') + ',id:' + card.id;
@@ -1110,9 +1107,16 @@ KIBScene.adapters = KIBScene.adapters || {};
     whisper('장면전환 저장: ' + escapeHtml(name));
   }
 
-  function transitionButton(label, command) {
+  function transitionButton(label, command, color) {
     return '<a href="' + escapeHtml(command).replace(/\?/g, '&#63;') +
-      '" style="display:inline-block;margin:3px;padding:4px 7px;background:#53657d;color:#fff;text-decoration:none">' + escapeHtml(label) + '</a>';
+      '" style="display:inline-block;padding:4px 7px;margin:2px 3px 2px 0;background:' + (color || '#53657d') +
+      ';color:#fff;text-decoration:none;border-radius:0;font-size:12px">' + escapeHtml(label) + '</a>';
+  }
+
+  function apngSection(title, body) {
+    return '<div style="margin-top:10px;background:#fff;border:1px solid #111">' +
+      '<div style="padding:6px 9px;background:#111;color:#fff;font-weight:bold">' + escapeHtml(title) +
+      '</div><div style="padding:9px">' + body + '</div></div>';
   }
 
   function transitionControls() {
@@ -1127,25 +1131,40 @@ KIBScene.adapters = KIBScene.adapters || {};
           return String(card.get('name')).replace(/[|,{}]/g, ' ') + ',id:' + card.id;
         }).join('|') + '}';
       }
-      return transitionButton(preset ? '수정' : '장면전환 만들기', '!APNG 전환저장|' + id +
+      return transitionButton(preset ? '전환 설정 수정' : '장면전환 만들기', '!APNG 전환저장|' + id +
         '|?{장면전환 이름|' + (preset ? macroEscape(preset.name) : '') + '}|' + cardQuery('앞 연출 APNG', preset && preset.cover) +
         '|?{앞 연출 시간|' + (preset ? formatSeconds(preset.coverMs) : '1.2초') + '}|' + cardQuery('뒤 연출 APNG', preset && preset.reveal) +
         '|?{뒤 연출 시간|' + (preset ? formatSeconds(preset.revealMs) : '1.2초') + '}|?{위치|' +
         (preset && preset.placement === 'area' ? '영역,영역|전체,전체' : '전체,전체|영역,영역') +
-        '}|' + (preset ? preset.commands : '?{기본 중간 명령 비우면 없음|}'));
+        '}|' + (preset ? preset.commands : '?{기본 중간 명령 비우면 없음|}'), '#7654a8');
     }
     var rows = Object.keys(presets).map(function (id) {
       var preset = presets[id];
-      return '<div style="border-top:1px solid #ddd;padding:6px"><b>' + escapeHtml(preset.name) + '</b> / ' +
-        (preset.placement === 'area' ? '영역' : '전체') + ' / ' + formatSeconds(preset.coverMs) + ' → ' + formatSeconds(preset.revealMs) + '<br>' +
-        transitionButton('실행', '!APNG 전환|id:' + id) +
+      var coverCard = getObj('card', preset.cover);
+      var revealCard = getObj('card', preset.reveal);
+      return '<div style="padding:7px;margin-top:7px;background:#fff;border:1px solid #bbb"><b>' + escapeHtml(preset.name) + '</b>' +
+        '<div style="margin:5px 0;font-size:12px">재생 위치: ' + (preset.placement === 'area' ? '지정 영역' : '전체') +
+        '<br>앞 연출: ' + escapeHtml(coverCard ? coverCard.get('name') : '카드 없음') + ' / ' + formatSeconds(preset.coverMs) +
+        '<br>뒤 연출: ' + escapeHtml(revealCard ? revealCard.get('name') : '카드 없음') + ' / ' + formatSeconds(preset.revealMs) +
+        '<br>중간 명령: ' + (preset.commands && preset.commands !== '-' ? '<code>' + escapeHtml(preset.commands) + '</code>' : '없음') + '</div>' +
+        transitionButton('전환 실행', '!APNG 전환|id:' + id, '#287a4b') +
         transitionButton('명령 지정 실행', '!APNG 전환|id:' + id + '|?{중간 명령 없으면 -|-}') + editButton(id, preset) +
-        transitionButton('중간 명령 수정', '!APNG 전환명령|' + id + '|?{새 중간 명령 비우면 없음|}') +
-        transitionButton('삭제', '!APNG 전환삭제|' + id) + '</div>';
+        transitionButton('중간 명령 수정', '!APNG 전환명령|' + id + '|?{새 중간 명령 비우면 없음|}', '#7654a8') +
+        transitionButton('삭제', '!APNG 전환삭제|' + id, '#8b3940') + '</div>';
     }).join('');
-    return '<div><b>장면전환</b><br>앞 연출 → 중간 명령 → 뒤 연출. 전체 또는 영역 사용, 불투명 덮개 추가 없음.<br>' +
+    return apngSection('장면전환',
+      '<div style="padding:8px 9px;margin-bottom:7px;background:#f3f3f3;border-left:4px solid #111">' +
+      '두 APNG와 실행 시점을 묶어서 장면전환으로 저장합니다. 일반 APNG 재생과는 별도 기능입니다.<br>' +
+      '앞 APNG를 등록한 시간 동안 표시한 뒤, 중간 명령을 실행하고 뒤 APNG를 표시합니다. 앞뒤 APNG는 각각 1회만 사용합니다.<br>' +
+      '중간 명령은 비워도 됩니다. 배경이나 이미지를 바꾸려면 해당 모듈의 명령을 넣으세요.<br>' +
+      '전체 화면과 지정 영역 모두 사용할 수 있으며, 불투명한 덮개는 추가하지 않습니다.</div>' +
       (cards.length ? editButton('새로') : 'apng 덱에 카드를 등록하세요.') +
-      transitionButton('전환 중지', '!APNG 전환중지') + rows + '</div>';
+      transitionButton('전환 중지', '!APNG 전환중지', '#8b3940') + rows +
+      '<div style="margin-top:8px;font-size:12px"><code>!APNG 전환|전환명</code> 저장한 전환을 실행합니다.<br>' +
+      '<code>!APNG 전환|전환명|@비주얼 배경 장면명</code> 이번에 실행할 중간 명령을 지정합니다. 해당 모듈이 설치돼 있어야 합니다.<br>' +
+      '<code>!APNG 전환|전환명|-</code> 중간 명령 없이 앞뒤 APNG만 재생합니다.<br>' +
+      '<code>!... @장면전환 전환명</code> 나레이터와 함께 쓰면 전환이 끝난 뒤 다음 줄을 출력합니다.<br>' +
+      '전환 중지는 실행 중인 전환과 대기열만 취소하며, 등록한 설정은 유지합니다.</div>');
   }
 
   function refreshManager() {
@@ -1155,44 +1174,44 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (!manager) manager = createObj('handout', { name: SETTING.MANAGER_NAME, inplayerjournals: '', controlledby: '' });
     if (!manager) return;
     state.KIBSceneAPNG.managerId = manager.id;
-    manager.set('notes', '<h3>APNG 관리</h3>' + statusHtml());
+    manager.set('notes', statusHtml());
   }
 
   function statusHtml() {
     var deckResult = findDeck();
-    if (!deckResult.ok) return deckResult.error;
-    var cards = findObjs({ _type: 'card', _deckid: deckResult.deck.id }) || [];
+    var cards = deckResult.ok ? findObjs({ _type: 'card', _deckid: deckResult.deck.id }) || [] : [];
     var rows = cards
       .map(function (card) {
         var saved = state.KIBSceneAPNG.cardSettings[card.id] || {};
         var mode = saved.mode || SETTING.DEFAULT_MODE;
         var duration = Number(saved.duration) || SETTING.DEFAULT_DURATION;
         return (
-          '<tr><td style="border:1px solid #ddd;padding:4px">' +
+          '<div style="padding:7px;margin-top:7px;background:#fff;border:1px solid #bbb"><b>' +
           escapeHtml(card.get('name')) +
-          '</td><td style="border:1px solid #ddd;padding:4px">' +
-          (mode == 'loop'
-            ? '반복, 한 사이클 ' + formatSeconds(duration)
-            : '1회, 한 사이클 ' + formatSeconds(duration)) +
-          '</td><td style="border:1px solid #ddd;padding:4px"><a href="!APNG 설정|' +
-          escapeHtml(card.get('name')) +
-          '|&#63;{재생 방식|반복,반복|1회,1회}|&#63;{한 사이클 시간|' +
-          formatSeconds(duration) +
-          '}" style="display:inline-block;padding:3px 6px;background:#53657d;color:#fff;text-decoration:none">변경</a>' +
-          '</td></tr>'
+          '</b><div style="margin:5px 0;font-size:12px">재생 시간: ' + formatSeconds(duration) + '</div>' +
+          transitionButton('실행', '!APNG 재생|id:' + card.id + '|1회|' + duration + 'ms|?{재생 위치|전체,전체|영역,영역}', '#287a4b') +
+          transitionButton('반복 실행', '!APNG 재생|id:' + card.id + '|반복|' + duration + 'ms|?{재생 위치|전체,전체|영역,영역}', '#287a4b') +
+          transitionButton('중지', '!APNG 중지|id:' + card.id, '#8b3940') +
+          transitionButton('재생 시간 변경', '!APNG 설정|id:' + card.id + '|' + mode + '|?{재생 시간|' + formatSeconds(duration) + '}', '#7654a8') +
+          '</div>'
         );
       })
       .join('');
     return (
-      '<b>APNG 설정</b><br>적용 페이지: <b>' +
-      escapeHtml(SETTING.PAGE_NAME) +
-      '</b><br>카드 덱: <b>' +
-      escapeHtml(SETTING.DECK_NAME) +
-      '</b><br>전체 화면: 적용 페이지 전체<br>지정 영역: <b>' +
-      escapeHtml(SETTING.AREA_NAME) +
-      '</b> 토큰의 위치와 크기<table style="border-collapse:collapse;width:100%;margin-top:6px">' +
-      rows +
-      '</table><br><code>!APNG 전환|전환명|@명령</code> 중간 명령 지정, <code>|-</code>는 효과만 실행<br><code>!... @장면전환 전환명</code> 나레이터와 함께 실행하면 전환 종료까지 다음 줄 대기<br>중간 명령은 설치한 모듈만 실행, 효과만 쓰면 다른 모듈 불필요' + transitionControls()
+      '<div style="font-family:Arial,sans-serif;color:#111;background:#fff;line-height:1.45">' +
+      '<div style="padding:12px;background:#111;color:#fff;font-size:20px;font-weight:bold">📽️ APNG 관리</div>' +
+      apngSection('적용 설정', '<div style="padding:8px 9px;background:#f3f3f3;border-left:4px solid #111">' +
+        '<b>적용 페이지:</b> ' + escapeHtml(SETTING.PAGE_NAME) + '<br><b>카드 덱:</b> ' + escapeHtml(SETTING.DECK_NAME) +
+        '<br><b>전체 재생:</b> 적용 페이지 전체를 사용합니다. 맵시트가 등록돼 있으면 해당 영역을 사용합니다.' +
+        '<br><b>지정 영역:</b> <code>' + escapeHtml(SETTING.AREA_NAME) + '</code> 토큰의 위치와 크기를 사용합니다.</div>') +
+      apngSection('APNG 재생', '<div style="padding:8px 9px;margin-bottom:7px;background:#f3f3f3;border-left:4px solid #111">' +
+        '장면전환을 등록하지 않아도 카드별로 바로 재생할 수 있습니다.<br>' +
+        '<b>실행:</b> 등록한 시간 동안 표시한 뒤 화면에서 제거합니다.<br>' +
+        '<b>반복 실행:</b> 중지할 때까지 표시합니다. 연결된 음원이 있으면 기존 음원 연동 설정을 따릅니다.<br>' +
+        '<b>중지:</b> 해당 카드가 표시 중이면 즉시 제거합니다.<br>' +
+        '<b>재생 시간 변경:</b> 일반 실행의 표시 시간을 바꿉니다. 장면전환에 등록한 앞뒤 시간은 바뀌지 않습니다.</div>' +
+        (rows || (deckResult.ok ? 'apng 덱에 카드를 등록하세요.' : deckResult.error))) +
+      transitionControls() + '</div>'
     );
   }
 
@@ -1267,7 +1286,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   }
 
   function formatSeconds(ms) {
-    return String(Math.round(ms / 100) / 10) + '초';
+    return String(Number(ms) / 1000) + '초';
   }
 
   function cleanImageUrl(url) {
