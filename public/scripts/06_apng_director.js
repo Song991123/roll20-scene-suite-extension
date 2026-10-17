@@ -1,5 +1,5 @@
 /*
- * Scene Suite 06 - APNG Director 1.2.4-dev
+ * Scene Suite 06 - APNG Director 1.2.5-dev
  * 제작 및 통합: @EOOOOORK
  */
 var KIBScene = KIBScene || {};
@@ -74,8 +74,8 @@ KIBScene.adapters = KIBScene.adapters || {};
             '</code> 영역 이미지 토큰 위치',
           '<code>@APNG 중지</code>',
           '<code>@APNG 카드 이름|중지</code>',
-          '<code>!APNG 관리</code> 장면전환 등록과 수정',
-          '<code>!APNG 전환|전환명|@명령</code> 앞 연출 후 명령 실행 후 뒤 연출',
+          '<code>!장면전환 관리</code> 장면전환 등록과 수정',
+          '<code>!장면전환|전환명|@명령</code> 앞 연출 후 명령 실행 후 뒤 연출',
           '<code>@장면전환 전환명</code> 저장한 장면전환 실행',
           '<code>@장면전환 전환명 @비주얼 배경 장면명</code> 뒤의 @명령은 앞 APNG가 끝나면 실행',
         ],
@@ -91,10 +91,11 @@ KIBScene.adapters = KIBScene.adapters || {};
   });
 
   on('chat:message', function (msg) {
+    var transitionCommand = /^!장면전환(?:\s|\||$)/.test(String(msg && msg.content || ''));
     if (
       !msg ||
       msg.type != 'api' ||
-      String(msg.content || '').indexOf('!APNG') !== 0 ||
+      (!transitionCommand && String(msg.content || '').indexOf('!APNG') !== 0) ||
       !playerIsGM(msg.playerid)
     )
       return;
@@ -102,7 +103,8 @@ KIBScene.adapters = KIBScene.adapters || {};
       handleCommand(msg);
     } catch (err) {
       whisper(
-        '<b>APNG 명령을 처리하지 못했습니다.</b><br><code>!APNG 도움말</code>에서 형식을 확인해 주세요.<br><span style="font-size:11px;color:#687386">오류 내용: ' +
+        '<b>' + (transitionCommand ? '장면전환' : 'APNG') + ' 명령을 처리하지 못했습니다.</b><br><code>' +
+          (transitionCommand ? '!장면전환 관리' : '!APNG 도움말') + '</code>에서 형식을 확인해 주세요.<br><span style="font-size:11px;color:#687386">오류 내용: ' +
           escapeHtml(err && err.message ? err.message : err) +
           '</span>',
       );
@@ -142,6 +144,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   });
 
   function handleCommand(msg) {
+    var transitionCommand = /^!장면전환(?:\s|\||$)/.test(String(msg.content || ''));
     var parts = String(msg.content || '')
       .split('|')
       .map(function (part) {
@@ -149,13 +152,22 @@ KIBScene.adapters = KIBScene.adapters || {};
       });
     var head = parts
       .shift()
-      .replace(/^!APNG/i, '')
+      .replace(transitionCommand ? /^!장면전환/ : /^!APNG/i, '')
       .trim();
+    if (transitionCommand) {
+      var actions = { 관리: '관리', 설정: '관리', 중지: '전환중지', 저장: '전환저장', 삭제: '전환삭제', 명령: '전환명령' };
+      if (!head && !parts.length) head = '관리';
+      else if (Object.prototype.hasOwnProperty.call(actions, head)) head = actions[head];
+      else {
+        if (head) parts.unshift(head);
+        head = '전환';
+      }
+    }
     var action = String(head || '도움말').toLowerCase();
     if (action === '관리' || (action === '설정' && !parts.length)) {
       var manager = refreshManager();
       return whisper(manager
-        ? '<div style="padding:8px;background:#111;color:#fff"><b>📽️ APNG 관리</b><br>' +
+        ? '<div style="padding:8px;background:#111;color:#fff"><b>' + (transitionCommand ? '장면전환 관리' : '📽️ APNG 관리') + '</b><br>' +
           transitionButton('관리 핸드아웃 열기', 'http://journal.roll20.net/handout/' + encodeURIComponent(manager.id), '#7654a8') + '</div>'
         : '관리 핸드아웃 생성 오류');
     }
@@ -1144,7 +1156,7 @@ KIBScene.adapters = KIBScene.adapters || {};
           return String(card.get('name')).replace(/[|,{}]/g, ' ') + ',id=' + card.id;
         }).join('|') + '}';
       }
-      return transitionButton(preset ? '전환 설정 수정' : '장면전환 만들기', '!APNG 전환저장|' + id +
+      return transitionButton(preset ? '전환 설정 수정' : '장면전환 만들기', '!장면전환 저장|' + id +
         '|?{장면전환 이름|' + (preset ? macroEscape(preset.name) : '') + '}|' + cardQuery('앞 연출 APNG', preset && preset.cover) +
         '|?{앞 연출 시간|' + (preset ? formatSeconds(preset.coverMs) : '1.2초') + '}|' + cardQuery('뒤 연출 APNG', preset && preset.reveal) +
         '|?{뒤 연출 시간|' + (preset ? formatSeconds(preset.revealMs) : '1.2초') + '}|?{위치|' +
@@ -1160,20 +1172,20 @@ KIBScene.adapters = KIBScene.adapters || {};
         '<br>앞 연출: ' + escapeHtml(coverCard ? coverCard.get('name') : '카드 없음') + ' / ' + formatSeconds(preset.coverMs) +
         '<br>뒤 연출: ' + escapeHtml(revealCard ? revealCard.get('name') : '카드 없음') + ' / ' + formatSeconds(preset.revealMs) +
         '<br>중간 명령: ' + (preset.commands && preset.commands !== '-' ? '<code>' + escapeHtml(preset.commands) + '</code>' : '없음') + '</div>' +
-        transitionButton('전환 실행', '!APNG 전환|id=' + id, '#287a4b') +
-        transitionButton('명령 지정 실행', '!APNG 전환|id=' + id + '|?{중간 명령 없으면 -|-}') + editButton(id, preset) +
-        transitionButton('중간 명령 수정', '!APNG 전환명령|' + id + '|?{새 중간 명령 비우면 없음|}', '#7654a8') +
-        transitionButton('삭제', '!APNG 전환삭제|' + id, '#8b3940') + '</div>';
+        transitionButton('전환 실행', '!장면전환|id=' + id, '#287a4b') +
+        transitionButton('명령 지정 실행', '!장면전환|id=' + id + '|?{중간 명령 없으면 -|-}') + editButton(id, preset) +
+        transitionButton('중간 명령 수정', '!장면전환 명령|' + id + '|?{새 중간 명령 비우면 없음|}', '#7654a8') +
+        transitionButton('삭제', '!장면전환 삭제|' + id, '#8b3940') + '</div>';
     }).join('');
     return apngSection('장면전환',
       '<div style="padding:8px 9px;margin-bottom:7px;background:#f3f3f3;border-left:4px solid #111">' +
       '원하는 APNG로 장면전환을 만들 수 있습니다.<br>' +
       '시작할 APNG와 끝날 때의 APNG를 골라주세요.</div>' +
       (cards.length ? editButton('새로') : 'apng 덱에 카드를 등록하세요.') +
-      transitionButton('전환 중지', '!APNG 전환중지', '#8b3940') + rows +
-      '<div style="margin-top:8px;font-size:12px"><code>!APNG 전환|전환명</code> 저장한 전환을 실행합니다.<br>' +
-      '<code>!APNG 전환|전환명|@비주얼 배경 장면명</code> 이번에 실행할 중간 명령을 지정합니다. 해당 모듈이 설치돼 있어야 합니다.<br>' +
-      '<code>!APNG 전환|전환명|-</code> 중간 명령 없이 앞뒤 APNG만 재생합니다.<br>' +
+      transitionButton('전환 중지', '!장면전환 중지', '#8b3940') + rows +
+      '<div style="margin-top:8px;font-size:12px"><code>!장면전환|전환명</code> 저장한 전환을 실행합니다.<br>' +
+      '<code>!장면전환|전환명|@비주얼 배경 장면명</code> 이번에 실행할 중간 명령을 지정합니다. 해당 모듈이 설치돼 있어야 합니다.<br>' +
+      '<code>!장면전환|전환명|-</code> 중간 명령 없이 앞뒤 APNG만 재생합니다.<br>' +
       '<code>!... @장면전환 전환명</code> 나레이터와 함께 쓰면 전환이 끝난 뒤 다음 줄을 출력합니다.<br>' +
       '<code>!... @장면전환 전환명 @비주얼 배경 장면명</code> 뒤의 @명령은 앞 APNG가 끝나면 실행합니다.<br>' +
       '전환 중지는 실행 중인 전환과 대기열만 취소하며, 등록한 설정은 유지합니다.</div>');

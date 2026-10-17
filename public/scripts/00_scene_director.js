@@ -948,10 +948,11 @@ var KIBScene = KIBScene || {};
   function apngHelpSection() {
     var rows =
       commandRow('!APNG 관리', 'APNG 관리 핸드아웃 열기') +
-      commandRow('!APNG 전환|전환명', '저장한 앞 연출 후 중간 명령 후 뒤 연출') +
-      commandRow('!APNG 전환|전환명|@비주얼 배경 장면명', '이 실행의 중간 명령 지정, 해당 모듈 설치 시 사용') +
-      commandRow('!APNG 전환|전환명|-', '중간 명령 없이 전환 효과만 실행') +
-      commandRow('!APNG 전환중지', '현재 전환과 대기 중인 전환 취소') +
+      commandRow('!장면전환 관리', '장면전환 등록과 수정') +
+      commandRow('!장면전환|전환명', '저장한 앞 연출 후 중간 명령 후 뒤 연출') +
+      commandRow('!장면전환|전환명|@비주얼 배경 장면명', '이 실행의 중간 명령 지정, 해당 모듈 설치 시 사용') +
+      commandRow('!장면전환|전환명|-', '중간 명령 없이 전환 효과만 실행') +
+      commandRow('!장면전환 중지', '현재 전환과 대기 중인 전환 취소') +
       commandRow('!APNG 재생|카드명|1회|3초|전체', '맵시트 전체에 한 번 재생') +
       commandRow(
         '!APNG 재생|카드명|반복|영역',

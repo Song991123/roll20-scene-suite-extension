@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const source = name => fs.readFileSync(path.join(root, 'public/scripts', name), 'utf8');
-function room({ director = false, narrator = false, modules = [] } = {}) {
+function room({ director = false, narrator = false, modules = [], apng = true, apngIntegration = true } = {}) {
   let now = 1000, sequence = 0;
   const objects = new Map(), timers = new Map(), events = {}, messages = [], changes = [];
   const state = {};
@@ -36,7 +36,8 @@ function room({ director = false, narrator = false, modules = [] } = {}) {
   if (director) vm.runInContext(source('00_scene_director.js'), context);
   if (narrator) vm.runInContext(source('01_narrator_director.js'), context);
   modules.forEach(name => vm.runInContext(source(name), context));
-  vm.runInContext(source('06_apng_director.js'), context);
+  if (apng) vm.runInContext(apngIntegration ? source('06_apng_director.js') :
+    source('06_apng_director.js').replace('SCENE_DIRECTOR_ENABLED: true', 'SCENE_DIRECTOR_ENABLED: false'), context);
   emit('ready');
   function advance(ms) {
     const end = now + ms;
@@ -55,7 +56,7 @@ function room({ director = false, narrator = false, modules = [] } = {}) {
     context.KIBScene.adapters[name] = { aliases, validate: () => ({ ok: true }), cue(args) { changes.push({ name, args: Array.from(args), time: now }); return { ok: true }; } };
     context.KIBScene.handlers[name] = context.KIBScene.adapters[name].cue;
   }
-  function save(name = '슬라이드', extra = '', placement = '전체') { chat('!APNG 전환저장|새로|' + name + '|id:front|1.2초|id:back|0.8초|' + placement + '|' + extra); }
+  function save(name = '슬라이드', extra = '', placement = '전체') { chat('!장면전환 저장|새로|' + name + '|id:front|1.2초|id:back|0.8초|' + placement + '|' + extra); }
   function graphics() { return [...objects.values()].filter(o => o.type === 'graphic' && String(o.data.name).startsWith('sd_apng:')); }
   function managerHtml() { return objects.get(state.KIBSceneAPNG.managerId).get('notes'); }
   return { context, state, timers, objects, messages, changes, emit, advance, chat, adapter, save, graphics, managerHtml, object };
@@ -295,11 +296,11 @@ test('manager hrefs avoid the id-colon prefix removed by Roll20 journal sanitiza
   const links = [...r.managerHtml().matchAll(/<a href="([^"]*)"/g)].map(match => decode(match[1]));
   assert(links.length > 15);
   for (const href of links) {
-    assert(href.startsWith('!APNG '), href);
+    assert(/^!(?:APNG |장면전환(?: |\|))/.test(href), href);
     assert(!href.split('?')[0].includes(':'), 'Unsafe colon before query: ' + href);
   }
   assert.equal(button(r.managerHtml(), '중지'), '!APNG 중지|id=front');
-  assert.equal(button(r.managerHtml(), '전환 실행'), '!APNG 전환|id=t1');
+  assert.equal(button(r.managerHtml(), '전환 실행'), '!장면전환|id=t1');
 });
 
 test('safe id references and legacy id-colon commands select the same cards and presets', () => {
@@ -330,7 +331,7 @@ test('00 links to the APNG manager without owning transition or audio controls',
   const r = room({ director: true, modules: ['02_audio_bridge.js'] }); r.save(); r.advance(2000);
   const help = [...r.objects.values()].find(o => o.type === 'handout' && o.get('name') === '[GM] SceneDirector 사용법').get('notes');
   assert.equal(button(help, 'APNG 관리'), '!APNG 관리');
-  assert(help.includes('!APNG 전환|전환명')); assert(help.includes('!APNG 연결|카드명|효과음 제목'));
+  assert(help.includes('!장면전환|전환명')); assert(help.includes('!APNG 연결|카드명|효과음 제목'));
   for (const label of ['장면전환 만들기', '전환 설정 수정', '연결 등록', '음원 연결']) assert(!help.includes('>' + label + '</a>'));
   assert.equal(r.context.KIBScene.adapters.apng.transitionControls, undefined);
   assert(r.managerHtml().includes('>장면전환 만들기</a>'));
@@ -485,6 +486,80 @@ test('following-cue collection is an optional adapter contract, not an APNG impo
   assert.equal(r.context.ntValidateCues(parsed.cues, {}).ok, true);
   assert.equal(r.context.ntRunCues(parsed.cues, {}).waitMs, 100); assert.equal(r.changes.length, 0);
   assert(!source('01_narrator_director.js').includes('KIBSceneAPNG'));
+});
+
+test('transition commands use their own namespace while legacy commands share the same saved state', () => {
+  const r = room(); r.adapter('image', { 이미지: '' }); r.save('기본');
+  for (const command of ['!장면전환', '!장면전환 관리', '!장면전환 설정']) {
+    r.chat(command); assert(r.messages.at(-1).content.includes('장면전환 관리'));
+    assert.equal(button(r.messages.at(-1).content, '관리 핸드아웃 열기'), 'http://journal.roll20.net/handout/' + r.state.KIBSceneAPNG.managerId);
+  }
+  for (const command of ['!장면전환 기본', '!장면전환|기본', '!APNG 전환|기본']) {
+    r.chat(command); assert.equal(r.graphics()[0].data.name, 'sd_apng:front'); r.advance(2000); assert.equal(r.graphics().length, 0);
+  }
+  r.chat('!장면전환 명령|t1|@이미지 saved|ON');
+  r.chat('!APNG 전환|기본'); r.advance(1200); assert.deepEqual(r.changes.at(-1).args, ['saved', 'ON']); r.advance(800);
+  r.chat('!장면전환|기본|-'); r.advance(2000); assert.equal(r.changes.length, 1);
+  r.chat('!APNG 재생|id=back|반복'); r.chat('!장면전환|기본'); r.chat('!장면전환|기본'); r.chat('!장면전환 중지'); r.advance(5000);
+  assert.equal(r.graphics().length, 1); assert.equal(r.graphics()[0].data.name, 'sd_apng:back'); assert.equal(r.changes.length, 1);
+  r.chat('!APNG 중지'); r.chat('!장면전환 삭제|t1'); assert.equal(Object.keys(r.state.KIBSceneAPNG.transitions).length, 0);
+});
+test('transition namespace retains GM permissions, exact command boundaries and unreserved preset names', () => {
+  const r = room(); r.save('toString'); const saved = JSON.stringify(r.state.KIBSceneAPNG.transitions);
+  for (const command of ['!장면전환 toString', '!장면전환 중지', '!장면전환 삭제|t1', '!장면전환 저장|새로|무단|id=front|1초|id=back|1초|전체']) r.chat(command, 'player');
+  assert.equal(JSON.stringify(r.state.KIBSceneAPNG.transitions), saved); assert.equal(r.graphics().length, 0);
+  r.chat('!장면전환삭제|t1'); r.emit('chat:message', { type: 'general', content: '!장면전환 toString', playerid: 'gm' });
+  assert.equal(JSON.stringify(r.state.KIBSceneAPNG.transitions), saved); assert.equal(r.graphics().length, 0);
+  r.chat('!장면전환 toString'); assert.equal(r.graphics().length, 1); r.chat('!장면전환 중지');
+  r.save('중지'); r.chat('!장면전환|중지'); assert.equal(r.graphics().length, 1);
+});
+test('transition buttons and current help advertise only the transition namespace', () => {
+  const r = room({ director: true }); r.save(); r.advance(200);
+  const html = r.managerHtml(); const section = html.slice(html.indexOf('>장면전환</div>'));
+  assert(section.includes('!장면전환 저장|')); assert(section.includes('!장면전환 중지'));
+  assert(!section.includes('!APNG 전환')); assert(!section.includes('@APNG 전환'));
+  const help = [...r.objects.values()].find(o => o.type === 'handout' && o.get('name') === '[GM] SceneDirector 사용법').get('notes');
+  assert(help.includes('!장면전환|전환명')); assert(!help.includes('!APNG 전환'));
+  assert(!source('06_apng_director.js').includes('!APNG 전환'));
+  assert(!fs.readFileSync(path.join(root, 'public/assets/app.js'), 'utf8').includes('!APNG 전환'));
+});
+test('06 alone manages and plays transitions even with its integration switch off', () => {
+  const r = room({ apngIntegration: false }); r.save();
+  assert.equal(r.context.KIBScene.adapters.apng, undefined); assert.equal(r.state.KIBSceneDirector, undefined); assert.equal(r.state.narration, undefined);
+  for (const placement of ['전체', '영역']) {
+    r.chat('!장면전환 저장|t1|단독|id=front|1.2초|id=back|0.8초|' + placement);
+    r.chat(button(r.managerHtml(), '전환 실행')); assert.equal(r.graphics()[0].data.width, placement === '영역' ? 400 : 1400);
+    r.advance(1200); assert.equal(r.graphics()[0].data.name, 'sd_apng:back'); r.advance(800); assert.equal(r.graphics().length, 0);
+  }
+  r.chat('!APNG 재생|id=front|1회|0.2초'); r.advance(200); assert.equal(r.graphics().length, 0);
+});
+test('00 and 01 keep working when 06 is not installed', () => {
+  for (const options of [{ director: true }, { narrator: true }, { director: true, narrator: true }]) {
+    const r = room({ ...options, apng: false }); assert.equal(r.state.KIBSceneAPNG, undefined); assert.equal(r.context.KIBScene.adapters.apng, undefined);
+    if (options.narrator) {
+      r.state.narration = [{ as: 'GM', msg: '독립 나레이터 출력' }]; r.state.is_narrating = 2; r.context.narrate();
+      assert(r.messages.some(m => m.content.startsWith('독립 나레이터 출력'))); assert.equal(r.state.last_narration_error, undefined);
+    } else assert([...r.objects.values()].some(o => o.type === 'handout' && o.get('name') === '[GM] SceneDirector 사용법'));
+  }
+});
+test('02 plus 06 can link audio to transitions without 00 or 01', () => {
+  const r = room({ modules: ['02_audio_bridge.js'] }); const track = r.object('jukeboxtrack', 'sound', { title: '문 소리', playing: false, volume: 35, loop: false });
+  r.save(); r.chat('!APNG 연결|id=front|id=sound'); r.chat('!APNG 재생|id=front|1회');
+  assert.equal(track.data.playing, true); r.chat('!APNG 중지'); assert.equal(track.data.playing, false);
+  r.chat('!장면전환|슬라이드');
+  assert.equal(r.state.KIBSceneDirector, undefined); assert.equal(r.state.narration, undefined);
+  assert.equal(track.data.playing, true); assert.equal(r.graphics().length, 1);
+  r.chat('!장면전환 중지'); assert.equal(r.graphics().length, 0);
+  r.chat('!오디오 중지|id:sound'); assert.equal(track.data.playing, false);
+});
+test('04 plus 06 changes an image at the midpoint without 00, 01 or 03', () => {
+  const r = room({ modules: ['04_image_switcher_compatible.js'] });
+  r.object('deck', 'image-deck', { name: 'image_room' });
+  r.object('card', 'image-card', { _deckid: 'image-deck', name: 'ON', avatar: 'https://files.d20.io/images/room/thumb.png' });
+  const token = r.object('graphic', 'image-token', { _pageid: 'page', name: 'image_room', imgsrc: 'old' });
+  r.save(); r.chat('!장면전환|슬라이드|@이미지 image_room|ON'); r.advance(1199); assert.equal(token.data.imgsrc, 'old');
+  r.advance(1); assert(token.data.imgsrc.includes('/room/')); r.advance(800); assert.equal(r.graphics().length, 0);
+  assert.equal(r.state.KIBSceneDirector, undefined); assert.equal(r.state.narration, undefined); assert.equal(r.context.KIBScene.adapters.vd, undefined);
 });
 
 const previewIndex = process.argv.indexOf('--preview');
