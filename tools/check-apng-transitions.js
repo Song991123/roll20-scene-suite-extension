@@ -237,9 +237,12 @@ test('manager uses shared handout hierarchy and separates settings, playback and
   assert(html.includes('padding:6px 9px;background:#111;color:#fff;font-weight:bold'));
   assert(html.includes('background:#f3f3f3;border-left:4px solid #111'));
   assert(html.includes('재생 시간: 3초')); assert(!html.includes('한 사이클')); assert(!html.includes('·'));
-  assert(html.includes('장면전환을 등록하지 않아도'));
-  assert(html.includes('앞뒤 APNG는 각각 1회만'));
-  assert(html.includes('중간 명령은 비워도 됩니다'));
+  assert(html.includes('<b>전체</b> 또는 <b>지정 영역</b>을 각 APNG별로 선택해 재생할 수 있습니다.'));
+  assert(html.includes('원하는 APNG로 장면전환을 만들 수 있습니다.'));
+  assert(html.includes('시작할 APNG와 끝날 때의 APNG를 골라주세요.'));
+  assert(!html.includes('장면전환을 등록하지 않아도'));
+  assert(!html.includes('앞뒤 APNG는 각각 1회만'));
+  assert(!html.includes('<b>실행:</b>'));
 });
 test('card buttons force once or repeat, preserve placement choice and stop only their card', () => {
   const r = room();

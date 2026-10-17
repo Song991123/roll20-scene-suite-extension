@@ -1158,10 +1158,8 @@ KIBScene.adapters = KIBScene.adapters || {};
     }).join('');
     return apngSection('장면전환',
       '<div style="padding:8px 9px;margin-bottom:7px;background:#f3f3f3;border-left:4px solid #111">' +
-      '두 APNG와 실행 시점을 묶어서 장면전환으로 저장합니다. 일반 APNG 재생과는 별도 기능입니다.<br>' +
-      '앞 APNG를 등록한 시간 동안 표시한 뒤, 중간 명령을 실행하고 뒤 APNG를 표시합니다. 앞뒤 APNG는 각각 1회만 사용합니다.<br>' +
-      '중간 명령은 비워도 됩니다. 배경이나 이미지를 바꾸려면 해당 모듈의 명령을 넣으세요.<br>' +
-      '전체 화면과 지정 영역 모두 사용할 수 있으며, 불투명한 덮개는 추가하지 않습니다.</div>' +
+      '원하는 APNG로 장면전환을 만들 수 있습니다.<br>' +
+      '시작할 APNG와 끝날 때의 APNG를 골라주세요.</div>' +
       (cards.length ? editButton('새로') : 'apng 덱에 카드를 등록하세요.') +
       transitionButton('전환 중지', '!APNG 전환중지', '#8b3940') + rows +
       '<div style="margin-top:8px;font-size:12px"><code>!APNG 전환|전환명</code> 저장한 전환을 실행합니다.<br>' +
@@ -1216,12 +1214,7 @@ KIBScene.adapters = KIBScene.adapters || {};
         '<br><b>전체 재생:</b> 적용 페이지 전체를 사용합니다. 맵시트가 등록돼 있으면 해당 영역을 사용합니다.' +
         '<br><b>지정 영역:</b> <code>' + escapeHtml(SETTING.AREA_NAME) + '</code> 토큰의 위치와 크기를 사용합니다.</div>') +
       apngSection('APNG 재생', '<div style="padding:8px 9px;margin-bottom:7px;background:#f3f3f3;border-left:4px solid #111">' +
-        '장면전환을 등록하지 않아도 카드별로 바로 재생할 수 있습니다.<br>' +
-        '카드에서 <b>전체</b> 또는 <b>지정 영역</b>을 먼저 선택한 뒤 실행하세요. 체크된 위치에 재생합니다.<br>' +
-        '<b>실행:</b> 등록한 시간 동안 표시한 뒤 화면에서 제거합니다.<br>' +
-        '<b>반복 실행:</b> 중지할 때까지 표시합니다. 연결된 음원이 있으면 기존 음원 연동 설정을 따릅니다.<br>' +
-        '<b>중지:</b> 해당 카드가 표시 중이면 즉시 제거합니다.<br>' +
-        '<b>재생 시간 변경:</b> 일반 실행의 표시 시간을 바꿉니다. 장면전환에 등록한 앞뒤 시간은 바뀌지 않습니다.</div>' +
+        '<b>전체</b> 또는 <b>지정 영역</b>을 각 APNG별로 선택해 재생할 수 있습니다.</div>' +
         (rows || (deckResult.ok ? 'apng 덱에 카드를 등록하세요.' : deckResult.error))) +
       transitionControls() + '</div>'
     );
