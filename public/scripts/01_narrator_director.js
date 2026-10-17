@@ -60,6 +60,8 @@ on('ready', function () {
       '<code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 이어쓰기',
       '<code>!. 동시에 출력할 줄</code> 직전 항목과 같은 차례에 출력',
       '<code>!... 대사 @다음줄 1.2초</code> 이 줄만 다음 줄까지 1.2초 대기',
+      '<code>!... {사과|포도}</code> 무작위 선택, 채팅에서 선택된 부분에 밑줄',
+      '<code>!... /w 캐릭터명 내용</code> 제어 권한자에게 귓말',
       '<code>!,</code> 일시정지 또는 다시 시작',
       '<code>!/</code> 전체 취소',
     ],
@@ -118,7 +120,7 @@ on('chat:message', function (msg) {
       if (ntHasPlugin('cutin')) cueHelp.push('<code>@컷인</code>');
       sendChat(
         '나레이터',
-        '/w GM <b>나레이터 도움말</b><br><code>!... 대사</code> 차례대로 출력<br><code>!... 대사 @다음줄 1.2초</code> 이 줄만 다음 줄까지 1.2초 대기<br><code>!... /as "홍길동" 대사</code> 캐릭터 대사<br><code>!... /desc 설명</code> 강조문<br><code>!... /emas "홍길동" 행동</code> 행동문<br><code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 추가<br><code>!. 동시에 출력할 줄</code> 같은 차례에 함께 출력<br><code>!,</code> 일시정지 또는 다시 시작<br><code>!/</code> 전체 취소' +
+        '/w GM <b>나레이터 도움말</b><br><code>!... 대사</code> 차례대로 출력<br><code>!... 대사 @다음줄 1.2초</code> 이 줄만 다음 줄까지 대기, 0~600초 또는 ms<br><code>!... {사과|포도}</code> 무작위 선택, 채팅에서 밑줄 표시<br><code>!... /w 캐릭터명 내용</code> 제어 권한자에게 귓말<br><code>!... /as "홍길동" 대사</code> 캐릭터 대사<br><code>!... /desc 설명</code> 강조문<br><code>!... /emas "홍길동" 행동</code> 행동문<br><code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 추가<br><code>!. 동시에 출력할 줄</code> 같은 차례에 함께 출력, 내용 필요<br><code>!,</code> 일시정지 또는 다시 시작<br><code>!/</code> 전체 취소' +
           (cueHelp.length ? '<br>줄 끝에 ' + cueHelp.join(', ') + ' 명령을 붙일 수 있습니다.' : ''),
         null,
         { noarchive: true },
@@ -152,7 +154,7 @@ on('chat:message', function (msg) {
           }
         } else if (msg.content == '!/') {
           // 전체 취소
-
+          ntBroadcast('narrator:cancel', {});
           state.narration = [];
           state.is_narrating = 1;
           state.narration_error = null;
@@ -309,6 +311,7 @@ function narrate() {
                 : 'general',
           text: privateChat ? '' : parsed.text,
           visualDialogue: false,
+          onAsyncError: function (error) { ntCancelOnError({ ok: false, error: error }, element); },
           lineDelay:
             parsed.lineDelay === null
               ? Number(ntCentral('timing.lineInterval', nt_setting.interval))
@@ -380,7 +383,7 @@ function narrate() {
           source: element,
         });
       }
-      const nextLineDelay =
+      let nextLineDelay =
         lineDelay === null
           ? Number(ntCentral('timing.lineInterval', nt_setting.interval))
           : lineDelay;
@@ -402,6 +405,7 @@ function narrate() {
         const item = prepared[i];
         const execution = ntRunCues(item.parsed.cues, item.context);
         if (!execution.ok) return ntCancelOnError(execution, item.source);
+        nextLineDelay = Math.max(nextLineDelay, Number(execution.waitMs) || 0);
         if (item.parsed.text.trim().length > 0) {
           const injected = ntInjectVisualDialogue(item, current);
           const chatText =
@@ -864,6 +868,12 @@ function ntCueHead(value) {
     const resolved = KIBScene.resolveCueAlias(raw);
     if (resolved) return resolved;
   }
+  const adapters = KIBScene.adapters || {};
+  for (const name of Object.keys(adapters)) {
+    const aliases = adapters[name].aliases || {};
+    const key = Object.keys(aliases).find(alias => alias.toLowerCase() === raw.toLowerCase());
+    if (key !== undefined) return { type: name, action: String(aliases[key] || '') };
+  }
   const compact = raw.match(/^(오디오)(재생|중지|볼륨|페이드인|페이드아웃)$/);
   return {
     type: ntNormalizeCueType(compact ? compact[1] : raw),
@@ -915,6 +925,7 @@ function ntExpressionCueType(value) {
 }
 
 function ntRunCues(cues, context) {
+  let waitMs = 0;
   for (let i = 0; i < cues.length; i++) {
     const cue = cues[i];
     if (!ntKnownCue(cue.type))
@@ -928,6 +939,7 @@ function ntRunCues(cues, context) {
       const result = KIBScene.execute(cue, context);
       if (result && result.ok === false)
         return { ok: false, error: result.error, cue: cue };
+      waitMs = Math.max(waitMs, Number(result && result.waitMs) || 0);
       continue;
     }
     const handler = KIBScene.handlers[cue.type];
@@ -936,6 +948,7 @@ function ntRunCues(cues, context) {
         const result = handler(cue.args, context);
         if (result && result.ok === false)
           return { ok: false, error: result.error, cue: cue };
+        waitMs = Math.max(waitMs, Number(result && result.waitMs) || 0);
       } catch (err) {
         return {
           ok: false,
@@ -953,7 +966,7 @@ function ntRunCues(cues, context) {
       };
     }
   }
-  return { ok: true };
+  return waitMs > 0 ? { ok: true, waitMs: waitMs } : { ok: true };
 }
 
 function ntValidateCues(cues, context) {
@@ -1005,6 +1018,7 @@ function ntValidateCues(cues, context) {
 }
 
 function ntCancelOnError(result, source, archive) {
+  ntBroadcast('narrator:cancel', {});
   const cancelled = state.narration.length;
   state.last_narration_error = {
     error: String((result && result.error) || '알 수 없는 오류'),
@@ -1160,6 +1174,9 @@ function ntCueAliases() {
   ];
   if (typeof KIBScene.cueAliases === 'function')
     names = names.concat(KIBScene.cueAliases());
+  else Object.keys(KIBScene.adapters || {}).forEach(function (name) {
+    names = names.concat(Object.keys(KIBScene.adapters[name].aliases || {}));
+  });
   return names.filter(function (name, index, list) {
     return name && list.indexOf(name) === index;
   });

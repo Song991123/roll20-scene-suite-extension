@@ -642,13 +642,17 @@ var KIBScene = KIBScene || {};
   function narratorHelpSection() {
     var rows =
       commandRow('!... 대사', '줄을 차례대로 출력') +
+      commandRow('!나레이터 설정', '타자 출력과 줄 간격 설정') +
       commandRow('!... {사과|포도|딸기}를 골랐습니다.', '하나를 무작위로 선택, 채팅에서 선택된 부분에 밑줄 표시') +
       commandRow('!,,, 다음 줄', '이전 항목에 줄바꿈으로 이어쓰기') +
       commandRow('!. 동시에 출력할 줄', '직전 항목과 같은 차례에 출력') +
       commandRow(
         '!... 대사 @다음줄 1.2초',
-        '이 줄만 다음 줄까지 1.2초 대기',
+        '이 줄만 다음 줄까지 대기, 0~600초 또는 ms 사용',
       ) +
+      commandRow('!sd set|timing.lineInterval|3000', '기본 줄 간격 3초') +
+      commandRow('!... /w 캐릭터명 내용', '해당 캐릭터 제어 권한자에게 귓말, 발신자에게 전달 안내') +
+      (hasPlugin('apng') ? commandRow('!... @장면전환 전환명', '전환 종료까지 다음 줄 대기') : '') +
       (hasPlugin('apng') && hasPlugin('vd')
         ? commandRow(
             '!... @APNG 카드명|1회|영역|1.2초 @퇴장:전원 @다음줄 1.2초',
@@ -698,6 +702,7 @@ var KIBScene = KIBScene || {};
       ' ' +
       actionButton('매크로 갱신', '!오디오 매크로갱신', '#7654a8');
     var rows =
+      commandRow('!오디오 설정', '재생 방식과 음원 분류 설정') +
       commandRow('!오디오 재생|제목|반복|볼륨=30|페이드=2초', '페이드인 재생') +
       commandRow('!오디오 중지|제목|페이드=2초', '페이드아웃 후 중지') +
       commandRow('!오디오 전체중지|페이드=3초', '모든 음원을 페이드아웃하고 예약 동작 중지') +
@@ -888,9 +893,10 @@ var KIBScene = KIBScene || {};
       '04 이미지 전환',
       setup +
         '<table style="width:100%;border-collapse:collapse">' +
+        commandRow('!이미지 설정', '현재 설정 확인과 매크로 갱신') +
         commandRow(
           '!#image_scene 카드명',
-          '같은 이름 토큰을 해당 카드 그림으로 변경',
+          '같은 이름 토큰 변경, 기존 img_ 이름도 사용 가능',
         ) +
         commandRow(
           '!... 대사 @이미지 image_scene|카드명',
@@ -928,6 +934,8 @@ var KIBScene = KIBScene || {};
           '#287a4b',
         ) +
         '</div><table style="width:100%;border-collapse:collapse">' +
+        commandRow('!dialog-status', '표시 화자와 적용 페이지 확인') +
+        commandRow('!dialog-page here', '선택 토큰의 페이지를 표시 페이지로 지정') +
         commandRow('!... 대사 @스크립트', '이 줄만 스크립트로 표시') +
         '</table>',
     );
@@ -935,6 +943,11 @@ var KIBScene = KIBScene || {};
 
   function apngHelpSection() {
     var rows =
+      commandRow('!APNG 관리', 'APNG 관리 핸드아웃 갱신과 장면전환 등록') +
+      commandRow('!APNG 전환|전환명', '저장한 앞 연출 후 중간 명령 후 뒤 연출') +
+      commandRow('!APNG 전환|전환명|@비주얼 배경 장면명', '이 실행의 중간 명령 지정, 해당 모듈 설치 시 사용') +
+      commandRow('!APNG 전환|전환명|-', '중간 명령 없이 전환 효과만 실행') +
+      commandRow('!APNG 전환중지', '현재 전환과 대기 중인 전환 취소') +
       commandRow('!APNG 재생|카드명|1회|3초|전체', '맵시트 전체에 한 번 재생') +
       commandRow(
         '!APNG 재생|카드명|반복|영역',
@@ -949,11 +962,14 @@ var KIBScene = KIBScene || {};
       '전체: 맵시트 또는 페이지 전체',
       '영역(선택): GM 레이어에 이미지 토큰을 놓고 토큰 이름을 <code>apng_area</code>로 지정. 토큰 위치와 크기를 재생 영역으로 사용',
       '실행: <code>📽️apng</code> 매크로에서 카드, 위치, 재생 방식 선택',
+      '장면전환: <code>[GM] APNG 관리</code>에서 이름, 앞뒤 카드와 시간, 전체 또는 영역 등록. 불투명 덮개 추가 없음',
+      '중간 명령: 생략 가능. 비주얼 배경, 이미지 전환, 오디오 등 설치한 모듈만 실행',
     ]);
     return moduleHelpSection(
       'apng',
       '06 APNG',
       setup +
+        (KIBScene.call('apng', 'transitionControls') || '') +
         (hasPlugin('audio') ? apngAudioHelpControls() : '') +
         '<table style="width:100%;border-collapse:collapse">' +
         rows +
@@ -963,6 +979,7 @@ var KIBScene = KIBScene || {};
 
   function handoutHelpSection() {
     var rows =
+      commandRow('!핸드아웃 설정', '관리 화면 열기') +
       commandRow('!핸드아웃 관리', '관리 핸드아웃 갱신') +
       commandRow(
         '!핸드아웃 보내기|자료명|캐릭터명 또는 전원',
@@ -1008,6 +1025,9 @@ var KIBScene = KIBScene || {};
     ]);
     var rows =
       commandRow('!@웃음', '현재 화자의 설정된 대상 변경') +
+      commandRow('!@', '현재 화자의 기본 표정') +
+      commandRow('!... /desc 지문 @홍길동:', '지정 캐릭터의 기본 표정') +
+      commandRow('!아바타 도움말', '캐릭터 이미지 명령어 확인') +
       commandRow('!... /as "홍길동" 대사 @웃음', '나레이터 줄과 함께 변경') +
       commandRow('!아바타 대상|홍길동|시트|켜기', '캐릭터별 변경 대상 설정') +
       commandRow('!아바타 제외|추가|홍길동', '캐릭터 이미지와 맵 토큰 자동 변경 제외');
@@ -1043,6 +1063,7 @@ var KIBScene = KIBScene || {};
       commandRow('!!화자 본인', '캐릭터 화자를 해제하고 GM 오너 프로필로 복귀') +
       commandRow('!!변화알림 공개|GM|끄기', '수치 변화 알림을 전체 공개, GM만, 또는 끄기로 설정') +
       commandRow('!!GM캐릭터알림 켜기|끄기', '플레이어 권한이 없는 GM 캐릭터도 변화 알림에 포함할지 설정');
+    rows += commandRow('!!기능치알림 켜기|끄기', '기능과 판정 수치의 변화 알림만 설정');
     return moduleHelpSection(
       'sheet',
       '10 시트 헬퍼',
@@ -1058,6 +1079,7 @@ var KIBScene = KIBScene || {};
   function cutinHelpSection() {
     var cutin = cutinHelpConfig();
     var rows =
+      commandRow('!컷인 설정', '컷인 관리 화면 열기') +
       commandRow('!컷인 재생|카드명|3초', '카드 컷인 표시') +
       commandRow('!컷인 핸드아웃|자료명|3초', '핸드아웃 표지 컷인 표시') +
       commandRow('!컷인 URL|Roll20이미지주소|3초', '주소의 이미지 컷인 표시') +

@@ -23,7 +23,7 @@ const MODULES = [
     file: '01_narrator_director.js',
     title: '나레이터',
     description: '대사 순차 출력, 줄 끝 연출 명령 실행',
-    setup: ['캐릭터 대사를 쓸 때 Roll20 캐릭터를 만듭니다.', '/as와 /emas 이름을 캐릭터 이름에 맞춥니다.', '채팅에 !... 대사를 입력합니다.', '!... {사과|포도|딸기}를 골랐습니다.처럼 적으면 하나를 무작위로 선택합니다. 채팅에서는 선택된 부분에 밑줄을 표시하며, 비주얼 노벨에는 같은 결과를 일반 글씨로 표시합니다. 중첩 선택지는 지원하지 않습니다.'],
+    setup: ['캐릭터 대사를 쓸 때 Roll20 캐릭터를 만듭니다.', '/as와 /emas 이름을 캐릭터 이름에 맞춥니다.', '채팅에 !... 대사를 입력합니다.', '!. 문장은 직전 !... 줄과 같은 차례에 출력합니다. @다음줄 1.2초는 이 줄의 다음 줄까지 대기합니다. 0~600초 또는 ms를 사용합니다.', '!나레이터 설정에서 타자 출력과 기본 줄 간격을 바꿉니다. !... /w 캐릭터명 내용은 제어 권한자에게 귓말을 보냅니다.', '!... {사과|포도|딸기}를 골랐습니다.처럼 적으면 하나를 무작위로 선택합니다. 채팅에서는 선택된 부분에 밑줄을 표시하며, 비주얼 노벨에는 같은 결과를 일반 글씨로 표시합니다. 중첩 선택지는 지원하지 않습니다.'],
     settings: [
       { id: 'lineInterval', shared: 'lineInterval', group: '출력', label: '대사 간격(ms)', note: 'Scene Director와 공통', type: 'number', value: 2800, min: 0, codeKey: 'interval' },
       { id: 'typeAllLines', shared: 'typeAllLines', group: '출력', label: '모든 줄에 스크립트 적용', type: 'checkbox', value: true, codeKey: 'type_all_lines' },
@@ -122,12 +122,13 @@ const MODULES = [
     file: '06_apng_director.js',
     title: 'APNG',
     description: '애니메이션 전체 화면 또는 지정 영역 출력',
-    setup: ['apng 덱을 만들고 카드 앞면에 애니메이션을 넣습니다.', '지정 영역을 쓸 때 GM 레이어에 이미지 토큰을 놓고 토큰 이름을 apng_area로 지정합니다.', '자동 생성된 📽️apng 매크로를 사용합니다.'],
+    setup: ['apng 덱을 만들고 카드 앞면에 애니메이션을 넣습니다.', '지정 영역을 쓸 때 GM 레이어에 이미지 토큰을 놓고 토큰 이름을 apng_area로 지정합니다.', '자동 생성된 📽️apng 매크로를 사용합니다.', '!APNG 관리로 핸드아웃을 열고 장면전환 이름, 앞뒤 카드와 시간, 전체 또는 영역을 등록합니다. 불투명 덮개는 추가하지 않습니다.', '!APNG 전환|전환명은 앞 연출 후 저장한 명령 후 뒤 연출을 실행합니다. |@비주얼 배경 장면명처럼 이번 명령을 지정하거나 |-로 효과만 실행합니다. 중간 명령의 모듈만 추가 설치합니다.', '!... @장면전환 전환명은 전환 종료까지 다음 나레이터 줄을 기다립니다. !APNG 전환중지는 대기열도 취소합니다.'],
     settings: [
       { id: 'page', shared: 'page', group: '기본', label: '적용할 페이지', note: '03과 05 공통, 첫 페이지 사용', type: 'text', value: 'conversation', codeKey: 'PAGE_NAME', firstOnly: true },
       { id: 'deck', group: '기본', label: '덱 이름', type: 'text', value: 'apng', codeKey: 'DECK_NAME' },
       { id: 'area', group: '기본', label: '영역 토큰 이름', note: '보드 위 토큰 설정의 이름, 파일명 아님', type: 'text', value: 'apng_area', codeKey: 'AREA_NAME' },
       { id: 'macro', group: '기본', label: '매크로 이름', type: 'text', value: '📽️apng', codeKey: 'MACRO_NAME' },
+      { id: 'manager', group: '기본', label: '관리 핸드아웃 이름', type: 'text', value: '[GM] APNG 관리', codeKey: 'MANAGER_NAME' },
       { id: 'mode', group: '재생', label: '기본 재생 방식', type: 'select', value: 'once', options: [['once', '1회'], ['loop', '반복']], codeKey: 'DEFAULT_MODE' },
       { id: 'duration', group: '재생', label: '기본 표시 시간(ms)', type: 'number', value: 3000, min: 0, codeKey: 'DEFAULT_DURATION' },
     ],
@@ -168,7 +169,7 @@ const MODULES = [
     file: '09_avatar_director.js',
     title: '캐릭터 이미지',
     description: '표정에 맞춰 캐릭터 이미지와 맵 토큰 교체',
-    setup: ['avatars 덱을 만들고 캐릭터명, 캐릭터명-표정명 카드를 넣습니다.', '맵 토큰은 캐릭터 시트와 연결되고 토큰 이름이 캐릭터명과 같은 토큰만 변경됩니다.', '채팅에 !아바타 관리를 입력합니다.', '필요한 캐릭터만 자동 변경에서 제외합니다.'],
+    setup: ['avatars 덱을 만들고 캐릭터명, 캐릭터명-표정명 카드를 넣습니다.', '맵 토큰은 캐릭터 시트와 연결되고 토큰 이름이 캐릭터명과 같은 토큰만 변경됩니다.', '채팅에 !아바타 관리를 입력합니다.', '필요한 캐릭터만 자동 변경에서 제외합니다.', '!@는 현재 화자의 기본 표정, 나레이터의 @캐릭터명:은 지정한 캐릭터의 기본 표정입니다. 03 비주얼 노벨 설정과는 별개입니다.'],
     settings: [
       { id: 'deck', group: '기본', label: '덱 이름', type: 'text', value: 'avatars', codeKey: 'deck_name' },
       { id: 'manager', group: '기본', label: '관리 핸드아웃 이름', type: 'text', value: '[GM] 캐릭터 이미지 관리', codeKey: 'management_handout_name' },
@@ -185,6 +186,7 @@ const MODULES = [
     setup: [
       '채팅에 !!관리를 입력해 인식된 항목을 확인합니다.',
       '!!굴릴항목이름으로 실행하고, !!검색 이름으로 현재 수치와 굴림 버튼을 찾습니다.',
+      '!!기능치알림 켜기 또는 끄기로 기능과 판정 수치 알림만 바꿉니다. :HP-1과 :체력-1은 같은 수치 이름으로 사용할 수 있습니다.',
     ],
     settings: [
       { id: 'legacyCommands', group: '명령어', label: '!! 간편 명령어 사용', type: 'checkbox', value: true, codeKey: 'legacy_commands' },

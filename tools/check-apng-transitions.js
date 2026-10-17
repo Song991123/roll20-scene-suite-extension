@@ -1,0 +1,232 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..');
+const source = name => fs.readFileSync(path.join(root, 'public/scripts', name), 'utf8');
+function room({ director = false, narrator = false, modules = [] } = {}) {
+  let now = 1000, sequence = 0;
+  const objects = new Map(), timers = new Map(), events = {}, messages = [], changes = [];
+  const state = {};
+  function object(type, id, data) {
+    const obj = { id, type, data,
+      get(key, callback) { const value = key === '_type' ? type : key === '_id' ? id : data[key]; if (callback) callback(value); return value; },
+      set(key, value) { if (typeof key === 'object') Object.assign(data, key); else data[key] = value; },
+      remove() { objects.delete(id); (events['destroy:' + type] || []).forEach(fn => fn(obj)); } };
+    objects.set(id, obj); return obj;
+  }
+  object('page', 'page', { name: 'conversation', width: 20, height: 12 });
+  object('deck', 'deck', { name: 'apng' });
+  ['front', 'back'].forEach(id => object('card', id, { name: id === 'front' ? '앞 연출' : '뒤 연출', _deckid: 'deck', avatar: 'https://files.d20.io/images/' + id + '/thumb.png' }));
+  object('graphic', 'area', { name: 'apng_area', _pageid: 'page', layer: 'gmlayer', left: 200, top: 300, width: 400, height: 250 });
+  object('player', 'gm', { _displayname: 'GM', _online: true });
+  function emit(event, ...args) { (events[event] || []).forEach(fn => fn(...args)); }
+  const context = {
+    state, log() {}, on(event, fn) { (events[event] ||= []).push(fn); },
+    Date: { now: () => now }, playerIsGM: id => id === 'gm', randomInteger: () => 1,
+    Campaign: () => ({ get: () => '' }), toFront() {}, toBack() {},
+    findObjs(query) { return [...objects.values()].filter(o => Object.entries(query).every(([key, value]) => o.get(key === 'type' ? '_type' : key) === value)); },
+    getObj(type, id) { const obj = objects.get(id); return obj && obj.type === type ? obj : null; },
+    createObj(type, data) { return object(type, 'created' + ++sequence, { ...data }); },
+    sendChat(as, content, cb, options) { messages.push({ as, content, options }); if (cb) cb([]); },
+    setTimeout(fn, delay) { const id = ++sequence; timers.set(id, { fn, at: now + Number(delay || 0) }); return id; },
+    clearTimeout(id) { timers.delete(id); }, setInterval() { throw new Error('Transition must not poll'); }, clearInterval() {},
+  };
+  vm.createContext(context);
+  if (director) vm.runInContext(source('00_scene_director.js'), context);
+  if (narrator) vm.runInContext(source('01_narrator_director.js'), context);
+  modules.forEach(name => vm.runInContext(source(name), context));
+  vm.runInContext(source('06_apng_director.js'), context);
+  emit('ready');
+  function advance(ms) {
+    const end = now + ms;
+    let count = 0;
+    for (;;) {
+      const next = [...timers.entries()].filter(([, timer]) => timer.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+      if (!next) break;
+      assert(++count < 1000, 'Timer recursion');
+      const [id, timer] = next; now = timer.at; timers.delete(id); timer.fn();
+    }
+    now = end;
+  }
+  advance(2000);
+  function chat(content, playerid = 'gm') { emit('chat:message', { type: 'api', content, playerid, who: 'GM' }); }
+  function adapter(name, aliases) {
+    context.KIBScene.adapters[name] = { aliases, validate: () => ({ ok: true }), cue(args) { changes.push({ name, args: Array.from(args), time: now }); return { ok: true }; } };
+    context.KIBScene.handlers[name] = context.KIBScene.adapters[name].cue;
+  }
+  function save(name = '슬라이드', extra = '', placement = '전체') { chat('!APNG 전환저장|새로|' + name + '|id:front|1.2초|id:back|0.8초|' + placement + '|' + extra); }
+  function graphics() { return [...objects.values()].filter(o => o.type === 'graphic' && String(o.data.name).startsWith('sd_apng:')); }
+  function managerHtml() { return objects.get(state.KIBSceneAPNG.managerId).get('notes'); }
+  return { context, state, timers, objects, messages, changes, emit, advance, chat, adapter, save, graphics, managerHtml, object };
+}
+function decode(value) { return value.replace(/&#63;/g, '?').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'); }
+function button(html, label) {
+  const links = [...html.matchAll(/<a href="([^"]*)"[^>]*>([^<]*)<\/a>/g)];
+  const result = links.find(match => decode(match[2]) === label);
+  assert(result, 'Missing button: ' + label);
+  return decode(result[1]);
+}
+function answer(command, values = {}) {
+  return command.replace(/\?\{([^{}]*)\}/g, (_, body) => {
+    const [label, ...choices] = body.split('|');
+    if (Object.hasOwn(values, label)) return values[label];
+    const first = choices[0] || '';
+    return (first.includes(',') ? first.slice(first.indexOf(',') + 1) : first)
+      .replace(/&#44;/g, ',').replace(/&#124;/g, '|').replace(/&#125;/g, '}');
+  });
+}
+let count = 0;
+function test(name, fn) { fn(); count++; console.log('PASS ' + name); }
+test('06 alone: handout buttons create, edit, run and delete presets', () => {
+  const r = room();
+  r.chat(answer(button(r.managerHtml(), '장면전환 만들기'), { '장면전환 이름': '별빛', '뒤 연출 APNG': 'id:back', '위치': '영역' }));
+  assert.equal(r.state.KIBSceneAPNG.transitions.t1.name, '별빛');
+  r.chat(answer(button(r.managerHtml(), '수정'), { '장면전환 이름': '별빛 수정', '앞 연출 시간': '0.5초', '뒤 연출 시간': '0.7초' }));
+  assert.equal(r.state.KIBSceneAPNG.transitions.t1.coverMs, 500);
+  assert.equal(r.state.KIBSceneAPNG.transitions.t1.reveal, 'back');
+  r.chat(button(r.managerHtml(), '실행')); assert.equal(r.graphics().length, 1);
+  r.advance(500); assert.equal(r.graphics()[0].data.name, 'sd_apng:back');
+  r.advance(700); assert.equal(r.graphics().length, 0);
+  r.chat(button(r.managerHtml(), '삭제')); assert.equal(Object.keys(r.state.KIBSceneAPNG.transitions).length, 0);
+});
+test('middle commands run only after front, before back with preserved pipe args', () => {
+  const r = room(); r.adapter('vd', { 비주얼: '' }); r.adapter('audio', { 오디오: '' });
+  r.save('슬라이드', '@비주얼 배경 외부인숙소_2층복도 @오디오 중지|숙소 계단');
+  r.chat('!APNG 전환|슬라이드'); r.advance(1199); assert.equal(r.changes.length, 0);
+  assert.equal(r.graphics()[0].data.name, 'sd_apng:front');
+  r.advance(1); assert.deepEqual(r.changes.map(c => c.name), ['vd', 'audio']);
+  assert.deepEqual(r.changes[1].args, ['중지', '숙소 계단']);
+  assert.equal(r.graphics()[0].data.name, 'sd_apng:back');
+  r.advance(800); assert.equal(r.graphics().length, 0);
+});
+test('areas and full page use existing bounds and do not create opaque overlays', () => {
+  for (const placement of ['영역', '전체']) {
+    const r = room(); r.save('전환', '', placement); r.chat('!APNG 전환|전환');
+    assert.equal(r.graphics().length, 1);
+    const g = r.graphics()[0];
+    assert.equal(g.data.width, placement === '영역' ? 400 : 1400);
+    assert.equal(g.data.layer, placement === '영역' ? 'map' : 'objects');
+    r.advance(2000); assert.equal(r.graphics().length, 0);
+  }
+});
+test('image switcher is optional; command override buttons use adapter only', () => {
+  const r = room(); r.adapter('image', { 이미지: '' }); r.save();
+  r.chat(answer(button(r.managerHtml(), '중간 명령 수정'), { '새 중간 명령 비우면 없음': '@이미지 image_room|ON' }));
+  assert.equal(r.state.KIBSceneAPNG.transitions.t1.commands, '@이미지 image_room|ON');
+  r.chat(answer(button(r.managerHtml(), '명령 지정 실행'), { '중간 명령 없으면 -': '@이미지 image_room|OFF' }));
+  r.advance(1200); assert.deepEqual(r.changes[0].args, ['image_room', 'OFF']);
+  r.advance(800);
+  r.chat('!APNG 전환|슬라이드|-'); r.advance(2000); assert.equal(r.changes.length, 1);
+});
+test('queue is FIFO; cancellation removes owned effects and pending commands', () => {
+  const r = room(); r.adapter('image', { 이미지: '' }); r.save();
+  r.chat('!APNG 전환|슬라이드|@이미지 one|ON'); r.chat('!APNG 전환|슬라이드|@이미지 two|ON');
+  r.advance(2000); assert.equal(r.changes.length, 1); assert.equal(r.graphics()[0].data.name, 'sd_apng:front');
+  r.advance(1200); assert.equal(r.changes[1].args[0], 'two');
+  r.chat(button(r.managerHtml(), '전환 중지')); r.advance(10000); assert.equal(r.graphics().length, 0);
+  assert.equal(r.changes.length, 2);
+});
+test('invalid, disabled, missing or recursive commands fail before effects', () => {
+  const r = room({ director: true }); r.save();
+  ['@비주얼 배경 없음', '@장면전환 슬라이드', '@APNG 중지', '!오디오 재생|x'].forEach(command => {
+    r.chat('!APNG 전환|슬라이드|' + command); assert.equal(r.graphics().length, 0);
+  });
+  r.adapter('audio', { 오디오: '' }); r.context.KIBScene.isFeatureEnabled = () => false;
+  r.chat('!APNG 전환|슬라이드|@오디오 재생|x'); assert.equal(r.graphics().length, 0);
+});
+test('resource disappears at midpoint: cancel cleanly without command execution', () => {
+  const r = room(); r.adapter('image', { 이미지: '' }); r.save();
+  r.chat('!APNG 전환|슬라이드|@이미지 x|ON');
+  r.context.KIBScene.adapters.image.validate = () => ({ ok: false, error: '대상 없음' });
+  r.advance(2000); assert.equal(r.changes.length, 0); assert.equal(r.graphics().length, 0);
+});
+test('existing APNG once/loop and card settings stay independent', () => {
+  const r = room(); r.chat('!APNG 설정|id:front|1회|0.5초'); r.chat('!APNG 재생|앞 연출');
+  assert.equal(r.graphics().length, 1); r.advance(500); assert.equal(r.graphics().length, 0);
+  r.chat('!APNG 재생|뒤 연출|반복'); r.save(); r.chat('!APNG 전환|슬라이드'); r.chat('!APNG 전환중지');
+  assert.equal(r.graphics().length, 1); assert.equal(r.graphics()[0].data.name, 'sd_apng:back');
+  r.chat('!APNG 중지'); assert.equal(r.graphics().length, 0);
+});
+test('GM-only controls and invalid edits preserve saved data', () => {
+  const r = room(); r.save(); const saved = JSON.stringify(r.state.KIBSceneAPNG.transitions);
+  r.chat('!APNG 전환저장|t1|파손|id:front|0초|id:back|1초|전체');
+  r.chat('!APNG 전환삭제|t1', 'player');
+  assert.equal(JSON.stringify(r.state.KIBSceneAPNG.transitions), saved);
+  r.chat('!APNG 전환|슬라이드', 'player'); assert.equal(r.graphics().length, 0);
+});
+test('cancel before midpoint clears queued commands and only transition objects', () => {
+  const r = room(); r.adapter('image', { 이미지: '' }); r.save('전환', '@이미지 x|ON');
+  r.chat('!APNG 전환|전환'); r.chat('!APNG 전환|전환'); r.advance(500);
+  r.chat('!APNG 전환중지'); r.advance(10000);
+  assert.equal(r.changes.length, 0); assert.equal(r.graphics().length, 0);
+  assert(r.objects.has('area'));
+});
+test('external removal cancels the run without executing its pending commands', () => {
+  const r = room(); r.adapter('image', { 이미지: '' }); r.save('전환', '@이미지 x|ON');
+  r.chat('!APNG 전환|전환'); r.graphics()[0].remove(); r.advance(3000);
+  assert.equal(r.changes.length, 0); assert.equal(r.graphics().length, 0);
+});
+test('00 + 01 + 06: narrator cue resolves alias, waits and cancels', () => {
+  const r = room({ director: true, narrator: true }); r.save('긴전환');
+  r.chat('!APNG 전환저장|t1|긴전환|id:front|2초|id:back|2초|전체|');
+  const parsed = r.context.ntExtractCues('@장면전환 긴전환');
+  assert.equal(parsed.cues[0].type, 'apng'); assert.deepEqual(Array.from(parsed.cues[0].args), ['전환', '긴전환']);
+  r.context.state.narration = [{ as: 'GM', msg: '@장면전환 긴전환' }, { as: 'GM', msg: '다음 장면' }];
+  r.context.state.is_narrating = 2; r.context.narrate();
+  r.advance(3999); assert(!r.messages.some(m => m.content.includes('다음 장면')));
+  r.advance(1); assert(r.messages.some(m => m.content.includes('다음 장면')));
+  r.context.state.narration = [{ as: 'GM', msg: '@장면전환 긴전환' }];
+  r.context.state.is_narrating = 2; r.context.narrate(); r.chat('!/'); r.advance(5000);
+  assert.equal(r.graphics().length, 0);
+});
+test('01 + 06 without 00: generic adapter aliases and wait contract work', () => {
+  const r = room({ narrator: true }); r.save();
+  const cue = r.context.ntExtractCues('@장면전환 슬라이드').cues[0];
+  assert.equal(cue.type, 'apng');
+  const result = r.context.ntRunCues([cue], { narrator: true });
+  assert.equal(result.waitMs, 2000); r.advance(2000); assert.equal(r.graphics().length, 0);
+});
+test('legacy grouped cue format accepts per-run middle commands without early execution', () => {
+  const r = room({ narrator: true }); r.adapter('image', { 이미지: '' }); r.save();
+  const parsed = r.context.ntExtractCues('{{@장면전환|슬라이드|@이미지 image_room|ON}}');
+  assert.equal(parsed.cues.length, 1);
+  const result = r.context.ntRunCues(parsed.cues, { narrator: true });
+  assert.equal(result.waitMs, 2000); assert.equal(r.changes.length, 0);
+  r.advance(1200); assert.deepEqual(r.changes[0].args, ['image_room', 'ON']);
+});
+test('buttons preserve query punctuation in names and pipe commands during edit', () => {
+  const r = room(); r.adapter('image', { 이미지: '' }); r.save('별,빛 & 밤', '@이미지 image_room|ON');
+  r.chat(answer(button(r.managerHtml(), '수정'), { '앞 연출 시간': '0.9초' }));
+  assert.equal(r.state.KIBSceneAPNG.transitions.t1.name, '별,빛 & 밤');
+  assert.equal(r.state.KIBSceneAPNG.transitions.t1.commands, '@이미지 image_room|ON');
+  r.chat(button(r.managerHtml(), '실행')); r.advance(900);
+  assert.deepEqual(r.changes[0].args, ['image_room', 'ON']);
+});
+test('missing reveal at midpoint prevents middle changes and removes front', () => {
+  const r = room(); r.adapter('image', { 이미지: '' }); r.save();
+  r.chat('!APNG 전환|슬라이드|@이미지 x|ON'); r.objects.get('back').remove();
+  r.advance(2000); assert.equal(r.changes.length, 0); assert.equal(r.graphics().length, 0);
+});
+test('async transition failure cancels remaining narrator lines', () => {
+  const r = room({ director: true, narrator: true }); r.adapter('image', { 이미지: '' }); r.save('전환', '@이미지 x|ON');
+  r.state.narration = [{ as: 'GM', msg: '@장면전환 전환' }, { as: 'GM', msg: '출력되면 안됨' }];
+  r.state.is_narrating = 2; r.context.narrate();
+  r.context.KIBScene.adapters.image.cue = () => ({ ok: false, error: '대상 삭제' });
+  r.context.KIBScene.handlers.image = r.context.KIBScene.adapters.image.cue;
+  r.advance(5000); assert.equal(r.state.narration.length, 0);
+  assert(!r.messages.some(m => m.content === '출력되면 안됨'));
+  assert.equal(r.graphics().length, 0);
+});
+test('real 02 audio and 04 image adapters execute only at midpoint', () => {
+  const r = room({ modules: ['02_audio_bridge.js', '04_image_switcher_compatible.js'] });
+  const track = r.object('jukeboxtrack', 'bgm', { title: '숙소 계단', playing: true, volume: 50 });
+  r.object('deck', 'image-deck', { name: 'image_room' });
+  r.object('card', 'image-card', { _deckid: 'image-deck', name: 'ON', avatar: 'https://files.d20.io/images/room/thumb.png' });
+  const token = r.object('graphic', 'image-token', { _pageid: 'page', name: 'image_room', imgsrc: 'old' });
+  r.save('전환', '@이미지 image_room|ON @오디오 중지|숙소 계단');
+  r.chat('!APNG 전환|전환'); r.advance(1199);
+  assert.equal(track.data.playing, true); assert.equal(token.data.imgsrc, 'old');
+  r.advance(1); assert.equal(track.data.playing, false); assert(token.data.imgsrc.includes('/room/'));
+});
+console.log('APNG transitions: ' + count + ' groups passed (mock only, not live Roll20 clicks).');

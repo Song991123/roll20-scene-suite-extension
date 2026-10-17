@@ -1,5 +1,5 @@
 /*
- * Scene Suite 06 - APNG Director 1.1.1
+ * Scene Suite 06 - APNG Director 1.2.0-dev
  * 제작 및 통합: @EOOOOORK
  */
 var KIBScene = KIBScene || {};
@@ -21,6 +21,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     DEFAULT_DURATION: 3000,
     AREA_LAYER: 'map',
     FULL_LAYER: 'objects',
+    MANAGER_NAME: '[GM] APNG 관리',
   };
 
   // ===== 실행 상태 =====
@@ -29,15 +30,21 @@ KIBScene.adapters = KIBScene.adapters || {};
   var hideTimers = {};
   var linkedWatches = {};
   var audioLinkBusy = false;
+  var transitionQueue = [];
+  var transitionRun = null;
+  var transitionTimer = null;
+  var transitionRemoving = false;
 
   on('ready', function () {
     initState();
     clearActive(false);
     if (SETTING.SCENE_DIRECTOR_ENABLED) {
-      var cue = function (args) {
+      var cue = function (args, context) {
+        if (args[0] === '전환') return enqueueTransition(args.slice(1), context);
         var stop = inspectStopCue(args);
         if (stop) {
           if (!stop.ok) return stop;
+          if (!stop.card) cancelTransitions();
           stopActive(stop.card ? stop.card.id : null, true);
           return { ok: true, stopped: true };
         }
@@ -47,11 +54,14 @@ KIBScene.adapters = KIBScene.adapters || {};
       };
       var adapter = {
         meta: { code: '06_apng_director.js', title: 'APNG' },
-        aliases: { APNG: '', apng: '', 에이피엔지: '' },
+        aliases: { APNG: '', apng: '', 에이피엔지: '', 장면전환: '전환' },
         cue: cue,
         validate: function (args) {
+          if (args[0] === '전환') return inspectTransition(args.slice(1));
           return inspectStopCue(args) || parsePlayArgs(args);
         },
+        transitionControls: transitionControls,
+        events: { 'narrator:cancel': function () { cancelTransitions(true); } },
         onAudioPlay: playLinkedApngForAudio,
         playLinkedAPNGForAudio: playLinkedApngForAudio,
         bringToFront: bringActiveToFront,
@@ -64,6 +74,9 @@ KIBScene.adapters = KIBScene.adapters || {};
             '</code> 영역 이미지 토큰 위치',
           '<code>@APNG 중지</code>',
           '<code>@APNG 카드 이름|중지</code>',
+          '<code>!APNG 관리</code> 장면전환 등록과 수정',
+          '<code>!APNG 전환|전환명|@명령</code> 앞 연출 후 명령 실행 후 뒤 연출',
+          '<code>@장면전환 전환명</code> 저장한 장면전환 실행',
         ],
       };
       if (typeof KIBScene.register === 'function')
@@ -115,6 +128,9 @@ KIBScene.adapters = KIBScene.adapters || {};
       playLinkedApngForAudio(obj.id);
   });
   on('destroy:graphic', function (obj) {
+    if (!transitionRemoving && transitionRun && transitionRun.ids.indexOf(obj.id) >= 0) {
+      finishTransition('장면전환 중지: 표시 토큰 삭제');
+    }
     var index = state.KIBSceneAPNG.activeIds.indexOf(obj.id);
     if (index > -1) state.KIBSceneAPNG.activeIds.splice(index, 1);
     if (hideTimers[obj.id]) clearTimeout(hideTimers[obj.id]);
@@ -133,6 +149,31 @@ KIBScene.adapters = KIBScene.adapters || {};
       .replace(/^!APNG/i, '')
       .trim();
     var action = String(head || '도움말').toLowerCase();
+    if (action === '관리') { refreshManager(); return whisper(statusHtml()); }
+    if (action === '전환저장') return saveTransition(parts);
+    if (action === '전환삭제') {
+      if (!Object.prototype.hasOwnProperty.call(state.KIBSceneAPNG.transitions, parts[0])) return whisper('장면전환 없음');
+      delete state.KIBSceneAPNG.transitions[parts[0]];
+      refreshHelp();
+      return whisper('장면전환 삭제');
+    }
+    if (action === '전환명령') {
+      var savedTransition = state.KIBSceneAPNG.transitions[parts[0]];
+      if (!Object.prototype.hasOwnProperty.call(state.KIBSceneAPNG.transitions, parts[0])) return whisper('장면전환 없음');
+      var savedCommands = transitionCues(parts.slice(1).join('|'));
+      if (!savedCommands.ok) return whisper(savedCommands.error);
+      var checkedCommands = checkTransitionCues(savedCommands.cues);
+      if (!checkedCommands.ok) return whisper(checkedCommands.error);
+      savedTransition.commands = parts.slice(1).join('|');
+      refreshHelp();
+      return whisper('장면전환 명령 저장');
+    }
+    if (action === '전환중지') { cancelTransitions(); return whisper('장면전환 중지'); }
+    if (action === '전환') {
+      var transition = enqueueTransition(parts, { playerid: msg.playerid });
+      if (!transition.ok) whisper(transition.error);
+      return;
+    }
     if (action == '재생' || action == 'play') {
       var parsed = parsePlayArgs(parts);
       if (!parsed.ok) return whisper(parsed.error);
@@ -147,6 +188,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     ) {
       var stop = inspectStopCue([action].concat(parts));
       if (!stop.ok) return whisper(stop.error);
+      if (!stop.card) cancelTransitions();
       stopActive(stop.card ? stop.card.id : null, true);
       return;
     }
@@ -305,9 +347,9 @@ KIBScene.adapters = KIBScene.adapters || {};
     };
   }
 
-  function show(parsed, sourceTrackId) {
+  function show(parsed, sourceTrackId, hold) {
     if (parsed.skipped) return parsed;
-    stopActive(parsed.card.id, true, sourceTrackId);
+    if (!hold) stopActive(parsed.card.id, true, sourceTrackId);
     var pageWidth = Number(parsed.page.get('width')) * 70;
     var pageHeight = Number(parsed.page.get('height')) * 70;
     if (!(pageWidth > 0 && pageHeight > 0))
@@ -376,7 +418,7 @@ KIBScene.adapters = KIBScene.adapters || {};
         );
       else linkedWatches[graphic.id] = { trackId: linkedTrackId };
     }
-    if (parsed.mode == 'once') {
+    if (parsed.mode == 'once' && !hold) {
       hideTimers[graphic.id] = setTimeout(function () {
         removeGraphic(graphic.id);
       }, parsed.cycleDuration || SETTING.DEFAULT_DURATION);
@@ -895,6 +937,227 @@ KIBScene.adapters = KIBScene.adapters || {};
     });
   }
 
+  function transitionCues(source) {
+    var text = String(source || '').trim();
+    if (!text || text === '-') return { ok: true, cues: [] };
+    if (text[0] !== '@') return { ok: false, error: '중간 명령은 @명령으로 입력하세요.' };
+    var cues = [];
+    var chunks = text.split(/\s+(?=@)/);
+    for (var i = 0; i < chunks.length; i++) {
+      var match = chunks[i].match(/^@([^\s|@]+)(?:\s+|\|)?([\s\S]*)$/);
+      var resolved = match && typeof KIBScene.resolveCueAlias === 'function'
+        ? KIBScene.resolveCueAlias(match[1]) : null;
+      if (!resolved && match) {
+        Object.keys(KIBScene.adapters).some(function (name) {
+          var adapter = KIBScene.adapters[name];
+          var aliases = adapter.aliases || {};
+          var key = Object.keys(aliases).filter(function (alias) {
+            return alias.toLowerCase() === match[1].toLowerCase();
+          })[0];
+          if (key !== undefined || name.toLowerCase() === match[1].toLowerCase()) {
+            resolved = { type: name, action: key === undefined ? '' : aliases[key] };
+            return true;
+          }
+          return false;
+        });
+      }
+      if (!resolved) return { ok: false, error: '사용할 수 없는 중간 명령: ' + escapeHtml(chunks[i]) };
+      var args = match[2].trim() ? match[2].split('|').map(function (part) { return part.trim(); }) : [];
+      if (resolved.action) args.unshift(resolved.action);
+      if (resolved.type === 'apng' && /^(?:전환|중지|정리|stop|clear)$/.test(args[0] || ''))
+        return { ok: false, error: '장면전환 안에서 전환이나 APNG 중지는 사용할 수 없습니다.' };
+      cues.push({ type: resolved.type, args: args, raw: chunks[i] });
+    }
+    return { ok: true, cues: cues };
+  }
+
+  function checkTransitionCues(cues, context) {
+    for (var i = 0; i < cues.length; i++) {
+      var cue = cues[i];
+      var adapter = KIBScene.adapters[cue.type];
+      if (!adapter || typeof adapter.cue !== 'function' || typeof adapter.validate !== 'function')
+        return { ok: false, error: '검증할 수 없는 중간 명령: ' + escapeHtml(cue.type) };
+      if (typeof KIBScene.isFeatureEnabled === 'function' && !KIBScene.isFeatureEnabled(cue.type))
+        return { ok: false, error: '중간 명령 기능이 꺼져 있습니다: ' + escapeHtml(cue.type) };
+      var result = typeof KIBScene.validate === 'function'
+        ? KIBScene.validate(cue, context || {}) : adapter.validate(cue.args, context || {});
+      if (result && (result.ok === false || result.skipped))
+        return { ok: false, error: result.error || '중간 명령을 실행할 수 없습니다.' };
+    }
+    return { ok: true };
+  }
+
+  function inspectTransition(args) {
+    if (!SETTING.ENABLED) return { ok: true, skipped: true };
+    var ref = String(args[0] || '').trim();
+    var presets = state.KIBSceneAPNG.transitions;
+    var matches = Object.keys(presets).filter(function (id) {
+      return ref.indexOf('id:') === 0 ? ref === 'id:' + id : presets[id].name === ref;
+    });
+    if (matches.length !== 1) return { ok: false, error: '장면전환 이름 확인: ' + escapeHtml(ref) };
+    var preset = presets[matches[0]];
+    var cover = parsePlayArgs(['id:' + preset.cover, '1회', preset.coverMs + 'ms', preset.placement]);
+    if (!cover.ok || cover.skipped) return cover;
+    var reveal = parsePlayArgs(['id:' + preset.reveal, '1회', preset.revealMs + 'ms', preset.placement]);
+    if (!reveal.ok || reveal.skipped) return reveal;
+    var parsed = transitionCues(args.length > 1 ? args.slice(1).join('|') : preset.commands);
+    if (!parsed.ok) return parsed;
+    var checked = checkTransitionCues(parsed.cues);
+    if (!checked.ok) return checked;
+    return { ok: true, name: preset.name, cover: cover, reveal: reveal, cues: parsed.cues,
+      duration: preset.coverMs + preset.revealMs };
+  }
+
+  function enqueueTransition(args, context) {
+    var plan = inspectTransition(args);
+    if (!plan.ok || plan.skipped) return plan;
+    if (transitionQueue.length >= 20) return { ok: false, error: '장면전환 대기열이 가득 찼습니다.' };
+    var waitMs = transitionRun ? Math.max(0, transitionRun.endsAt - Date.now()) : 0;
+    transitionQueue.forEach(function (queued) { waitMs += queued.plan.duration; });
+    transitionQueue.push({ args: args.slice(), plan: plan, context: context || {} });
+    if (!transitionRun) startNextTransition();
+    return { ok: true, waitMs: waitMs + plan.duration };
+  }
+
+  function transitionLater(callback, delay) {
+    transitionTimer = setTimeout(function () {
+      transitionTimer = null;
+      try { callback(); }
+      catch (err) { finishTransition('장면전환 실패: ' + escapeHtml(err.message || err)); }
+    }, delay);
+  }
+
+  function startNextTransition() {
+    if (transitionRun || !transitionQueue.length) return;
+    var entry = transitionQueue.shift();
+    var plan = inspectTransition(entry.args);
+    if (!plan.ok || plan.skipped) {
+      whisper(plan.error || '장면전환 기능 꺼짐');
+      startNextTransition();
+      return;
+    }
+    transitionRun = { context: entry.context, ids: [], endsAt: Date.now() + plan.duration };
+    try {
+      var front = show(plan.cover, null, true);
+      if (!front.ok) return finishTransition(front.error);
+      transitionRun.ids.push(front.id);
+      transitionLater(function () {
+        var nextCard = parsePlayArgs(['id:' + plan.reveal.card.id, '1회', plan.reveal.cycleDuration + 'ms', plan.reveal.placement]);
+        if (!nextCard.ok || nextCard.skipped) return finishTransition(nextCard.error || '뒤 연출 실행 불가');
+        var checked = checkTransitionCues(plan.cues, entry.context);
+        if (!checked.ok) return finishTransition(checked.error);
+        for (var i = 0; i < plan.cues.length; i++) {
+          var cue = plan.cues[i];
+          var result = typeof KIBScene.execute === 'function'
+            ? KIBScene.execute(cue, entry.context)
+            : KIBScene.adapters[cue.type].cue(cue.args, entry.context);
+          if (result && (result.ok === false || result.skipped))
+            return finishTransition(result.error || '중간 명령 실행 불가');
+        }
+        // 앞 연출을 유지한 채 뒤 연출을 먼저 만들어 토큰 공백을 줄인다.
+        var back = show(nextCard, null, true);
+        if (!back.ok) return finishTransition(back.error);
+        transitionRun.ids.push(back.id);
+        transitionRemoving = true;
+        try { removeGraphic(front.id); } finally { transitionRemoving = false; }
+        transitionLater(function () { finishTransition(); }, plan.reveal.cycleDuration);
+      }, plan.cover.cycleDuration);
+    } catch (err) { finishTransition('장면전환 실패: ' + escapeHtml(err.message || err)); }
+  }
+
+  function finishTransition(error) {
+    if (transitionTimer !== null) clearTimeout(transitionTimer);
+    transitionTimer = null;
+    var run = transitionRun;
+    transitionRun = null;
+    transitionRemoving = true;
+    try { if (run) run.ids.forEach(removeGraphic); }
+    finally { transitionRemoving = false; }
+    if (error && run && typeof run.context.onAsyncError === 'function') run.context.onAsyncError(error);
+    else if (error) whisper(error);
+    startNextTransition();
+  }
+
+  function cancelTransitions(narratorOnly) {
+    transitionQueue = narratorOnly ? transitionQueue.filter(function (entry) { return !entry.context.narrator; }) : [];
+    if (transitionRun && (!narratorOnly || transitionRun.context.narrator)) finishTransition();
+  }
+
+  function saveTransition(args) {
+    var id = args[0];
+    var name = String(args[1] || '').trim();
+    if (!name || /[|{}\r\n]/.test(name)) return whisper('장면전환 이름 확인');
+    var presets = state.KIBSceneAPNG.transitions;
+    if (id !== '새로' && !Object.prototype.hasOwnProperty.call(presets, id)) return whisper('장면전환 없음');
+    if (Object.keys(presets).some(function (key) { return key !== id && presets[key].name === name; })) return whisper('장면전환 이름 중복');
+    var cover = findCard(args[2]);
+    var reveal = findCard(args[4]);
+    if (!cover.ok || !reveal.ok) return whisper((!cover.ok ? cover : reveal).error);
+    var coverMs = parseDuration(args[3]);
+    var revealMs = parseDuration(args[5]);
+    var placement = parsePlacement(args[6]);
+    if (!(coverMs >= 100 && coverMs <= 600000 && revealMs >= 100 && revealMs <= 600000) || !placement)
+      return whisper('앞뒤 시간 0.1~600초 / 위치 전체 또는 영역');
+    var commands = args.slice(7).join('|');
+    var parsed = transitionCues(commands);
+    if (!parsed.ok) return whisper(parsed.error);
+    var checked = checkTransitionCues(parsed.cues);
+    if (!checked.ok) return whisper(checked.error);
+    if (id === '새로') id = 't' + (++state.KIBSceneAPNG.transitionCounter);
+    presets[id] = { name: name, cover: cover.card.id, coverMs: coverMs, reveal: reveal.card.id,
+      revealMs: revealMs, placement: placement, commands: commands };
+    refreshHelp();
+    whisper('장면전환 저장: ' + escapeHtml(name));
+  }
+
+  function transitionButton(label, command) {
+    return '<a href="' + escapeHtml(command).replace(/\?/g, '&#63;') +
+      '" style="display:inline-block;margin:3px;padding:4px 7px;background:#53657d;color:#fff;text-decoration:none">' + escapeHtml(label) + '</a>';
+  }
+
+  function transitionControls() {
+    initState();
+    var deck = findDeck();
+    var cards = deck.ok ? findObjs({ _type: 'card', _deckid: deck.deck.id }) : [];
+    var presets = state.KIBSceneAPNG.transitions;
+    function editButton(id, preset) {
+      function cardQuery(label, selected) {
+        var sorted = cards.slice().sort(function (a, b) { return (a.id === selected ? -1 : 0) - (b.id === selected ? -1 : 0); });
+        return '?{' + label + '|' + sorted.map(function (card) {
+          return String(card.get('name')).replace(/[|,{}]/g, ' ') + ',id:' + card.id;
+        }).join('|') + '}';
+      }
+      return transitionButton(preset ? '수정' : '장면전환 만들기', '!APNG 전환저장|' + id +
+        '|?{장면전환 이름|' + (preset ? macroEscape(preset.name) : '') + '}|' + cardQuery('앞 연출 APNG', preset && preset.cover) +
+        '|?{앞 연출 시간|' + (preset ? formatSeconds(preset.coverMs) : '1.2초') + '}|' + cardQuery('뒤 연출 APNG', preset && preset.reveal) +
+        '|?{뒤 연출 시간|' + (preset ? formatSeconds(preset.revealMs) : '1.2초') + '}|?{위치|' +
+        (preset && preset.placement === 'area' ? '영역,영역|전체,전체' : '전체,전체|영역,영역') +
+        '}|' + (preset ? preset.commands : '?{기본 중간 명령 비우면 없음|}'));
+    }
+    var rows = Object.keys(presets).map(function (id) {
+      var preset = presets[id];
+      return '<div style="border-top:1px solid #ddd;padding:6px"><b>' + escapeHtml(preset.name) + '</b> / ' +
+        (preset.placement === 'area' ? '영역' : '전체') + ' / ' + formatSeconds(preset.coverMs) + ' → ' + formatSeconds(preset.revealMs) + '<br>' +
+        transitionButton('실행', '!APNG 전환|id:' + id) +
+        transitionButton('명령 지정 실행', '!APNG 전환|id:' + id + '|?{중간 명령 없으면 -|-}') + editButton(id, preset) +
+        transitionButton('중간 명령 수정', '!APNG 전환명령|' + id + '|?{새 중간 명령 비우면 없음|}') +
+        transitionButton('삭제', '!APNG 전환삭제|' + id) + '</div>';
+    }).join('');
+    return '<div><b>장면전환</b><br>앞 연출 → 중간 명령 → 뒤 연출. 전체 또는 영역 사용, 불투명 덮개 추가 없음.<br>' +
+      (cards.length ? editButton('새로') : 'apng 덱에 카드를 등록하세요.') +
+      transitionButton('전환 중지', '!APNG 전환중지') + rows + '</div>';
+  }
+
+  function refreshManager() {
+    initState();
+    var manager = state.KIBSceneAPNG.managerId ? getObj('handout', state.KIBSceneAPNG.managerId) : null;
+    if (!manager) manager = (findObjs({ _type: 'handout', name: SETTING.MANAGER_NAME }) || [])[0];
+    if (!manager) manager = createObj('handout', { name: SETTING.MANAGER_NAME, inplayerjournals: '', controlledby: '' });
+    if (!manager) return;
+    state.KIBSceneAPNG.managerId = manager.id;
+    manager.set('notes', '<h3>APNG 관리</h3>' + statusHtml());
+  }
+
   function statusHtml() {
     var deckResult = findDeck();
     if (!deckResult.ok) return deckResult.error;
@@ -929,7 +1192,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       escapeHtml(SETTING.AREA_NAME) +
       '</b> 토큰의 위치와 크기<table style="border-collapse:collapse;width:100%;margin-top:6px">' +
       rows +
-      '</table>'
+      '</table><br><code>!APNG 전환|전환명|@명령</code> 중간 명령 지정, <code>|-</code>는 효과만 실행<br><code>!... @장면전환 전환명</code> 나레이터와 함께 실행하면 전환 종료까지 다음 줄 대기<br>중간 명령은 설치한 모듈만 실행, 효과만 쓰면 다른 모듈 불필요' + transitionControls()
     );
   }
 
@@ -937,6 +1200,8 @@ KIBScene.adapters = KIBScene.adapters || {};
     state.KIBSceneAPNG = state.KIBSceneAPNG || {};
     state.KIBSceneAPNG.cardSettings = state.KIBSceneAPNG.cardSettings || {};
     state.KIBSceneAPNG.audioLinks = state.KIBSceneAPNG.audioLinks || {};
+    state.KIBSceneAPNG.transitions = state.KIBSceneAPNG.transitions || {};
+    state.KIBSceneAPNG.transitionCounter = state.KIBSceneAPNG.transitionCounter || 0;
     state.KIBSceneAPNG.activeIds = Array.isArray(state.KIBSceneAPNG.activeIds)
       ? state.KIBSceneAPNG.activeIds
       : [];
@@ -1020,6 +1285,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   }
 
   function refreshHelp() {
+    refreshManager();
     if (typeof KIBScene.refreshHandout === 'function')
       KIBScene.refreshHandout();
   }

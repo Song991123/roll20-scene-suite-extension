@@ -30,13 +30,8 @@ on('ready', function () {
     var imageCue = function (args) {
       var validation = validateImageCue(args);
       if (!validation.ok) return validation;
-      sendChat(
-        'SceneDirector',
-        '!#' + args[0] + ' ' + args.slice(1).join('|'),
-        null,
-        { noarchive: true },
-      );
-      return { ok: true };
+      // 어댑터가 반환되기 전에 변경을 마쳐 다음 연출과의 순서를 보장한다.
+      return isHandleImageCommand({ type: 'api', playerid: 'API', content: '!#' + args[0] + ' ' + args.slice(1).join('|') }) || { ok: true };
     };
     var adapter = {
       meta: { code: '04_image_switcher_compatible.js', title: '이미지 전환' },
@@ -59,7 +54,8 @@ on('destroy:deck', isRefreshForDeck);
 on('change:card', isRefreshForCard);
 on('destroy:card', isRefreshForCard);
 
-on('chat:message', function (msg) {
+on('chat:message', isHandleImageCommand);
+function isHandleImageCommand(msg) {
   if (msg.type == 'api') {
     try {
       var imageCommand = String(msg.content || '').match(
@@ -178,9 +174,10 @@ on('chat:message', function (msg) {
         '<code>!이미지 도움말</code>에서 사용법을 확인해 주세요.',
         err,
       );
+      return { ok: false, error: String(err && err.message ? err.message : err) };
     }
   }
-});
+}
 
 function validateImageCue(args) {
   var deckName = String(args[0] || '').trim();
