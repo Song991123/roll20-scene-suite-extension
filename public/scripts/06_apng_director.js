@@ -1,5 +1,5 @@
 /*
- * Scene Suite 06 - APNG Director 1.2.3-dev
+ * Scene Suite 06 - APNG Director 1.2.4-dev
  * 제작 및 통합: @EOOOOORK
  */
 var KIBScene = KIBScene || {};
@@ -56,8 +56,9 @@ KIBScene.adapters = KIBScene.adapters || {};
         meta: { code: '06_apng_director.js', title: 'APNG' },
         aliases: { APNG: '', apng: '', 에이피엔지: '', 장면전환: '전환' },
         cue: cue,
-        validate: function (args) {
-          if (args[0] === '전환') return inspectTransition(args.slice(1));
+        collectFollowing: function (args) { return args[0] === '전환'; },
+        validate: function (args, context) {
+          if (args[0] === '전환') return inspectTransition(args.slice(1), context);
           return inspectStopCue(args) || parsePlayArgs(args);
         },
         events: { 'narrator:cancel': function () { cancelTransitions(true); } },
@@ -76,6 +77,7 @@ KIBScene.adapters = KIBScene.adapters || {};
           '<code>!APNG 관리</code> 장면전환 등록과 수정',
           '<code>!APNG 전환|전환명|@명령</code> 앞 연출 후 명령 실행 후 뒤 연출',
           '<code>@장면전환 전환명</code> 저장한 장면전환 실행',
+          '<code>@장면전환 전환명 @비주얼 배경 장면명</code> 뒤의 @명령은 앞 APNG가 끝나면 실행',
         ],
       };
       if (typeof KIBScene.register === 'function')
@@ -971,8 +973,6 @@ KIBScene.adapters = KIBScene.adapters || {};
       if (!resolved) return { ok: false, error: '사용할 수 없는 중간 명령: ' + escapeHtml(chunks[i]) };
       var args = match[2].trim() ? match[2].split('|').map(function (part) { return part.trim(); }) : [];
       if (resolved.action) args.unshift(resolved.action);
-      if (resolved.type === 'apng' && /^(?:전환|중지|정리|stop|clear)$/.test(args[0] || ''))
-        return { ok: false, error: '장면전환 안에서 전환이나 APNG 중지는 사용할 수 없습니다.' };
       cues.push({ type: resolved.type, args: args, raw: chunks[i] });
     }
     return { ok: true, cues: cues };
@@ -981,6 +981,8 @@ KIBScene.adapters = KIBScene.adapters || {};
   function checkTransitionCues(cues, context) {
     for (var i = 0; i < cues.length; i++) {
       var cue = cues[i];
+      if (cue.type === 'apng' && /^(?:전환|중지|정리|stop|clear)$/.test(cue.args[0] || ''))
+        return { ok: false, error: '장면전환 안에서 전환이나 APNG 중지는 사용할 수 없습니다.' };
       var adapter = KIBScene.adapters[cue.type];
       if (!adapter || typeof adapter.cue !== 'function' || typeof adapter.validate !== 'function')
         return { ok: false, error: '검증할 수 없는 중간 명령: ' + escapeHtml(cue.type) };
@@ -994,7 +996,7 @@ KIBScene.adapters = KIBScene.adapters || {};
     return { ok: true };
   }
 
-  function inspectTransition(args) {
+  function inspectTransition(args, context) {
     if (!SETTING.ENABLED) return { ok: true, skipped: true };
     var ref = String(args[0] || '').trim();
     var presets = state.KIBSceneAPNG.transitions;
@@ -1009,14 +1011,15 @@ KIBScene.adapters = KIBScene.adapters || {};
     if (!reveal.ok || reveal.skipped) return reveal;
     var parsed = transitionCues(args.length > 1 ? args.slice(1).join('|') : preset.commands);
     if (!parsed.ok) return parsed;
-    var checked = checkTransitionCues(parsed.cues);
+    parsed.cues = parsed.cues.concat(context && context.followingCues || []);
+    var checked = checkTransitionCues(parsed.cues, context);
     if (!checked.ok) return checked;
     return { ok: true, name: preset.name, cover: cover, reveal: reveal, cues: parsed.cues,
       duration: preset.coverMs + preset.revealMs };
   }
 
   function enqueueTransition(args, context) {
-    var plan = inspectTransition(args);
+    var plan = inspectTransition(args, context);
     if (!plan.ok || plan.skipped) return plan;
     if (transitionQueue.length >= 20) return { ok: false, error: '장면전환 대기열이 가득 찼습니다.' };
     var waitMs = transitionRun ? Math.max(0, transitionRun.endsAt - Date.now()) : 0;
@@ -1037,7 +1040,7 @@ KIBScene.adapters = KIBScene.adapters || {};
   function startNextTransition() {
     if (transitionRun || !transitionQueue.length) return;
     var entry = transitionQueue.shift();
-    var plan = inspectTransition(entry.args);
+    var plan = inspectTransition(entry.args, entry.context);
     if (!plan.ok || plan.skipped) {
       whisper(plan.error || '장면전환 기능 꺼짐');
       startNextTransition();
@@ -1172,6 +1175,7 @@ KIBScene.adapters = KIBScene.adapters || {};
       '<code>!APNG 전환|전환명|@비주얼 배경 장면명</code> 이번에 실행할 중간 명령을 지정합니다. 해당 모듈이 설치돼 있어야 합니다.<br>' +
       '<code>!APNG 전환|전환명|-</code> 중간 명령 없이 앞뒤 APNG만 재생합니다.<br>' +
       '<code>!... @장면전환 전환명</code> 나레이터와 함께 쓰면 전환이 끝난 뒤 다음 줄을 출력합니다.<br>' +
+      '<code>!... @장면전환 전환명 @비주얼 배경 장면명</code> 뒤의 @명령은 앞 APNG가 끝나면 실행합니다.<br>' +
       '전환 중지는 실행 중인 전환과 대기열만 취소하며, 등록한 설정은 유지합니다.</div>');
   }
 

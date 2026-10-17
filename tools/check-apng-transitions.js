@@ -392,6 +392,101 @@ test('track inventory refreshes only on add rename and delete, not volume or pla
   assert(!r.managerHtml().includes('>음원 연결</a>')); assert(r.managerHtml().includes('주크박스 음원 없음'));
 });
 
+test('plain transition cues automatically defer following commands until the midpoint with or without 00', () => {
+  for (const director of [false, true]) {
+    const r = room({ director, narrator: true }); r.adapter('audio', { 오디오: '' }); r.adapter('vd', { 비주얼: '' }); r.save('기본');
+    const line = `/desc <div style="[다방](#" style="font-weight: bold; text-decoration:none; font-style:normal; font-family:'Diphylleia'; color: #fff; background-color:#332e27;box-shadow:inset 0 -15px 10px -10px #ffffff20; text-align: right; display:block; font-size: 17px; padding:12px 25px 12px; margin: -9px -30px; cursor: default; border-bottom: 2px solid #ffffff80;)<div style="[: ?{온사람} ](#" style="font-size: 11px; color: #fff; text-align: right; border-top: 1px solid #fff; margin-top: 5px; font-weight: normal;) @오디오 전체중지 @장면전환 기본 @비주얼 퇴장:전원 @오디오 재생|༄ 다방|반복|볼륨=30 @비주얼 배경 다방`;
+    const parsed = r.context.ntExtractCues(line), context = { narrator: true, as: 'GM' };
+    assert(parsed.text.includes("font-family:'Diphylleia'")); assert(!parsed.text.includes('@비주얼'));
+    assert.equal(r.context.ntValidateCues(parsed.cues, context).ok, true);
+    const result = r.context.ntRunCues(parsed.cues, context);
+    assert.equal(result.waitMs, 2000); assert.deepEqual(r.changes.map(c => c.args), [['전체중지']]);
+    r.advance(1199); assert.equal(r.changes.length, 1); assert.equal(r.graphics()[0].data.name, 'sd_apng:front');
+    r.advance(1); assert.deepEqual(r.changes.slice(1).map(c => c.args), [['퇴장:전원'], ['재생', '༄ 다방', '반복', '볼륨=30'], ['배경 다방']]);
+    assert.equal(r.graphics()[0].data.name, 'sd_apng:back');
+    r.advance(800); assert.equal(r.graphics().length, 0);
+  }
+});
+test('ordinary lines and explicit legacy groups retain their original timing', () => {
+  const r = room({ narrator: true }); r.adapter('audio', { 오디오: '' }); r.adapter('image', { 이미지: '' }); r.save();
+  let parsed = r.context.ntExtractCues('@오디오 전체중지 @이미지 image_room|ON');
+  r.context.ntRunCues(parsed.cues, {}); assert.equal(r.changes.length, 2);
+  r.changes.length = 0;
+  parsed = r.context.ntExtractCues('@오디오 전체중지 {{@장면전환|슬라이드|@이미지 image_room|OFF}} @오디오 재생|music');
+  assert.equal(r.context.ntValidateCues(parsed.cues, {}).ok, true);
+  r.context.ntRunCues(parsed.cues, {}); assert.deepEqual(r.changes.map(c => c.args), [['전체중지'], ['재생', 'music']]);
+  r.advance(1200); assert.deepEqual(r.changes.at(-1).args, ['image_room', 'OFF']);
+});
+test('two inline transitions partition their following commands and run FIFO', () => {
+  const r = room({ narrator: true }); r.adapter('image', { 이미지: '' }); r.save();
+  const parsed = r.context.ntExtractCues('@장면전환 슬라이드 @이미지 one|ON @장면전환 슬라이드 @이미지 two|ON');
+  assert.equal(r.context.ntValidateCues(parsed.cues, {}).ok, true);
+  assert.equal(r.context.ntRunCues(parsed.cues, {}).waitMs, 4000);
+  r.advance(1200); assert.deepEqual(r.changes.map(c => c.args[0]), ['one']);
+  r.advance(1999); assert.equal(r.changes.length, 1);
+  r.advance(1); assert.deepEqual(r.changes.map(c => c.args[0]), ['one', 'two']);
+  r.advance(800); assert.equal(r.graphics().length, 0);
+});
+test('invalid following commands cancel the entire line before immediate prefix actions', () => {
+  for (const director of [false, true]) {
+    const r = room({ director, narrator: true }); r.adapter('audio', { 오디오: '' }); r.adapter('image', { 이미지: '' }); r.save();
+    r.context.KIBScene.adapters.image.validate = () => ({ ok: false, error: '배경 없음' });
+    r.state.narration = [{ as: 'GM', msg: '@오디오 전체중지 @장면전환 슬라이드 @이미지 room|missing' }, { as: 'GM', msg: '출력 금지' }];
+    r.state.is_narrating = 2; r.context.narrate(); r.advance(5000);
+    assert.equal(r.changes.length, 0); assert.equal(r.graphics().length, 0); assert.equal(r.state.narration.length, 0);
+    assert(r.messages.some(m => m.content.includes('배경 없음'))); assert(!r.messages.some(m => m.content === '출력 금지'));
+  }
+});
+test('automatic display cues and disabled modules are not swallowed by inline transitions', () => {
+  const r = room({ director: true, narrator: true }); r.adapter('image', { 이미지: '' }); r.adapter('type', { 타자: '' }); r.adapter('cutin', { 컷인: '' }); r.save();
+  r.context.KIBScene.isFeatureEnabled = type => type !== 'image';
+  const parsed = r.context.ntExtractCues('@장면전환 슬라이드 @이미지 room|ON');
+  parsed.cues.push({ type: 'type', args: [], raw: '(automatic)' }, { type: 'cutin', args: ['matched'], raw: '(대사 자동 컷인)' });
+  assert.equal(r.context.ntValidateCues(parsed.cues, {}).ok, true);
+  r.context.ntRunCues(parsed.cues, {}); assert.deepEqual(r.changes.map(c => c.name), ['type', 'cutin']);
+  r.advance(2000); assert.equal(r.changes.length, 2);
+});
+test('inline commands preserve saved midpoint commands and cancellation removes only pending work', () => {
+  const r = room({ narrator: true }); r.adapter('image', { 이미지: '' }); r.save('슬라이드', '@이미지 saved|ON');
+  const parsed = r.context.ntExtractCues('@장면전환 슬라이드 @이미지 inline|ON');
+  r.context.ntRunCues(parsed.cues, { narrator: true }); r.advance(1200);
+  assert.deepEqual(r.changes.map(c => c.args[0]), ['saved', 'inline']); r.advance(800);
+  r.context.ntRunCues(parsed.cues, { narrator: true }); r.chat('!/'); r.advance(5000);
+  assert.equal(r.changes.length, 2); assert.equal(r.graphics().length, 0);
+  assert.equal(r.state.KIBSceneAPNG.transitions.t1.commands, '@이미지 saved|ON');
+});
+test('inline midpoint failures stop narration and recursive APNG commands fail validation', () => {
+  const r = room({ director: true, narrator: true }); r.adapter('image', { 이미지: '' }); r.save();
+  const invalid = r.context.ntExtractCues('@장면전환 슬라이드 @APNG 중지');
+  assert.equal(r.context.ntValidateCues(invalid.cues, {}).ok, false);
+  r.state.narration = [{ as: 'GM', msg: '@장면전환 슬라이드 @이미지 x|ON' }, { as: 'GM', msg: '출력 금지' }];
+  r.state.is_narrating = 2; r.context.narrate();
+  r.context.KIBScene.adapters.image.cue = () => ({ ok: false, error: '중간 실패' });
+  r.context.KIBScene.handlers.image = r.context.KIBScene.adapters.image.cue;
+  r.advance(6000); assert.equal(r.state.narration.length, 0); assert.equal(r.graphics().length, 0);
+  assert(!r.messages.some(m => m.content === '출력 금지'));
+});
+test('deferred expression shorthands retain avatar fallback before being queued', () => {
+  const r = room({ director: true, narrator: true }); r.adapter('vd', { 비주얼: '' }); r.adapter('avatar', { 아바타: '' }); r.save();
+  r.context.KIBScene.adapters.vd.validate = () => ({ ok: false, error: '스탠딩 없음' });
+  r.context.KIBScene.adapters.avatar.validate = () => ({ ok: true, targets: { avatar: true } });
+  const parsed = r.context.ntExtractCues('@장면전환 슬라이드 @홍길동:웃음');
+  assert.equal(r.context.ntValidateCues(parsed.cues, {}).ok, true);
+  assert.equal(parsed.cues.at(-1).type, 'avatar');
+  r.context.ntRunCues(parsed.cues, {}); assert.equal(r.changes.length, 0);
+  r.advance(1200); assert.deepEqual(r.changes.map(c => [c.name, ...c.args]), [['avatar', '홍길동:웃음']]);
+});
+test('following-cue collection is an optional adapter contract, not an APNG import in 01', () => {
+  const r = room({ narrator: true }); r.adapter('gate', { 대기문: '' }); r.adapter('image', { 이미지: '' });
+  const gate = r.context.KIBScene.adapters.gate; gate.collectFollowing = () => true;
+  gate.cue = (args, context) => { assert.equal(context.followingCues[0].type, 'image'); return { ok: true, waitMs: 100 }; };
+  r.context.KIBScene.handlers.gate = gate.cue;
+  const parsed = r.context.ntExtractCues('@대기문 x @이미지 room|ON');
+  assert.equal(r.context.ntValidateCues(parsed.cues, {}).ok, true);
+  assert.equal(r.context.ntRunCues(parsed.cues, {}).waitMs, 100); assert.equal(r.changes.length, 0);
+  assert(!source('01_narrator_director.js').includes('KIBSceneAPNG'));
+});
+
 const previewIndex = process.argv.indexOf('--preview');
 if (previewIndex >= 0) {
   const r = room(); r.adapter('vd', { 비주얼: '' }); r.save('복도 장면전환', '@비주얼 배경 외부인숙소_2층복도');

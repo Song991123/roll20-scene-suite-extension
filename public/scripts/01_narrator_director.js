@@ -726,7 +726,7 @@ function ntExtractCues(source) {
       let type = head.type;
       if (head.action) parts.unshift(head.action);
       if (type == 'type') directType = true;
-      cues.push({ type: type, args: parts, raw: all });
+      cues.push({ type: type, args: parts, raw: all, grouped: true });
       return '';
     },
   );
@@ -924,10 +924,32 @@ function ntExpressionCueType(value) {
     : 'avatar';
 }
 
+function ntCueSteps(cues, context) {
+  const steps = [];
+  let current = null;
+  cues.forEach(function (cue) {
+    const adapter = KIBScene.adapters[cue.type];
+    if (ntCueEnabled(cue.type) && adapter &&
+        typeof adapter.collectFollowing === 'function' && adapter.collectFollowing(cue.args)) {
+      current = cue.grouped ? null : {
+        cue: cue,
+        context: Object.assign({}, context, { followingCues: [] }),
+      };
+      steps.push(current || { cue: cue, context: context });
+    // Automatically generated display cues must keep their original line timing.
+    } else if (current && ntCueEnabled(cue.type) && !/^\(/.test(cue.raw || '')) {
+      current.context.followingCues.push(cue);
+    } else steps.push({ cue: cue, context: context });
+  });
+  return steps;
+}
+
 function ntRunCues(cues, context) {
   let waitMs = 0;
-  for (let i = 0; i < cues.length; i++) {
-    const cue = cues[i];
+  const steps = ntCueSteps(cues, context);
+  for (let i = 0; i < steps.length; i++) {
+    const cue = steps[i].cue;
+    const cueContext = steps[i].context;
     if (!ntKnownCue(cue.type))
       return {
         ok: false,
@@ -936,7 +958,7 @@ function ntRunCues(cues, context) {
       };
     if (!ntCueEnabled(cue.type)) continue;
     if (typeof KIBScene.execute === 'function') {
-      const result = KIBScene.execute(cue, context);
+      const result = KIBScene.execute(cue, cueContext);
       if (result && result.ok === false)
         return { ok: false, error: result.error, cue: cue };
       waitMs = Math.max(waitMs, Number(result && result.waitMs) || 0);
@@ -945,7 +967,7 @@ function ntRunCues(cues, context) {
     const handler = KIBScene.handlers[cue.type];
     if (typeof handler == 'function') {
       try {
-        const result = handler(cue.args, context);
+        const result = handler(cue.args, cueContext);
         if (result && result.ok === false)
           return { ok: false, error: result.error, cue: cue };
         waitMs = Math.max(waitMs, Number(result && result.waitMs) || 0);
@@ -970,8 +992,10 @@ function ntRunCues(cues, context) {
 }
 
 function ntValidateCues(cues, context) {
-  for (let i = 0; i < cues.length; i++) {
-    const cue = cues[i];
+  const steps = ntCueSteps(cues, context);
+  for (let i = 0; i < steps.length; i++) {
+    const cue = steps[i].cue;
+    const cueContext = steps[i].context;
     if (!ntKnownCue(cue.type))
       return {
         ok: false,
@@ -979,8 +1003,14 @@ function ntValidateCues(cues, context) {
         cue: cue,
       };
     if (!ntCueEnabled(cue.type)) continue;
-    if (typeof KIBScene.validate === 'function') {
-      const result = KIBScene.validate(cue, context);
+    if (cueContext !== context) {
+      const followingCheck = ntValidateCues(cueContext.followingCues, context);
+      if (!followingCheck.ok) return followingCheck;
+    }
+    const adapter = KIBScene.adapters[cue.type];
+    if (typeof KIBScene.validate === 'function' || (adapter && typeof adapter.validate === 'function')) {
+      const result = typeof KIBScene.validate === 'function'
+        ? KIBScene.validate(cue, cueContext) : adapter.validate(cue.args, cueContext);
       if (result && result.ok === false) {
         if (
           cue.expressionShorthand &&
@@ -988,10 +1018,11 @@ function ntValidateCues(cues, context) {
           ntHasPlugin('avatar') &&
           ntCueEnabled('avatar')
         ) {
-          const avatarResult = KIBScene.validate(
-            { type: 'avatar', args: cue.args, raw: cue.raw },
-            context,
-          );
+          const avatarAdapter = KIBScene.adapters.avatar;
+          const avatarResult = typeof KIBScene.validate === 'function'
+            ? KIBScene.validate({ type: 'avatar', args: cue.args, raw: cue.raw }, cueContext)
+            : avatarAdapter && typeof avatarAdapter.validate === 'function'
+              ? avatarAdapter.validate(cue.args, cueContext) : null;
           if (
             avatarResult &&
             avatarResult.ok &&

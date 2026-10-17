@@ -655,7 +655,8 @@ var KIBScene = KIBScene || {};
       ) +
       commandRow('!sd set|timing.lineInterval|3000', '기본 줄 간격 3초') +
       commandRow('!... /w 캐릭터명 내용', '해당 캐릭터 제어 권한자에게 귓말, 발신자에게 전달 안내') +
-      (hasPlugin('apng') ? commandRow('!... @장면전환 전환명', '전환 종료까지 다음 줄 대기') : '') +
+      (hasPlugin('apng') ? commandRow('!... @장면전환 전환명', '전환 종료까지 다음 줄 대기') +
+        commandRow('!... @장면전환 전환명 @비주얼 배경 장면명', '뒤의 @명령은 앞 APNG가 끝나면 실행') : '') +
       (hasPlugin('apng') && hasPlugin('vd')
         ? commandRow(
             '!... @APNG 카드명|1회|영역|1.2초 @퇴장:전원 @다음줄 1.2초',
