@@ -664,6 +664,10 @@ test('decorated background audio and APNG cues finish the background change befo
         return play(args, context);
       };
       const style = '](#" style="font-size: 13px; color: #333333; text-decoration: none; font-style:normal; font-weight:normal;)';
+      const intentionalEmptyDecoration = '/desc [  ' + style;
+      assert.equal(r.context.ntExtractCues(intentionalEmptyDecoration).text, intentionalEmptyDecoration);
+      const escaped = r.context.ntExtractCues('/desc [ @APNG 안개흰색|반복|영역  ' + style.replace('](', ']\\('));
+      assert.equal(escaped.text, ''); assert.equal(escaped.cues.length, 1);
       r.chat('!... /desc [ ``1983년 6월 9일, 오전 12시`` @비주얼 배경 붉게물든저편 @오디오 재생|짧은 타자기 소리 @오디오 재생|༄ 한밤 중의 연기|반복|볼륨=35 @오디오 재생|용목골 밤 소리|반복 @APNG 안개흰색|반복|영역  ' + style);
       if (simultaneous) r.chat('!. /desc [ @APNG 안개흰색|반복|영역  ' + style);
       r.advance(2000);
@@ -676,6 +680,7 @@ test('decorated background audio and APNG cues finish the background change befo
       assert.equal(r.objects.get('sound1').get('loop'), true);
       assert.equal(r.objects.get('sound1').get('volume'), 35);
       assert.equal(r.objects.get('sound2').get('loop'), true);
+      assert(!r.messages.some(message => /^\/desc \[\s*\]\(#/.test(message.content)), 'cue-only decoration must not leak raw CSS');
       assert(!r.messages.some(message => message.content.startsWith('!@배경 ')), 'adapter should not enqueue another background chat command');
       r.chat('!APNG 중지'); r.advance(1000); assert.equal(r.graphics().length, 0);
     }
