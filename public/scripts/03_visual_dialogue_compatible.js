@@ -1,6 +1,8 @@
 /*
  * Scene Suite 03 - Visual Dialogue 확장 버전
  * 확장 및 통합: @EOOOOORK
+ * 대사창, 스크립트창, 스탠딩, 표정과 배경을 표시합니다.
+ * !비주얼 설정으로 열며 배경 변경 큐는 생성 완료 후 다음 연출을 실행합니다.
  * 원본: 양천일염 (kibkibe) Visual Dialogue
  * 원본 코드: visual_dialogue.js
  * 원본 라이선스: CC BY-NC (저작자표시-비영리)

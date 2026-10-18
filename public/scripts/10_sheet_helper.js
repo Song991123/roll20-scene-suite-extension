@@ -1,6 +1,7 @@
 /*
  * Scene Suite 10 - Sheet Helper 0.6.58
  * 제작 및 통합: @EOOOOORK
+ * !!관리에서 인식된 항목을 확인하고 한글 명령과 수치 변경을 사용합니다.
  * 시트 HTML 인식: 공개 및 커스텀 시트 호환
  * 속성 변화 알림 참고: https://github.com/kibkibe/roll20-api-scripts/tree/master/attribute_tracker
  */

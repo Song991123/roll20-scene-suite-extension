@@ -1,6 +1,8 @@
 /*
- * Scene Suite 00 - Scene Director 3.5.2
+ * Scene Suite 00 - Scene Director 3.6.0
  * 제작 및 통합: @EOOOOORK
+ * 설치된 기능 연결, 공통 출력 시간과 도움말을 관리합니다.
+ * !도움으로 사용법을 열고 각 기능의 관리 화면에서 설정합니다.
  */
 var KIBScene = KIBScene || {};
 (function () {
@@ -8,7 +10,7 @@ var KIBScene = KIBScene || {};
 
   // ===== 기본 설정 =====
   var DEFAULTS = {
-    version: '3.5.2',
+    version: '3.6.0',
     command: '!sd',
     features: {
       audio: true,
@@ -20,6 +22,7 @@ var KIBScene = KIBScene || {};
       cutin: true,
       avatar: true,
       sheet: true,
+      clock: true,
       page: false,
     },
     timing: {
@@ -538,6 +541,7 @@ var KIBScene = KIBScene || {};
       cutin: '컷인',
       avatar: '캐릭터 이미지',
       sheet: '시트 헬퍼',
+      clock: '시계와 타이머',
     };
     var featureButtons = names
       .filter(function (name) {
@@ -582,6 +586,9 @@ var KIBScene = KIBScene || {};
       (hasPlugin('sheet')
         ? actionButton('시트 헬퍼', '!!관리', '#7654a8') + ' '
         : '') +
+      (hasPlugin('clock')
+        ? actionButton('시계와 타이머', '!시계 설정', '#7654a8') + ' '
+        : '') +
       actionButton('도움말 갱신', '!sd handout', '#9b6b20');
     var sections = [];
     sections.push(
@@ -617,6 +624,7 @@ var KIBScene = KIBScene || {};
     if (hasPlugin('cutin')) sections.push(cutinHelpSection());
     if (hasPlugin('avatar')) sections.push(avatarHelpSection());
     if (hasPlugin('sheet')) sections.push(sheetHelpSection());
+    if (hasPlugin('clock')) sections.push(clockHelpSection());
     return (
       '<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;background:#fff">' +
       '<div style="background:#111;color:#fff;padding:14px">' +
@@ -640,6 +648,32 @@ var KIBScene = KIBScene || {};
 
   function moduleHelpSection(name, fallbackTitle, body) {
     return helpSection(escapeHtml(fallbackTitle), body);
+  }
+
+  function clockHelpSection() {
+    var rows =
+      commandRow('!시계 설정', '현재 상태와 표시 설정') +
+      commandRow('!시계 시간|06:30', '24시 기준으로 설정, AM/PM 자동 표시') +
+      commandRow('!시계 간격|1시간30분', '기본 증감 간격, 시와 분을 함께 입력 가능') +
+      commandRow('!시계 증가 / !시계 감소', '기본 간격만큼 조절') +
+      commandRow('!시계 증가 2시간 / !시계 감소 15분', '이번에만 지정한 시간만큼 조절') +
+      commandRow('!시계 ON / !타이머 ON', '시계 또는 타이머 표시') +
+      commandRow('!시계 OFF / !타이머 OFF', '표시 제거와 카운트다운 정리, 설정 보존') +
+      commandRow('!시계 알림|공개 / !시계 알림|GM', '증감한 현재 시간 알림 대상, 로그에 남기지 않음') +
+      commandRow('!시계 표시|배경 / !시계 표시|그림자', '시계와 타이머 표시 방식') +
+      commandRow('!시계 불투명도|70 / !시계 그림자불투명도|60', '배경과 그림자 불투명도를 각각 0~100으로 설정') +
+      commandRow('!타이머 설정|00:10:00', '시작 시간 설정, 10분 또는 1시간30분도 가능') +
+      commandRow('!타이머 시작 / !타이머 일시정지 / !타이머 초기화', '시작 또는 재개, 일시정지, 시작 시간으로 복원') +
+      (hasPlugin('narrator') ? commandRow('!... 조사가 끝났습니다. @시계 증가 1시간30분', '대사와 함께 게임 시간 조절') +
+        commandRow('!... @타이머 설정|10분 @타이머 시작', '같은 줄에서 타이머 설정 후 시작') : '');
+    return moduleHelpSection('clock', '11 시계와 타이머',
+      setupSteps([
+        '영역: GM 레이어에 이미지 토큰을 놓고 표시할 위치와 크기로 조절한 뒤 선택',
+        '영역 등록: <code>!시계 영역등록</code>, 토큰 회전 0도, 가로 80px와 세로 20px 이상',
+        '표시: <code>!시계 시간|06:00</code> 입력 후 <code>!시계 ON</code>',
+      ]) + actionButton('시계와 타이머 설정', '!시계 설정', '#7654a8') +
+      '<table style="width:100%;border-collapse:collapse">' + rows + '</table>' +
+      '<div style="margin-top:7px">시계와 타이머는 등록 영역 하나를 함께 사용합니다. ON/OFF와 설정은 API 재시작 후에도 유지합니다. 기존 독립 시계는 제거하고 11번으로 교체하세요.</div>');
   }
 
   function narratorHelpSection() {
@@ -676,6 +710,7 @@ var KIBScene = KIBScene || {};
     var cueNames = [];
     if (hasPlugin('audio')) cueNames.push('<code>@오디오</code>');
     if (hasPlugin('apng')) cueNames.push('<code>@APNG</code>');
+    if (hasPlugin('clock')) cueNames.push('<code>@시계</code>, <code>@타이머</code>');
     if (cueNames.length) setupItems.push('연출: 줄 끝에 ' + cueNames.join(', ') + ' 입력');
     var setup = setupSteps(setupItems);
     return moduleHelpSection(
@@ -1483,6 +1518,7 @@ var KIBScene = KIBScene || {};
       cutin: '컷인',
       avatar: '캐릭터 이미지',
       sheet: '시트 헬퍼',
+      clock: '시계와 타이머',
     };
     return String(
       (adapter && adapter.meta && adapter.meta.title) ||

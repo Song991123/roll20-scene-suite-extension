@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const source = fs.readFileSync(require('node:path').join(__dirname, 'session-clock.js'), 'utf8');
+const source = fs.readFileSync(require('node:path').join(__dirname, '../../public/scripts/11_session_clock.js'), 'utf8');
 
 function room(options = {}) {
   const objects = new Map(), handlers = {}, timers = new Map(), messages = [], logs = [], fronts = [], zorder = [];
@@ -9,8 +9,9 @@ function room(options = {}) {
   const faults = {}, state = { OtherAPI: { untouched: true } };
   function emit(event, obj) { (handlers[event] || []).forEach(fn => fn(obj)); }
   function object(type, attrs, id = String(++nextId)) {
-    const data = { ...attrs }, obj = { id,
-      get(key) {
+    const data = { _type: type, _id: id, ...attrs }, obj = { id,
+      get(key, callback) {
+        if (callback) callback(data[key] || '');
         if (type === 'text' && ['width', 'height'].includes(key)) {
           if (options.noBounds) return 0;
           return key === 'width' ? data.text.length * data.font_size : data.font_size * 1.2;
@@ -28,11 +29,14 @@ function room(options = {}) {
     objects.set(type + id, obj); zorder.push(id); return obj;
   }
   object('page', { name: 'Test page' }, 'page');
+  object('player', { _displayname: 'GM', speakingas: '' }, 'gm');
   const guide = object('graphic', { _pageid: 'page', layer: 'gmlayer', rotation: 0, left: 500, top: 200, width: 500, height: 100 }, 'guide');
   const outsider = object('text', { text: 'Keep me' }, 'outsider');
   const context = vm.createContext({ state, Date: { now: () => now },
     on: (name, fn) => (handlers[name] ||= []).push(fn),
     getObj: (type, id) => objects.get(type + id),
+    findObjs: query => [...objects.values()].filter(obj => Object.keys(query).every(key => obj.get(key) === query[key])),
+    Campaign: () => ({ get: key => key === 'playerpageid' ? 'page' : '[]' }),
     createObj: (type, attrs) => { if (faults.create === type) throw new Error('create failed'); return object(type, attrs); },
     toFront: obj => { fronts.push(obj.id); if (!options.deferredFront) { zorder.splice(zorder.indexOf(obj.id), 1); zorder.push(obj.id); } },
     toBelow: (obj, target) => { zorder.splice(zorder.indexOf(obj.id), 1); zorder.splice(zorder.indexOf(target.id), 0, obj.id); },
@@ -42,10 +46,11 @@ function room(options = {}) {
     setTimeout: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, due: now + delay }); return id; },
     clearTimeout: id => timers.delete(id)
   });
+  (options.modules || []).forEach(file => vm.runInContext(fs.readFileSync(require('node:path').join(__dirname, '../../public/scripts', file), 'utf8'), context));
   vm.runInContext(source, context);
   emit('ready');
   const api = {
-    state, objects, timers, messages, logs, fronts, zorder, guide, outsider, faults, emit,
+    state, context, objects, timers, messages, logs, fronts, zorder, guide, outsider, faults, emit,
     s: () => state.Roll20SessionClock,
     cmd(action = '', playerid = 'gm', selected = [{ _type: 'graphic', _id: 'guide' }]) {
       emit('chat:message', { type: 'api', content: '!시계' + (action ? ' ' + action : ''), playerid, selected });
@@ -82,7 +87,7 @@ function unchanged(r, command) {
 test('isolated namespace and OFF startup', () => {
   const r = room(); idle(r); assert.equal(r.s().enabled, false);
   assert.equal(r.s().objects.length, 0); assert.deepEqual(r.state.OtherAPI, { untouched: true });
-  assert.doesNotMatch(source, /KIBScene|SceneDirector\.|fetch\(|setInterval\(/);
+  assert.doesNotMatch(source, /KIBScene\.(?:call|get|execute)\(|fetch\(|setInterval\(/);
 });
 test('GM-only commands and exact API prefix', () => {
   const r = room(); const before = JSON.stringify(r.state);
@@ -380,5 +385,75 @@ test('settings buttons emit standalone commands and query links', () => {
   }
   assert.equal(r.logs.length, 1); assert.ok(!r.messages.some(m => /알 수 없는|입력하세요|먼저 설정|선택하세요/.test(m.content)));
   assert.equal(r.s().durationSeconds, 600); assert.equal(r.s().remainingMs, 600000); idle(r);
+});
+test('optional registration supports 11 alone 01+11 and 00+01+11 without other modules', () => {
+  for (const modules of [[], ['01_narrator_director.js'], ['00_scene_director.js', '01_narrator_director.js']]) {
+    const r = room({ modules });
+    const adapter = r.context.KIBScene.adapters.clock;
+    assert.equal(adapter.meta.code, '11_session_clock.js');
+    r.display(); const before = JSON.stringify(r.s());
+    assert.equal(adapter.validate(['clock', '증가 1시간30분'], {}).ok, true);
+    assert.equal(JSON.stringify(r.s()), before, 'preflight must not change state or objects');
+    assert.equal(adapter.cue(['clock', '증가 1시간30분']).ok, true);
+    assert.equal(r.label().data.text, 'AM 01:30');
+    if (modules.includes('01_narrator_director.js')) {
+      const parsed = r.context.ntExtractCues('조사 종료 @시계 증가 2시간 @시계 감소|15분');
+      assert.equal(parsed.cues.length, 2); const context = { narrator: true };
+      assert.equal(r.context.ntValidateCues(parsed.cues, context).ok, true);
+      assert.equal(r.context.ntRunCues(parsed.cues, context).ok, true);
+      assert.equal(r.s().clockMinutes, 195);
+    }
+  }
+});
+test('narrator same-line timer configuration start pause and invalid inputs preflight safely', () => {
+  const r = room({ modules: ['00_scene_director.js', '01_narrator_director.js'] }); r.display();
+  const adapter = r.context.KIBScene.adapters.clock;
+  for (const command of ['@타이머 설정|10분 @타이머 시작', '@시계 시간|06:00 @시계 증가 1시간30분']) {
+    const parsed = r.context.ntExtractCues(command), before = JSON.stringify(r.s()), context = { narrator: true };
+    assert.equal(r.context.ntValidateCues(parsed.cues, context).ok, true);
+    assert.equal(JSON.stringify(r.s()), before);
+    assert.equal(r.context.ntRunCues(parsed.cues, context).ok, true);
+  }
+  assert.equal(r.s().clockMinutes, 450); assert.equal(r.s().running, false);
+  for (const command of ['@시계 증가 1시간 @시계 시간|25:00', '@타이머 설정|0초 @타이머 시작', '@타이머 ON @시계 증가 1시간']) {
+    const parsed = r.context.ntExtractCues(command), before = JSON.stringify(r.s());
+    assert.equal(r.context.ntValidateCues(parsed.cues, { narrator: true }).ok, false);
+    assert.equal(JSON.stringify(r.s()), before);
+  }
+  assert.equal(adapter.validate(['clock', '영역등록'], {}).ok, false);
+  assert.equal(adapter.validate(['timer', 'unknown'], {}).ok, false);
+  assert.equal(adapter.cue(['clock', '불투명도', '101']).ok, false);
+  r.faults.create = 'text';
+  assert.equal(adapter.cue(['clock', 'ON']).ok, false); assert.equal(r.s().enabled, false);
+});
+test('actual narrator command handler executes clock cues and rejects player input', () => {
+  for (const modules of [['01_narrator_director.js'], ['00_scene_director.js', '01_narrator_director.js']]) {
+    const r = room({ modules }); r.display();
+    r.emit('chat:message', { type: 'api', content: '!... 조사 종료 @시계 증가 1시간30분', playerid: 'player', who: 'Player' });
+    r.advance(4000); assert.equal(r.s().clockMinutes, 0);
+    r.emit('chat:message', { type: 'api', content: '!... /desc 조사 종료 @시계 증가 1시간30분', playerid: 'gm', who: 'GM' });
+    r.advance(4000); assert.equal(r.s().clockMinutes, 90);
+    assert.ok(r.messages.some(msg => msg.content.includes('조사 종료')));
+    assert.ok(!r.messages.some(msg => msg.content.includes('@시계')));
+    r.emit('chat:message', { type: 'api', content: '!... @타이머 설정|3초 @타이머 시작', playerid: 'gm', who: 'GM' });
+    r.advance(500); assert.equal(r.s().running, true);
+    r.advance(4000); assert.equal(r.label().data.text, '00:00:00'); assert.equal(r.s().running, false);
+  }
+});
+test('00 help and feature toggle include 11 only when installed', () => {
+  const r = room({ modules: ['00_scene_director.js', '01_narrator_director.js'] }); r.display();
+  r.emit('chat:message', { type: 'api', content: '!도움', playerid: 'gm' });
+  let help = [...r.objects.values()].find(obj => obj.get('_type') === 'handout');
+  assert.match(help.get('notes'), /11 시계와 타이머/);
+  assert.match(help.get('notes'), /!시계 간격\|1시간30분/);
+  assert.match(help.get('notes'), /@타이머 설정\|10분 @타이머 시작/);
+  const parsed = r.context.ntExtractCues('@시계 증가 1시간');
+  r.context.KIBScene.routeCommand('feature|clock|off', { playerid: 'gm' });
+  r.context.ntRunCues(parsed.cues, { narrator: true }); assert.equal(r.s().clockMinutes, 0);
+  r.context.KIBScene.routeCommand('feature|clock|on', { playerid: 'gm' });
+  r.context.ntRunCues(parsed.cues, { narrator: true }); assert.equal(r.s().clockMinutes, 60);
+  delete r.context.KIBScene.adapters.clock;
+  r.emit('chat:message', { type: 'api', content: '!도움', playerid: 'gm' });
+  assert.doesNotMatch(help.get('notes'), /11 시계와 타이머|@타이머/);
 });
 console.log(`${passed} tests passed`);

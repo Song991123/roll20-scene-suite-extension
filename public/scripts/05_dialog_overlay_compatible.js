@@ -1,6 +1,8 @@
 /*
  * Scene Suite 05 - Dialog Overlay 1.4.1
  * 제작 및 통합: @EOOOOORK
+ * 별도 패널에 대사와 스크립트를 한 글자씩 표시합니다.
+ * !dialog-status에서 현재 상태와 사용법을 확인합니다.
  */
 
 var KIBScene = KIBScene || {};

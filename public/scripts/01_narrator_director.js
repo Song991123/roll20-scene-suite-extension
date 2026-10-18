@@ -1,6 +1,8 @@
 /*
  * Scene Suite 01 - Narrator Director 확장 버전
  * 확장 및 통합: @EOOOOORK
+ * 대사를 순서대로 출력하고 같은 줄의 @명령을 함께 실행합니다.
+ * !나레이터 설정에서 출력 시간을 바꾸며 !.은 직전 줄과 같은 차례에 출력합니다.
  * 원본: 양천일염 (kibkibe) Narrator
  * 원본 코드: narrator.js
  * 원본 라이선스: CC BY-NC (저작자표시-비영리)
@@ -118,6 +120,7 @@ on('chat:message', function (msg) {
       if (ntHasPlugin('apng')) cueHelp.push('<code>@APNG</code>');
       if (ntHasPlugin('handout')) cueHelp.push('<code>@핸드아웃</code>');
       if (ntHasPlugin('cutin')) cueHelp.push('<code>@컷인</code>');
+      if (ntHasPlugin('clock')) cueHelp.push('<code>@시계</code>, <code>@타이머</code>');
       sendChat(
         '나레이터',
         '/w GM <b>나레이터 도움말</b><br><code>!... 대사</code> 차례대로 출력<br><code>!... 대사 @다음줄 1.2초</code> 이 줄만 다음 줄까지 대기, 0~600초 또는 ms<br><code>!... {사과|포도}</code> 무작위 선택, 채팅에서 밑줄 표시<br><code>!... /w 캐릭터명 내용</code> 제어 권한자에게 귓말<br><code>!... /as "홍길동" 대사</code> 캐릭터 대사<br><code>!... /desc 설명</code> 강조문<br><code>!... /emas "홍길동" 행동</code> 행동문<br><code>!,,, 다음 줄</code> 이전 항목에 줄바꿈 추가<br><code>!. 동시에 출력할 줄</code> 같은 차례에 함께 출력, 내용 필요<br><code>!,</code> 일시정지 또는 다시 시작<br><code>!/</code> 전체 취소' +

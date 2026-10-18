@@ -1,6 +1,8 @@
 /*
  * Scene Suite 02 - Audio Bridge 1.8.7
  * 제작 및 통합: @EOOOOORK
+ * 쥬크박스 재생, 중지, 반복, 볼륨과 페이드를 관리합니다.
+ * !오디오 설정으로 열고 명령 맨 앞에 재생 또는 중지 동작을 입력합니다.
  */
 var KIBScene = KIBScene || {};
 KIBScene.handlers = KIBScene.handlers || {};

@@ -1,6 +1,8 @@
 /*
  * Scene Suite 07 - Handout Director 1.4.5
  * 제작 및 통합: @EOOOOORK
+ * 핸드아웃 보기 권한과 공개 알림을 관리합니다.
+ * !핸드아웃 관리로 열며 사용자 공개 알림 매크로는 덮어쓰지 않습니다.
  */
 var KIBScene = KIBScene || {};
 KIBScene.handlers = KIBScene.handlers || {};

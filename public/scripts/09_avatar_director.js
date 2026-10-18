@@ -1,6 +1,8 @@
 /*
  * Scene Suite 09 - Avatar Expression Director 1.0.5
  * 제작 및 통합: @EOOOOORK
+ * 표정 카드로 캐릭터 이미지와 지정한 맵 토큰을 변경합니다.
+ * !아바타 관리로 열며 03 비주얼 노벨 설정과 별도로 관리합니다.
  */
 
 var KIBScene = KIBScene || {};

@@ -1,6 +1,8 @@
 /*
- * Scene Suite 06 - APNG Director 1.2.5-dev
+ * Scene Suite 06 - APNG Director 1.2.5
  * 제작 및 통합: @EOOOOORK
+ * 전체 화면 또는 지정 영역에 애니메이션을 표시하고 장면전환을 관리합니다.
+ * !APNG 관리에서 재생, 음원 연결과 장면전환을 설정합니다.
  */
 var KIBScene = KIBScene || {};
 KIBScene.handlers = KIBScene.handlers || {};

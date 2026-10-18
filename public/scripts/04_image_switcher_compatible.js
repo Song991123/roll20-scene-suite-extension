@@ -1,6 +1,8 @@
 /*
  * Scene Suite 04 - Image Switcher 확장 버전
  * 확장 및 통합: @EOOOOORK
+ * 카드덱의 이미지로 같은 이름의 보드 위 토큰 이미지를 전환합니다.
+ * !이미지 설정에서 사용법과 매크로를 확인합니다.
  * 원본: 양천일염 (kibkibe) Image Switcher
  * 원본 코드: image_switcher.js
  * 원본 라이선스: CC BY-NC (저작자표시-비영리)

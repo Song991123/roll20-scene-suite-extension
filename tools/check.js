@@ -11,17 +11,19 @@ const scriptsRoot = path.join(publicRoot, 'scripts');
 const sourcesFile = path.join(publicRoot, 'assets', 'sources.js');
 const contractParserFile = path.join(root, 'tools', 'sheet-contract-parser.js');
 const readText = (file) => fs.readFileSync(file, 'utf8').replace(/\r\n?/g, '\n');
-const scripts = Array.from({ length: 11 }, (_, index) =>
+const scripts = Array.from({ length: 12 }, (_, index) =>
   fs
     .readdirSync(scriptsRoot)
     .find((name) => name.startsWith(`${String(index).padStart(2, '0')}_`)),
 );
 
-assert(scripts.every(Boolean), '00부터 10까지 스크립트가 모두 있어야 합니다.');
+assert(scripts.every(Boolean), '00부터 11까지 스크립트가 모두 있어야 합니다.');
 scripts.forEach((name) =>
   execFileSync(process.execPath, ['--check', path.join(scriptsRoot, name)]),
 );
 execFileSync(process.execPath, ['--check', contractParserFile]);
+execFileSync(process.execPath, [path.join(root, 'standalone', 'session-clock', 'test.cjs')], { stdio: 'inherit' });
+execFileSync(process.execPath, [path.join(root, 'tools', 'check-clock-installation.js')], { stdio: 'inherit' });
 execFileSync(process.execPath, [path.join(root, 'tools', 'check-visual-lifecycle.js')], { stdio: 'inherit' });
 execFileSync(process.execPath, [path.join(root, 'tools', 'check-apng-transitions.js')], { stdio: 'inherit' });
 execFileSync(
@@ -1777,6 +1779,9 @@ assert(
     appText.includes("sheet: '10'"),
   '10 시트 헬퍼를 설치기에 노출하고 00 기능 설정과 연결해야 합니다.',
 );
+assert(appText.includes("file: '11_session_clock.js'") && appText.includes("clock: '11'") &&
+  appText.includes('!시계 증가 2시간') && sceneDirectorText.includes('!시계 간격|1시간30분'),
+  '11 시계와 타이머는 설치 목록, 기능 선택과 시/분 단위 도움말을 제공해야 합니다.');
 assert(
   !appText.includes('contractBuilder: true') &&
     !appText.includes('bindSheetContractBuilder();') &&

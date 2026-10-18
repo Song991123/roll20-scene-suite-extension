@@ -687,6 +687,22 @@ test('decorated background audio and APNG cues finish the background change befo
   }
 });
 
+test('11 clock cues remain optional and defer to transition midpoint without shared runtime state', () => {
+  for (const director of [false, true]) {
+    const r = room({ director, narrator: true, modules: ['11_session_clock.js'] });
+    r.object('graphic', 'clock-area', { _pageid: 'page', layer: 'gmlayer', rotation: 0, left: 500, top: 100, width: 400, height: 80 });
+    r.emit('chat:message', { type: 'api', content: '!시계 영역등록', playerid: 'gm', selected: [{ _type: 'graphic', _id: 'clock-area' }] });
+    r.chat('!시계 시간|06:00'); r.chat('!시계 ON'); r.save();
+    const context = { narrator: true }, parsed = r.context.ntExtractCues('@장면전환 슬라이드 @시계 증가 1시간30분');
+    assert.equal(r.context.ntValidateCues(parsed.cues, context).ok, true);
+    assert.equal(r.context.ntRunCues(parsed.cues, context).ok, true);
+    r.advance(1199); assert.equal(r.state.Roll20SessionClock.clockMinutes, 360);
+    r.advance(1); assert.equal(r.state.Roll20SessionClock.clockMinutes, 450);
+    r.advance(801); r.chat('!시계 OFF'); r.chat('!APNG 중지'); r.advance(1000);
+    assert.equal(r.state.Roll20SessionClock.objects.length, 0); assert.equal(r.graphics().length, 0);
+  }
+});
+
 const previewIndex = process.argv.indexOf('--preview');
 if (previewIndex >= 0) {
   const r = room(); r.adapter('vd', { 비주얼: '' }); r.save('복도 장면전환', '@비주얼 배경 외부인숙소_2층복도');

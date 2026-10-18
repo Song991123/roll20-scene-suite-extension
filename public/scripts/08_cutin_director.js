@@ -1,6 +1,8 @@
 /*
  * Scene Suite 08 - Cutin Director 1.6.2
  * 제작 및 통합: @EOOOOORK
+ * !컷인 관리에서 이미지와 핸드아웃 표지 연출을 설정합니다.
+ * 10번과 함께 설치하면 지원되는 판정 결과와 성공 수준에 연동합니다.
  * 연출 아이디어 참고: 젠트의 주사위 판정 컷인, 똣의 범용 컷인 API
  * https://lise1415622.tistory.com/52
  * https://www.postype.com/@ttospt/post/21806654

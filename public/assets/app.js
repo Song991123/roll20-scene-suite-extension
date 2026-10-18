@@ -195,6 +195,23 @@ const MODULES = [
       { id: 'refreshDelay', group: '갱신', label: '변경 감지 대기(ms)', type: 'number', value: 700, min: 0, codeKey: 'refresh_delay' },
     ],
   },
+  {
+    id: '11',
+    file: '11_session_clock.js',
+    title: '시계와 타이머',
+    description: '게임 속 시간 표시와 수동 증감, 실제 시간 카운트다운',
+    setup: [
+      'GM 레이어에 이미지 토큰을 놓고 시계를 표시할 위치와 크기로 조절합니다. 회전은 0도, 가로 80px와 세로 20px 이상으로 지정합니다.',
+      '토큰을 선택하고 !시계 영역등록을 입력합니다. 등록 시점의 위치와 크기를 저장하므로 토큰을 옮겼다면 다시 등록합니다.',
+      '!시계 시간|06:00으로 시간을 정하고 !시계 ON으로 표시합니다. 시간은 24시 기준으로 입력하며 AM/PM은 자동 표시합니다.',
+      '!시계 간격|1시간30분으로 기본 증감 간격을 정합니다. !시계 증가와 !시계 감소는 기본 간격을 사용하며, !시계 증가 2시간과 !시계 감소 15분은 이번에만 지정한 시간을 적용합니다.',
+      '!타이머 설정|00:10:00 또는 !타이머 설정|10분으로 시작 시간을 정한 뒤 !타이머 시작을 입력합니다. !타이머 일시정지와 !타이머 초기화도 사용할 수 있습니다.',
+      '!시계 설정에서 배경과 그림자, 각각의 불투명도, 증감 알림 대상을 바꿉니다. 시계와 타이머는 영역 하나를 함께 사용하며 ON/OFF와 설정은 API 재시작 후에도 유지합니다.',
+      '01 나레이터와 함께 설치하면 !... 조사가 끝났습니다. @시계 증가 1시간30분 또는 !... @타이머 설정|10분 @타이머 시작으로 연동합니다.',
+      '기존 독립 시계 스크립트는 제거하고 11번으로 교체합니다. 중복 설치하지 마세요.',
+    ],
+    settings: [],
+  },
 ];
 
 const selected = new Set(MODULES.map((module) => module.id));
@@ -274,6 +291,7 @@ function moduleHtml(module) {
 }
 
 function settingsHtml(module) {
+  if (!module.settings.length) return '<p>설치 후 채팅에 !시계 설정을 입력해 조절합니다.</p>';
   const groups = new Map();
   module.settings.forEach((setting) => {
     const group = setting.group || '기본';
@@ -355,7 +373,7 @@ function configuredSource(module, source) {
     source = replaceCodeValue(source, setting.codeKey, settingValue(module, setting), setting);
   });
   if (module.id === '00') {
-    const flags = { audio: '02', vd: '03', image: '04', type: '05', apng: '06', handout: '07', cutin: '08', avatar: '09', sheet: '10' };
+    const flags = { audio: '02', vd: '03', image: '04', type: '05', apng: '06', handout: '07', cutin: '08', avatar: '09', sheet: '10', clock: '11' };
     Object.keys(flags).forEach((key) => {
       source = replaceCodeValue(source, key, selected.has(flags[key]), { type: 'checkbox' });
     });
