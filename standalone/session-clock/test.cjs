@@ -134,11 +134,56 @@ test('space-separated increments override the default only for one command', () 
   r.cmd('감소 1시간 5분'); assert.equal(r.s().clockMinutes, 340);
   r.cmd('감소'); assert.equal(r.s().clockMinutes, 310); assert.equal(r.s().stepMinutes, 30);
 });
-test('time change notices respect OFF and notification option', () => {
-  const r = room(); r.cmd('시간|10:00'); assert.match(r.messages.at(-1).content, /^\/w gm /);
-  r.display(); r.cmd('증가'); assert.match(r.messages.at(-1).content, /^\/desc .*AM 10:00 → AM 10:30/);
-  r.cmd('알림|끄기'); r.cmd('감소'); assert.match(r.messages.at(-1).content, /^\/w gm /);
+test('direct time setting is silent and increments report only small current time', () => {
+  const r = room(); r.cmd('시간|10:00'); assert.equal(r.messages.length, 0);
+  r.display(); const count = r.messages.length;
+  r.cmd('시간|10:00'); assert.equal(r.messages.length, count);
+  r.cmd('증가'); assert.match(r.messages.at(-1).content, /^\/desc .*font-size:10px.*<b>AM 10:30<\/b>/);
+  assert.equal(r.messages.at(-1).who, '');
+  assert.doesNotMatch(r.messages.at(-1).content, /시간|→|증가|감소/);
+  r.cmd('알림|GM'); r.cmd('감소'); assert.match(r.messages.at(-1).content, /^\/w gm .*<b>AM 10:00<\/b>/);
+  r.cmd('알림|공개'); r.cmd('증가'); assert.match(r.messages.at(-1).content, /^\/desc /);
+  r.cmd('알림|끄기'); assert.equal(r.s().announce, false);
+  r.cmd('알림|켜기'); assert.equal(r.s().announce, true);
+  r.cmd('OFF'); r.cmd('감소'); assert.match(r.messages.at(-1).content, /^\/w gm /);
   assert.ok(r.messages.every(m => m.settings.noarchive === true));
+});
+test('background opacity validates without changing the text or running countdown', () => {
+  const r = room(); r.display(); r.timerCmd('설정 10초'); r.timerCmd('시작');
+  const deadline = r.s().deadline;
+  for (const [input, fill] of [['0', '#00000000'], ['25', '#00000040'], ['70', '#000000b3'], ['100', '#000000']]) {
+    r.cmd('불투명도|' + input); assert.equal(r.panel().data.fill, fill);
+    assert.equal(r.label().data.color, '#FFFFFF'); assert.equal(r.s().deadline, deadline);
+    assert.equal(r.s().objects.length, 2); assert.equal(r.s().running, true);
+  }
+  for (const value of ['', '-1', '101', 'NaN', 'Infinity', '10junk']) unchanged(r, '불투명도|' + value);
+  r.advance(1000); assert.equal(r.label().data.text, '00:00:09');
+  r.cmd('OFF'); idle(r);
+});
+test('shadow replaces only the panel and follows clock timer fitting and cleanup', () => {
+  const r = room(); r.display(); r.cmd('표시|그림자');
+  const shadow = () => r.objects.get('text' + r.s().objects.find(ref => ref.role === 'shadow').id);
+  assert.equal(r.panel(), undefined); assert.equal(r.s().objects.length, 2);
+  assert.equal(shadow().data.color, '#000000'); assert.equal(shadow().data.left, r.label().data.left + 2);
+  assert.equal(shadow().data.top, r.label().data.top + 2); assert.equal(r.fronts.at(-1), r.label().id);
+  r.advance(1000); idle(r); assert.equal(shadow().data.font_size, r.label().data.font_size);
+  r.cmd('시간|13:45'); assert.equal(shadow().data.text, 'PM 01:45');
+  r.timerCmd('설정 3초'); r.timerCmd('시작'); r.advance(1000);
+  assert.equal(shadow().data.text, '00:00:02'); const deadline = r.s().deadline;
+  r.cmd('불투명도|60'); assert.equal(r.panel(), undefined); assert.equal(r.s().deadline, deadline);
+  r.cmd('표시|배경'); assert.equal(r.panel().data.fill, '#00000099');
+  assert.equal(r.s().objects.length, 2); assert.equal(r.s().deadline, deadline);
+  r.cmd('표시|그림자'); shadow().remove(); idle(r); assert.equal(r.s().objects.length, 0);
+  assert.ok(r.objects.has('textoutsider')); assert.ok(r.objects.has('graphicguide'));
+});
+test('appearance settings persist through OFF and invalid stored values recover on restart', () => {
+  const r = room(); r.display(); r.cmd('불투명도|45'); r.cmd('표시|그림자'); r.cmd('OFF');
+  assert.equal(r.s().backgroundOpacity, 45); assert.equal(r.s().displayStyle, 'shadow');
+  r.emit('ready'); assert.equal(r.s().displayStyle, 'shadow'); assert.equal(r.s().backgroundOpacity, 45);
+  r.s().displayStyle = 'bad'; r.s().backgroundOpacity = NaN; r.emit('ready');
+  assert.equal(r.s().displayStyle, 'background'); assert.equal(r.s().backgroundOpacity, 100); idle(r);
+  delete r.s().displayStyle; delete r.s().backgroundOpacity; r.emit('ready');
+  assert.equal(r.s().displayStyle, 'background'); assert.equal(r.s().backgroundOpacity, 100);
 });
 test('duration formats and limits', () => {
   const r = room();
@@ -209,7 +254,7 @@ test('missing runtime page fails closed even without a deletion event', () => {
 });
 test('invalid commands do not cancel an active timer', () => {
   const r = room(); r.cmd('영역등록'); r.timer('10초');
-  for (const command of ['모드|bad', '알림|bad', '타이머|0초', '시간|25:00', '증가', 'unknown']) unchanged(r, command);
+  for (const command of ['모드|bad', '알림|bad', '표시|bad', '불투명도|101', '타이머|0초', '시간|25:00', '증가', 'unknown']) unchanged(r, command);
   assert.equal(r.s().running, true); r.cmd('OFF'); idle(r);
 });
 test('timer command namespace supports setting ON start pause resume reset and OFF', () => {
@@ -242,7 +287,9 @@ test('invalid timer commands preserve state and legacy timer aliases still work'
 test('settings buttons emit standalone commands and query links', () => {
   const r = room(); r.cmd('설정'); const html = r.messages.at(-1).content;
   const links = [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]);
-  assert.equal(links.length, 14); assert.ok(links.every(href => /^!(시계|타이머) /.test(href)));
+  assert.equal(links.length, 18); assert.ok(links.every(href => /^!(시계|타이머) /.test(href)));
+  assert.doesNotMatch(html, /영역:|×|원본 토큰은|자동 표시합니다|OFF는 표시/);
+  for (const command of ['!시계 표시|배경', '!시계 표시|그림자', '!시계 알림|공개', '!시계 알림|GM']) assert.ok(links.includes(command));
   assert.ok(links.some(href => href.includes('&#63;{현재 시간')));
   assert.ok(links.some(href => href === '!시계 영역등록'));
   assert.ok(links.some(href => href.startsWith('!타이머 설정 &#63;{')));

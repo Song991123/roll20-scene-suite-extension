@@ -617,6 +617,31 @@ test('animated background and narrator APNG cues retain effect order after delay
   }
 });
 
+test('manager card-ID buttons direct names and narrator cues create identical area effects', () => {
+  const r = room({ director: true, narrator: true, modules: ['03_visual_dialogue_compatible.js'] });
+  r.objects.get('front').set('name', '안개흰색');
+  const background = r.object('graphic', 'background', { name: 'vd_background', _pageid: 'page', layer: 'map', imgsrc: 'https://files.d20.io/images/bg/thumb.webm' });
+  r.chat('!APNG 설정|id=front|1회|3000ms|영역'); r.advance(200);
+  const links = [...r.managerHtml().matchAll(/<a href="([^"]*)"[^>]*>([^<]*)<\/a>/g)];
+  const manager = links.find(link => decode(link[1]).startsWith('!APNG 재생|id=front|') && decode(link[2]) === '반복 실행');
+  assert(manager, 'Expected actual manager repeat button for this card');
+  let expected;
+  for (const play of [
+    () => r.chat(decode(manager[1])),
+    () => r.chat('!APNG 재생|안개흰색|반복|영역'),
+    () => r.chat('!... @APNG 안개흰색|반복|영역'),
+  ]) {
+    play(); r.advance(1500);
+    assert.equal(r.graphics().length, 1);
+    const effect = r.graphics()[0];
+    if (!expected) expected = { ...effect.data };
+    assert.deepEqual(effect.data, expected);
+    assert(r.zorder.indexOf(effect.id) > r.zorder.indexOf(background.id));
+    r.chat('!APNG 중지|id=front'); r.advance(200);
+    assert.equal(r.graphics().length, 0);
+  }
+});
+
 const previewIndex = process.argv.indexOf('--preview');
 if (previewIndex >= 0) {
   const r = room(); r.adapter('vd', { 비주얼: '' }); r.save('복도 장면전환', '@비주얼 배경 외부인숙소_2층복도');

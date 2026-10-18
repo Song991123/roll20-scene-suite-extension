@@ -1,5 +1,5 @@
 /*
- * 세션 시계 | Roll20 Session Clock v1.0.1
+ * 세션 시계 | Roll20 Session Clock v1.0.2
  *
  * 지정한 영역에 게임 속 시간 또는 카운트다운을 표시합니다.
  * 시계의 시간은 GM이 직접 컨트롤하는 구조입니다.
@@ -14,6 +14,9 @@
  * !시계 간격|30분                    디폴트 증감 수치 설정
  * !시계 증가 (n분) / !시계 감소 (n분) 게임 속 시간 수동 조절. 괄호 안은 옵션. 생략하면 디폴트 증감 수치 적용
  * !시계 ON or OFF                    표시 온오프
+ * !시계 알림|공개 또는 GM            증감한 현재 시간 알림
+ * !시계 불투명도|70                  검정 배경 불투명도 0~100
+ * !시계 표시|배경 또는 그림자        시계와 타이머 표시 방식
  * !타이머 설정 00:10:00               카운트다운 시작 시간 설정
  * !타이머 시작                       카운트다운 시작 또는 재개
  * !타이머 일시정지                   남은 시간을 유지하고 정지
@@ -37,7 +40,7 @@
     const s = state.Roll20SessionClock;
     const defaults = { area: null, clockMinutes: 0, stepMinutes: 30, mode: 'clock',
       durationSeconds: 0, remainingMs: 0, deadline: 0, running: false,
-      enabled: false, announce: true, objects: [] };
+      enabled: false, announce: true, backgroundOpacity: 100, displayStyle: 'background', objects: [] };
     Object.keys(defaults).forEach(key => { if (s[key] === undefined) s[key] = defaults[key]; });
     if (!Array.isArray(s.objects)) s.objects = [];
     return s;
@@ -47,7 +50,7 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
   function notice(text) { sendChat('세션 시계', '/w gm ' + text, null, { noarchive: true }); }
-  function publicNotice(text) { sendChat('세션 시계', '/desc ' + text, null, { noarchive: true }); }
+  function publicNotice(text) { sendChat('', '/desc ' + text, null, { noarchive: true }); }
   function reject(text) { const error = new Error(text); error.input = true; throw error; }
   function cancelTimers() {
     generation++;
@@ -130,14 +133,14 @@
     }
     return area;
   }
-  function owned(type) {
-    const ref = memory().objects.find(entry => entry && entry.type === type);
+  function owned(type, role) {
+    const ref = memory().objects.find(entry => entry && entry.type === type && entry.role === role);
     return ref ? getObj(type, ref.id) : null;
   }
-  function track(type, attributes) {
+  function track(type, attributes, role) {
     const obj = createObj(type, attributes);
     if (!obj) throw new Error(type + ' 생성 실패');
-    memory().objects.push({ type: type, id: obj.id });
+    memory().objects.push({ type: type, id: obj.id, role: role });
     return obj;
   }
   function fontSize(area) {
@@ -156,6 +159,8 @@
       const next = Math.max(8, Math.floor(current * Math.min(area.width * 0.96 / width, area.height * 0.92 / height)));
       if (Math.abs(next - current) <= 1) return;
       obj.set({ font_size: next, font_family: FONT });
+      const shadow = owned('text', 'shadow');
+      if (shadow) shadow.set({ font_size: next, font_family: FONT });
     }
     if (attempt < 3) fitTimer = setTimeout(guarded(() => fitText(attempt + 1, token), true), 200);
   }
@@ -163,25 +168,36 @@
     const s = memory(), area = checkedArea();
     if (!s.enabled) return;
     if (!clearDisplay()) throw new Error('이전 표시 제거 실패');
-    const panel = track('pathv2', { pageid: area.pageId, layer: 'objects', shape: 'rec',
+    const panel = s.displayStyle === 'background' ? track('pathv2', { pageid: area.pageId, layer: 'objects', shape: 'rec',
       x: area.left, y: area.top, points: JSON.stringify([[0, 0], [area.width, area.height]]),
-      fill: '#000000', stroke: '#000000', stroke_width: 0, controlledby: '', fadeOnOverlap: false, renderAsScenery: false });
+      fill: s.backgroundOpacity === 100 ? '#000000' : '#000000' + Math.round(s.backgroundOpacity * 255 / 100).toString(16).padStart(2, '0'),
+      stroke: 'transparent', stroke_width: 0, controlledby: '', fadeOnOverlap: false, renderAsScenery: false }) : null;
     const label = track('text', { _pageid: area.pageId, layer: 'objects', left: area.left, top: area.top,
       text: textValue(), font_family: FONT, font_size: fontSize(area), color: '#FFFFFF',
       controlledby: '', rotation: 0, fadeOnOverlap: false, renderAsScenery: false });
-    toFront(panel); toFront(label);
+    const shadow = s.displayStyle === 'shadow' ? track('text', { _pageid: area.pageId, layer: 'objects',
+      left: area.left + 2, top: area.top + 2, text: textValue(), font_family: FONT, font_size: fontSize(area),
+      color: '#000000', controlledby: '', rotation: 0, fadeOnOverlap: false, renderAsScenery: false }, 'shadow') : null;
+    if (panel) toFront(panel);
+    if (shadow) toFront(shadow);
+    toFront(label);
     if (fitTimer !== null) clearTimeout(fitTimer);
     const token = ++fitGeneration;
     fitTimer = setTimeout(guarded(() => fitText(1, token), true), 200);
+  }
+  function hasDisplay() {
+    return owned('text') && (memory().displayStyle === 'shadow' ? owned('text', 'shadow') : owned('pathv2'));
   }
   function updateDisplay() {
     const s = memory();
     if (!s.enabled) return;
     if (!getObj('page', checkedArea().pageId)) throw new Error('페이지 없음');
     const label = owned('text');
-    if (!label || !owned('pathv2')) throw new Error('표시 객체 없음');
+    if (!hasDisplay()) throw new Error('표시 객체 없음');
     const value = textValue();
     if (label.get('text') !== value) label.set({ text: value, font_family: FONT, font_size: Number(label.get('font_size')) || fontSize(s.area) });
+    const shadow = owned('text', 'shadow');
+    if (shadow && shadow.get('text') !== value) shadow.set({ text: value });
   }
   function pause() {
     const s = memory(), remaining = remainingMs();
@@ -216,10 +232,11 @@
     notice('시계 영역 등록');
   }
   function clockChange(next, delta) {
-    const s = memory(), before = clockText(s.clockMinutes);
+    const s = memory();
     pause(); s.mode = 'clock'; s.clockMinutes = next;
     updateDisplay();
-    const change = '시간 ' + before + ' → ' + clockText(next) + (delta ? ' (' + (delta > 0 ? '+' : '-') + spanLabel(Math.abs(delta)).trim() + ')' : '');
+    if (delta === undefined) return;
+    const change = '<span style="font-size:10px;line-height:1.35;color:#969696"><b>' + clockText(next) + '</b></span>';
     if (s.enabled && s.announce) publicNotice(change); else notice(change);
   }
   function button(label, command, color) {
@@ -232,18 +249,19 @@
       '표시: ' + (s.enabled ? 'ON' : 'OFF') + ' / 모드: ' + (s.mode === 'clock' ? '시계' : '타이머') +
       '<br>현재 시간: ' + clockText(s.clockMinutes) + ' / 증감: ' + spanLabel(s.stepMinutes) +
       '<br>타이머: ' + timerText(remainingMs()) + (s.running ? ' 실행 중' : ' 정지') +
-      '<br>영역: ' + (s.area ? escape((getObj('page', s.area.pageId) || { get: () => '페이지 없음' }).get('name')) + ' / ' + s.area.width + '×' + s.area.height : '미등록') + '<br>' +
+      '<br>' +
       button('선택 토큰으로 영역 등록', '!시계 영역등록', '#7654a8') +
+      '<hr><b>표시 설정</b><br>' + button('검정 배경' + (s.displayStyle === 'background' ? ' ✓' : ''), '!시계 표시|배경') +
+      button('그림자' + (s.displayStyle === 'shadow' ? ' ✓' : ''), '!시계 표시|그림자') +
+      button('배경 불투명도 ' + s.backgroundOpacity + '%', '!시계 불투명도|?{배경 불투명도 0~100|' + s.backgroundOpacity + '}') +
       '<hr><b>시계</b><br>' + button('ON', '!시계 ON', '#287a4b') + button('OFF', '!시계 OFF', '#8b3940') +
       button('시간 설정', '!시계 시간|?{현재 시간 24시 기준|06:00}') +
       button('증감 시간 설정', '!시계 간격|?{시간|0}시간?{분|30}분') + button('증가', '!시계 증가') + button('감소', '!시계 감소') +
-      button('변동 알림 ' + (s.announce ? '켜짐' : '꺼짐'), '!시계 알림|' + (s.announce ? '끄기' : '켜기')) +
+      '<br>증감 알림: ' + button('전체 공개' + (s.announce ? ' ✓' : ''), '!시계 알림|공개') +
+      button('GM 귓말' + (!s.announce ? ' ✓' : ''), '!시계 알림|GM') +
       '<hr><b>타이머</b><br>' + button('ON', '!타이머 ON', '#287a4b') + button('OFF', '!타이머 OFF', '#8b3940') +
       button('시작 시간 설정', '!타이머 설정 ?{시 분 초 예 00:10:00|00:10:00}') + button('시작', '!타이머 시작', '#287a4b') +
-      button('일시정지', '!타이머 일시정지') + button('초기화', '!타이머 초기화') +
-      '<hr>GM 레이어에 영역용 이미지 토큰을 배치한 뒤 선택해 등록하세요. 원본 토큰은 변경하지 않습니다.<br>' +
-      '시간은 24시 기준으로 입력하고 AM/PM은 자동 표시합니다. 시계 모드에서는 시간이 저절로 흐르지 않습니다.<br>' +
-      'OFF는 표시와 카운트다운을 정리합니다. 영역, 시계 시간과 시작 시간 설정은 유지합니다.</div></div>');
+      button('일시정지', '!타이머 일시정지') + button('초기화', '!타이머 초기화') + '</div></div>');
   }
   function handle(msg, match) {
     const timerCommand = match[1] === '타이머';
@@ -287,12 +305,26 @@
         const ms = remainingMs() || s.durationSeconds * 1000;
         if (!Number.isFinite(ms) || ms <= 0 || ms > MAX_SECONDS * 1000) reject('타이머 시작 시간을 먼저 설정하세요.');
         pause(); s.mode = 'timer'; s.remainingMs = ms; s.deadline = Date.now() + ms; s.running = true; s.enabled = true;
-        if (!owned('text') || !owned('pathv2')) layout(); else updateDisplay();
+        if (!hasDisplay()) layout(); else updateDisplay();
         tick(generation); return notice('타이머 시작');
       }
       case '일시정지': if (s.mode !== 'timer') reject('타이머 모드에서 사용하세요.'); pause(); updateDisplay(); return notice('타이머 일시정지');
       case '초기화': if (s.mode !== 'timer') reject('타이머 모드에서 사용하세요.'); pause(); s.remainingMs = s.durationSeconds * 1000; updateDisplay(); return notice('타이머 초기화');
-      case '알림': if (!['켜기', '끄기'].includes(value)) reject('알림은 켜기 또는 끄기로 지정하세요.'); s.announce = value === '켜기'; return notice('시간 변동 알림 ' + value);
+      case '알림':
+        if (!['공개', 'gm', '켜기', '끄기'].includes(value.toLowerCase())) reject('알림은 공개 또는 GM으로 지정하세요.');
+        s.announce = ['공개', '켜기'].includes(value.toLowerCase());
+        return notice('증감 알림 ' + (s.announce ? '전체 공개' : 'GM 귓말'));
+      case '불투명도': {
+        if (!/^\d+(?:\.\d+)?$/.test(value) || Number(value) > 100) reject('불투명도는 0부터 100까지 입력하세요.');
+        s.backgroundOpacity = Number(value);
+        if (s.enabled) layout();
+        return settings();
+      }
+      case '표시':
+        if (!['배경', '그림자'].includes(value)) reject('표시는 배경 또는 그림자로 지정하세요.');
+        s.displayStyle = value === '배경' ? 'background' : 'shadow';
+        if (s.enabled) layout();
+        return settings();
       default: reject('알 수 없는 명령입니다. !시계 설정');
     }
   }
@@ -303,8 +335,10 @@
     if (!Number.isInteger(s.stepMinutes) || s.stepMinutes <= 0) s.stepMinutes = 30;
     if (!Number.isInteger(s.durationSeconds) || s.durationSeconds < 0 || s.durationSeconds > MAX_SECONDS) s.durationSeconds = 0;
     if (!['clock', 'timer'].includes(s.mode)) s.mode = 'clock';
+    if (!Number.isFinite(s.backgroundOpacity) || s.backgroundOpacity < 0 || s.backgroundOpacity > 100) s.backgroundOpacity = 100;
+    if (!['background', 'shadow'].includes(s.displayStyle)) s.displayStyle = 'background';
     if (!off()) notice('시계 OFF: 이전 표시 제거 실패, Mod 콘솔 확인');
-    log('Session Clock 1.0.1 ready (OFF)');
+    log('Session Clock 1.0.2 ready (OFF)');
   }));
   on('chat:message', guarded(function (msg) {
     if (!msg || msg.type !== 'api' || !playerIsGM(msg.playerid)) return;
