@@ -642,6 +642,46 @@ test('manager card-ID buttons direct names and narrator cues create identical ar
   }
 });
 
+test('decorated background audio and APNG cues finish the background change before creating the effect', () => {
+  for (const director of [false, true]) {
+    for (const simultaneous of [false, true]) {
+      const r = room({ director, narrator: true, modules: ['02_audio_bridge.js', '03_visual_dialogue_compatible.js'], apiChatDelay: 180 });
+      r.objects.get('front').set('name', '안개흰색');
+      r.object('deck', 'background-deck', { name: 'background' });
+      const image = 'https://files.d20.io/images/red/thumb.webm';
+      r.object('card', 'red-background', { name: '붉게물든저편', _deckid: 'background-deck', avatar: image });
+      r.object('graphic', 'old-background', { name: 'vd_background', _pageid: 'page', layer: 'map', imgsrc: 'https://files.d20.io/images/old/thumb.webm', left: 700, top: 420, width: 1400, height: 840 });
+      ['vd_area', 'vd_name', 'vd_dialogue', 'vd_panel', 'vd_dialogue_box'].forEach(name => r.object('graphic', name, {
+        name, _pageid: 'page', layer: 'objects', gmnotes: '', left: 700, top: 420, width: 1400, height: 200,
+      }));
+      ['짧은 타자기 소리', '༄ 한밤 중의 연기', '용목골 밤 소리'].forEach((title, i) => r.object('jukeboxtrack', 'sound' + i, { title, playing: false, loop: false, volume: 50 }));
+      const play = r.context.KIBScene.handlers.apng;
+      let plays = 0;
+      r.context.KIBScene.handlers.apng = (args, context) => {
+        const background = [...r.objects.values()].find(obj => obj.get('name') === 'vd_background');
+        assert.equal(background.get('imgsrc'), image, 'background must be replaced before the next APNG cue');
+        plays++;
+        return play(args, context);
+      };
+      const style = '](#" style="font-size: 13px; color: #333333; text-decoration: none; font-style:normal; font-weight:normal;)';
+      r.chat('!... /desc [ ``1983년 6월 9일, 오전 12시`` @비주얼 배경 붉게물든저편 @오디오 재생|짧은 타자기 소리 @오디오 재생|༄ 한밤 중의 연기|반복|볼륨=35 @오디오 재생|용목골 밤 소리|반복 @APNG 안개흰색|반복|영역  ' + style);
+      if (simultaneous) r.chat('!. /desc [ @APNG 안개흰색|반복|영역  ' + style);
+      r.advance(2000);
+      assert.equal(r.state.last_narration_error, undefined);
+      assert.equal(plays, simultaneous ? 2 : 1);
+      assert.equal(r.graphics().length, 1);
+      const effect = r.graphics()[0], background = [...r.objects.values()].find(obj => obj.get('name') === 'vd_background');
+      assert(r.zorder.indexOf(effect.id) > r.zorder.indexOf(background.id));
+      assert.equal(r.objects.get('sound0').get('playing'), true);
+      assert.equal(r.objects.get('sound1').get('loop'), true);
+      assert.equal(r.objects.get('sound1').get('volume'), 35);
+      assert.equal(r.objects.get('sound2').get('loop'), true);
+      assert(!r.messages.some(message => message.content.startsWith('!@배경 ')), 'adapter should not enqueue another background chat command');
+      r.chat('!APNG 중지'); r.advance(1000); assert.equal(r.graphics().length, 0);
+    }
+  }
+});
+
 const previewIndex = process.argv.indexOf('--preview');
 if (previewIndex >= 0) {
   const r = room(); r.adapter('vd', { 비주얼: '' }); r.save('복도 장면전환', '@비주얼 배경 외부인숙소_2층복도');
