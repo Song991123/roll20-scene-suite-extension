@@ -1,11 +1,27 @@
 /*
- * Roll20 Session Clock 1.0.0
- * 독립 실행. Scene Suite와 다른 API는 필요하지 않습니다.
- * GM 레이어의 이미지 토큰 하나를 선택하고 !시계 영역등록
- * !시계 설정 / !시계 시간|06:00 / !시계 간격|30분
- * !시계 증가 / !시계 감소 / !시계 ON / !시계 OFF
- * !시계 타이머|00:10:00 / !시계 시작 / !시계 일시정지 / !시계 초기화
- * 최신 VTT의 pathv2 사각형과 Rubik Mono One 텍스트를 사용합니다.
+ * 세션 시계 | Roll20 Session Clock v1.0.0
+ *
+ * 지도 위 지정 영역에 게임 속 시간 또는 카운트다운을 표시합니다.
+ * 검정 배경과 흰 Rubik Mono One 글자를 사용하며 GM만 조작할 수 있습니다.
+ *
+ * 시작하기
+ * 1. GM 레이어에 이미지 토큰을 놓고 표시할 위치와 크기로 조절합니다.
+ * 2. 토큰을 선택한 뒤 !시계 영역등록을 입력합니다.
+ * 3. !시계 시간|06:00으로 시간을 정하고 !시계 ON으로 표시합니다.
+ *
+ * 설정과 명령어
+ * !시계 설정                       설정 버튼과 현재 상태
+ * !시계 간격|30분                  기본 증감 간격 설정
+ * !시계 증가 / !시계 감소           게임 속 시간 수동 조절
+ * !시계 타이머|00:10:00             카운트다운 시작 시간 설정
+ * !시계 시작                       카운트다운 시작 또는 재개
+ * !시계 일시정지                   남은 시간을 유지하고 정지
+ * !시계 초기화                     정지하고 설정한 시작 시간으로 복원
+ * !시계 OFF                        표시 제거와 실행 중인 예약 작업 정리
+ *
+ * 시간은 24시 기준으로 입력하며 AM/PM은 자동 표시합니다.
+ * OFF해도 영역과 시간 설정은 보존하며 API 재시작 후에는 자동 실행하지 않습니다.
+ * 지원 환경: 최신 Roll20 VTT의 Mod API (pathv2 사용)
  */
 (function () {
   'use strict';
@@ -125,7 +141,7 @@
     return obj;
   }
   function fontSize(area) {
-    // shortcut: initial fit uses monospaced advances; refine from native bounds when the client supplies them.
+    // shortcut: 최초 크기는 고정폭 8자로 계산하며 Roll20이 경계값을 제공하면 보정합니다.
     return Math.max(8, Math.floor(Math.min(area.width * 0.96 / 8, area.height * 0.92 / 1.2)));
   }
   function fitText(attempt, token) {
