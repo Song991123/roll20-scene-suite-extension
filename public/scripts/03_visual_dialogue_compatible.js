@@ -2410,6 +2410,7 @@ const showDialogue = function () {
     }
   }
 
+  filtered = vdDecodeTextEntities(filtered);
   if (filtered.length == 0) {
     showNextDialogue();
     return;
@@ -3249,6 +3250,21 @@ const showNextDialogue = function () {
   }
 };
 
+function vdDecodeTextEntities(content) {
+  var named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' };
+  return String(content || '').replace(
+    /&(?:#(x[0-9a-f]+|\d+)|(amp|lt|gt|quot|apos|nbsp));/gi,
+    function (entity, numeric, name) {
+      if (name) return named[name.toLowerCase()];
+      var code = numeric.charAt(0).toLowerCase() == 'x'
+        ? parseInt(numeric.slice(1), 16) : Number(numeric);
+      if (!Number.isInteger(code) || code <= 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff))
+        return entity;
+      return String.fromCodePoint(code);
+    },
+  );
+}
+
 // ===== 외부 출력용 롤꾸 제거 =====
 state.VD_SANITIZE = function (content, type) {
   let filtered = String(content || '');
@@ -3293,7 +3309,7 @@ state.VD_SANITIZE = function (content, type) {
     let pair = ruby[i].substring(1, ruby[i].length - 1).split(')[');
     filtered = filtered.replace(ruby[i], pair[1] + '(' + pair[0] + ')');
   }
-  return filtered;
+  return vdDecodeTextEntities(filtered);
 };
 
 const getStringWithMargin = function (amount, length, ratio, str) {

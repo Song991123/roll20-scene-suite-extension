@@ -121,6 +121,58 @@ const vdRuntime = {
 };
 vm.createContext(vdRuntime);
 vm.runInContext(visualDialogueText, vdRuntime);
+[
+  ['중생아&#44; 번뇌를 태워 악을 쌓지 마라.', '중생아, 번뇌를 태워 악을 쌓지 마라.'],
+  ['&#x2C; &#124; &#125; &#x1F3B2;', ', | } 🎲'],
+  ['&amp; &quot; &apos; &lt; &gt; &nbsp;', '& " \' < > \u00a0'],
+  ['[중생아&#44;](#" style="color:red;") <u>본문&#33;</u>', '중생아, 본문!'],
+  ['&lt;b&gt;문자&lt;/b&gt;', '<b>문자</b>'],
+  ['&amp;#44; &amp;lt;b&amp;gt;', '&#44; &lt;b&gt;'],
+  ['&unknown; &#0; &#xD800; &#1114112; &#-1;', '&unknown; &#0; &#xD800; &#1114112; &#-1;'],
+].forEach(([source, expected]) => {
+  ['general', 'desc', 'emote'].forEach(type => assert.strictEqual(
+    vdRuntime.state.VD_SANITIZE(source, type), expected,
+    '비주얼 본문 문자 코드는 꾸밈 제거 후 한 번만 치환해야 합니다.',
+  ));
+});
+for (const type of ['general', 'desc', 'emote']) {
+  for (const typewriter of [false, true]) {
+    const objects = [], intervals = new Map();
+    const runtime = Object.assign({}, vdRuntime, {
+      state: {}, on() {},
+      Campaign() { return { get() { return 'entity-test'; } }; },
+      findObjs(query) { return objects.filter(obj => Object.keys(query).every(key => obj.get(key) === query[key])); },
+      getObj(kind, id) { return objects.find(obj => obj.get('_type') === kind && obj.id === id) || null; },
+      createObj(kind, values) {
+        const data = Object.assign({ _type: kind, _id: String(objects.length), _pageid: 'entity-test' }, values);
+        const obj = { id: data._id, get(key) { return data[key]; },
+          set(key, value) { if (typeof key === 'string') data[key] = value; else Object.assign(data, key); } };
+        objects.push(obj); return obj;
+      },
+      setInterval(fn) { intervals.set(1, fn); return 1; }, clearInterval(id) { intervals.delete(id); },
+    });
+    vm.createContext(runtime);
+    vm.runInContext(visualDialogueText, runtime);
+    runtime.createObj('page', { _id: 'entity-test', name: 'conversation' });
+    ['vd_area', 'vd_name', 'vd_dialogue', 'vd_panel', 'vd_dialogue_box'].forEach(name => runtime.createObj('graphic', {
+      name, left: 1000, top: 500, width: 4000, height: 300, layer: 'objects', gmnotes: '',
+    }));
+    runtime.KIBScene.get = (key, fallback) => key === 'timing.typeAllLines' ? typewriter : fallback;
+    runtime.vdInitState();
+    const source = '중생아&#44; 번뇌를 태워 악을 쌓지 마라.';
+    assert.strictEqual(runtime.state.VD_INJECT(source, type, '인물A', { allowNoAs: true }), true);
+    vm.runInContext('showDialogue()', runtime);
+    for (let step = 0; intervals.size && step < 100; step++) [...intervals.values()].forEach(fn => fn());
+    assert.strictEqual(intervals.size, 0, '문자 치환 후 타이핑도 정상 종료해야 합니다.');
+    const textId = type === 'desc' ? runtime.state.KIBSceneVD.scriptTexts['entity-test']
+      : objects.find(obj => obj.get('name') === 'vd_dialogue').get('gmnotes');
+    const rendered = runtime.getObj('text', textId).get('text');
+    assert(rendered.includes('중생아, 번뇌를 태워 악을 쌓지 마라.'), type + ' 본문에 실제 쉼표가 출력되어야 합니다.');
+    assert(!rendered.includes('&#44;'));
+    assert.strictEqual(runtime.state.vd_stock[0].content, source, '원본 채팅과 연출 파싱에 쓰는 내용은 변경하지 않습니다.');
+  }
+}
+console.log('Visual text entities: 21 conversion cases and 6 render/typewriter paths passed (mock only).');
 vdRuntime.state.vd_stock = [];
 assert.strictEqual(
   vdRuntime.state.VD_INJECT('공백 화자', 'general', '인물A ', {}),
