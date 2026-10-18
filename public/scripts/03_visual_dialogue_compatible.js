@@ -17,6 +17,7 @@ var vd_compat_setting = {
 };
 var vd_expression_refresh_timer = null;
 var vd_typewriter_interval = null;
+var vd_dialogue_generation = 0;
 var vd_ratio_warned = {};
 var vd_dialogue_box_names = ['vd_dialogue_box', 'vd_deco'];
 var vd_cutin_suppressed = {};
@@ -503,8 +504,7 @@ function vdHandleConfigCommand(content) {
   if (action == '초기화') {
     state.KIBSceneVD.config = Object.assign({}, vd_config_defaults);
     vdInitState();
-    showHideDecorations('vd_panel', false);
-    showHideDecorations('vd_dialogue_box', false);
+    vdResetDisplay();
     vdApplyStandingLayout();
     vdRefreshHandout();
     return vdWhisperExclude('비주얼 노벨 설정을 초기화했습니다.');
@@ -626,8 +626,7 @@ function vdHandleConfigCommand(content) {
   vdApplyTextStyle();
   vdApplyStandingLayout();
   if (key == 'dialogue_panel_mode') {
-    showHideDecorations('vd_panel', false);
-    showHideDecorations('vd_dialogue_box', false);
+    vdResetDisplay();
   }
   vdRefreshHandout();
   var shownValue =
@@ -1483,9 +1482,13 @@ on('ready', function () {
     }
   }
 
-  // 창 기본 숨김
-  showHideDecorations('vd_panel', false);
-  showHideDecorations('vd_dialogue_box', false);
+  // 재시작 시 이전 대사는 정리하고 저장한 화면 순서는 유지
+  var restartPages = vdResetDisplay();
+  restartPages.forEach(vdRestoreDisplayOrder);
+  // 다른 모듈의 ready 처리가 끝난 뒤 한 번만 순서를 재확인
+  setTimeout(function () {
+    restartPages.forEach(vdRestoreDisplayOrder);
+  }, 0);
   vdScheduleExpressionHandouts();
 
   on('add:card', vdHandleCardChange);
@@ -1608,8 +1611,7 @@ on('chat:message', function (msg) {
       }
 
       if (msg.content == '!@숨김' || msg.content == '!@hide') {
-        showHideDecorations('vd_dialogue_box', false);
-        showHideDecorations('vd_panel', false);
+        vdResetDisplay();
 
         let bg_name = findObjs({
           _type: 'graphic',
@@ -1691,6 +1693,7 @@ on('chat:message', function (msg) {
         (playerIsGM(msg.playerid) || msg.playerid == 'API') &&
         (msg.content == '!@리셋' || msg.content == '!@reset')
       ) {
+        vd_dialogue_generation++;
         vdClearTypewriter();
         state.vd_stock = [];
         vdWhisperExclude('대사 대기열을 초기화했습니다.');
@@ -2107,6 +2110,10 @@ const showDialogue = function () {
   let msg = state.vd_stock[0];
   if (!msg) return;
   vdClearTypewriter();
+  const displayGeneration = ++vd_dialogue_generation;
+  const isCurrentDialogue = function () {
+    return displayGeneration == vd_dialogue_generation && state.vd_stock[0] === msg;
+  };
   if (vdIsExcludedAs(msg.who)) {
     showNextDialogue();
     return;
@@ -2526,11 +2533,6 @@ const showDialogue = function () {
     top: is_script_mode ? script_top : dialogue_top,
   });
 
-  if (!vdApplyLayerOrder(current_page_id)) {
-    toFront(text_name);
-    toFront(text_dialogue);
-    vdKeepTransientFront(current_page_id);
-  }
   var typeSpeed =
     typeof KIBScene.get === 'function'
       ? KIBScene.get('timing.typeSpeed', 45)
@@ -2542,6 +2544,7 @@ const showDialogue = function () {
   if (use_typewriter && typed_length > 0) {
     let shown = 0;
     vd_typewriter_interval = setInterval(function () {
+      if (!isCurrentDialogue()) return;
       shown++;
       if (!getObj('text', text_dialogue.id)) return vdClearTypewriter();
       if (!vd_cutin_suppressed[current_page_id])
@@ -2551,23 +2554,22 @@ const showDialogue = function () {
         );
       if (shown >= typed_length) {
         vdClearTypewriter();
-        setTimeout(showNextDialogue, typeHold);
+        setTimeout(function () {
+          if (isCurrentDialogue()) showNextDialogue();
+        }, typeHold);
       }
     }, typeSpeed);
   }
 
-  setTimeout(() => {
+  const revealDialogue = function () {
+    if (!isCurrentDialogue()) return;
     showHideDecorations('vd_panel', decoration_name == 'vd_panel');
     showHideDecorations(
       'vd_dialogue_box',
       decoration_name == 'vd_dialogue_box',
     );
-    if (!vdApplyLayerOrder(current_page_id)) {
-      toFront(text_name);
-      toFront(text_dialogue);
-      vdKeepTransientFront(current_page_id);
-    }
-  }, 100);
+    vdRestoreDisplayOrder(current_page_id);
+  };
 
   clearTextWithout(text_name, text_dialogue, inactive_text);
 
@@ -2666,7 +2668,8 @@ const showDialogue = function () {
       current_token.set({ tint_color: 'transparent', gmnotes: Date.now() });
     }
   }
-  vdKeepTransientFront(current_page_id);
+  revealDialogue();
+  setTimeout(revealDialogue, 100);
 
   state.last_displayed_time = new Date().getTime();
   var centralMinShow =
@@ -2679,7 +2682,9 @@ const showDialogue = function () {
       : vd_setting.showtime_ratio;
   if (!(use_typewriter && typed_length > 0)) {
     setTimeout(
-      showNextDialogue,
+      function () {
+        if (isCurrentDialogue()) showNextDialogue();
+      },
       use_typewriter
         ? typeHold
         : Math.max(centralMinShow, str.length * centralRatio),
@@ -2895,6 +2900,49 @@ function vdRestoreDefaultLayers(pageId) {
   });
 }
 
+function vdDisplayPages() {
+  var pages = {};
+  Object.keys(state.KIBSceneVD.scriptTexts).concat(Object.keys(state.KIBSceneVD.layerOrder.byPage))
+    .forEach(function (id) { pages[id] = true; });
+  var names = ['vd_area', 'vd_name', 'vd_dialogue', 'vd_panel', 'vd_background', 'vd_standing'].concat(vd_dialogue_box_names);
+  (findObjs({ _type: 'graphic' }) || []).forEach(function (item) {
+    if (names.indexOf(item.get('name')) > -1 && item.get('_pageid')) pages[item.get('_pageid')] = true;
+  });
+  return Object.keys(pages);
+}
+
+function vdResetDisplay() {
+  vd_dialogue_generation++;
+  vdClearTypewriter();
+  state.vd_stock = [];
+  state.last_displayed_time = 0;
+  var pages = vdDisplayPages();
+  pages.forEach(function (pageId) {
+    var entry = state.KIBSceneVD.layerOrder.byPage[pageId];
+    var sheet = entry && getObj('graphic', entry.sheetId);
+    vdDialogueTexts(pageId).forEach(function (text) {
+      text.set({ text: '', layer: sheet ? sheet.get('layer') : 'objects' });
+    });
+  });
+  showHideDecorations('vd_panel', false);
+  showHideDecorations('vd_dialogue_box', false);
+  return pages;
+}
+
+function vdRestoreDisplayOrder(pageId) {
+  if (!getObj('page', pageId) || vdApplyLayerOrder(pageId)) return;
+  var order = String(getObj('page', pageId).get('_zorder') || '').split(',');
+  var standings = findObjs({ _type: 'graphic', name: 'vd_standing', _pageid: pageId }) || [];
+  standings.filter(function (item) { return item.get('layer') != 'gmlayer'; })
+    .sort(function (a, b) { return order.indexOf(a.id) - order.indexOf(b.id); }).forEach(toFront);
+  vdDecorationGraphics('vd_panel', pageId).concat(vdDecorationGraphics('vd_dialogue_box', pageId))
+    .concat(vdDialogueTexts(pageId)).forEach(function (item) {
+      if (item.get('layer') != 'gmlayer') toFront(item);
+    });
+  vdBringTabletopCardsFront(pageId);
+  vdKeepTransientFront(pageId);
+}
+
 function vdApplyLayerOrder(pageId) {
   if (vd_cutin_suppressed[pageId]) {
     vdDialogueTexts(pageId).forEach(function (text) {
@@ -2947,7 +2995,12 @@ function vdApplyLayerOrder(pageId) {
     if (text.get('layer') != layer) text.set('layer', layer);
     texts.push(text);
   });
-  var sceneBehind = graphicsNamed(['vd_background', 'vd_standing']).filter(
+  var savedOrder = String(getObj('page', pageId).get('_zorder') || '').split(',');
+  var sceneBehind = graphicsNamed(['vd_background']).concat(
+    graphicsNamed(['vd_standing']).sort(function (a, b) {
+      return savedOrder.indexOf(a.id) - savedOrder.indexOf(b.id);
+    }),
+  ).filter(
     function (item) {
       return item.get('layer') == layer;
     },
