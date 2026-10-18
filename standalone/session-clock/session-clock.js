@@ -1,5 +1,5 @@
 /*
- * 세션 시계 | Roll20 Session Clock v1.0.2
+ * 세션 시계 | Roll20 Session Clock v1.0.3
  *
  * 지정한 영역에 게임 속 시간 또는 카운트다운을 표시합니다.
  * 시계의 시간은 GM이 직접 컨트롤하는 구조입니다.
@@ -147,6 +147,15 @@
     // shortcut: 최초 크기는 고정폭 8자로 계산하며 Roll20이 경계값을 제공하면 보정합니다.
     return Math.max(8, Math.floor(Math.min(area.width * 0.96 / 8, area.height * 0.92 / 1.2)));
   }
+  function syncShadow(label) {
+    const shadow = owned('text', 'shadow');
+    if (!shadow) return;
+    shadow.set({ text: label.get('text'), font_family: FONT, font_size: Number(label.get('font_size')),
+      left: Number(label.get('left')) + 2, top: Number(label.get('top')) + 2 });
+    if (typeof shadow.toBelow === 'function') shadow.toBelow(label);
+    else if (typeof toBelow === 'function') toBelow(shadow, label);
+    else toFront(label);
+  }
   function fitText(attempt, token) {
     const s = memory();
     if (token !== fitGeneration || !s.enabled) return;
@@ -157,11 +166,10 @@
     const current = Number(obj.get('font_size')) || fontSize(area);
     if (width > 0 && height > 0) {
       const next = Math.max(8, Math.floor(current * Math.min(area.width * 0.96 / width, area.height * 0.92 / height)));
-      if (Math.abs(next - current) <= 1) return;
+      if (Math.abs(next - current) <= 1) { syncShadow(obj); return; }
       obj.set({ font_size: next, font_family: FONT });
-      const shadow = owned('text', 'shadow');
-      if (shadow) shadow.set({ font_size: next, font_family: FONT });
     }
+    syncShadow(obj);
     if (attempt < 3) fitTimer = setTimeout(guarded(() => fitText(attempt + 1, token), true), 200);
   }
   function layout() {
@@ -172,15 +180,16 @@
       x: area.left, y: area.top, points: JSON.stringify([[0, 0], [area.width, area.height]]),
       fill: s.backgroundOpacity === 100 ? '#000000' : '#000000' + Math.round(s.backgroundOpacity * 255 / 100).toString(16).padStart(2, '0'),
       stroke: 'transparent', stroke_width: 0, controlledby: '', fadeOnOverlap: false, renderAsScenery: false }) : null;
-    const label = track('text', { _pageid: area.pageId, layer: 'objects', left: area.left, top: area.top,
-      text: textValue(), font_family: FONT, font_size: fontSize(area), color: '#FFFFFF',
-      controlledby: '', rotation: 0, fadeOnOverlap: false, renderAsScenery: false });
     const shadow = s.displayStyle === 'shadow' ? track('text', { _pageid: area.pageId, layer: 'objects',
       left: area.left + 2, top: area.top + 2, text: textValue(), font_family: FONT, font_size: fontSize(area),
       color: '#000000', controlledby: '', rotation: 0, fadeOnOverlap: false, renderAsScenery: false }, 'shadow') : null;
+    const label = track('text', { _pageid: area.pageId, layer: 'objects', left: area.left, top: area.top,
+      text: textValue(), font_family: FONT, font_size: fontSize(area), color: '#FFFFFF',
+      controlledby: '', rotation: 0, fadeOnOverlap: false, renderAsScenery: false });
     if (panel) toFront(panel);
     if (shadow) toFront(shadow);
     toFront(label);
+    syncShadow(label);
     if (fitTimer !== null) clearTimeout(fitTimer);
     const token = ++fitGeneration;
     fitTimer = setTimeout(guarded(() => fitText(1, token), true), 200);
@@ -196,8 +205,7 @@
     if (!hasDisplay()) throw new Error('표시 객체 없음');
     const value = textValue();
     if (label.get('text') !== value) label.set({ text: value, font_family: FONT, font_size: Number(label.get('font_size')) || fontSize(s.area) });
-    const shadow = owned('text', 'shadow');
-    if (shadow && shadow.get('text') !== value) shadow.set({ text: value });
+    syncShadow(label);
   }
   function pause() {
     const s = memory(), remaining = remainingMs();
@@ -338,7 +346,7 @@
     if (!Number.isFinite(s.backgroundOpacity) || s.backgroundOpacity < 0 || s.backgroundOpacity > 100) s.backgroundOpacity = 100;
     if (!['background', 'shadow'].includes(s.displayStyle)) s.displayStyle = 'background';
     if (!off()) notice('시계 OFF: 이전 표시 제거 실패, Mod 콘솔 확인');
-    log('Session Clock 1.0.2 ready (OFF)');
+    log('Session Clock 1.0.3 ready (OFF)');
   }));
   on('chat:message', guarded(function (msg) {
     if (!msg || msg.type !== 'api' || !playerIsGM(msg.playerid)) return;

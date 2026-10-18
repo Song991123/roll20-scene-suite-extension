@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, 'session-clock.js'), 'utf8');
 
 function room(options = {}) {
-  const objects = new Map(), handlers = {}, timers = new Map(), messages = [], logs = [], fronts = [];
+  const objects = new Map(), handlers = {}, timers = new Map(), messages = [], logs = [], fronts = [], zorder = [];
   let now = 100000, nextId = 0, nextTimer = 0;
   const faults = {}, state = { OtherAPI: { untouched: true } };
   function emit(event, obj) { (handlers[event] || []).forEach(fn => fn(obj)); }
@@ -17,11 +17,15 @@ function room(options = {}) {
         }
         return data[key];
       },
-      set(values) { if (faults.set === type) throw new Error('set failed'); Object.assign(data, values); },
-      remove() { if (faults.remove === type) throw new Error('remove failed'); objects.delete(type + id); emit('destroy:' + type, obj); },
+      set(values) {
+        if (faults.set === type) throw new Error('set failed');
+        if (options.nativeTextReset && type === 'text' && values.text !== undefined && values.font_family === undefined) data.font_size = 8;
+        Object.assign(data, values);
+      },
+      remove() { if (faults.remove === type) throw new Error('remove failed'); objects.delete(type + id); zorder.splice(zorder.indexOf(id), 1); emit('destroy:' + type, obj); },
       data
     };
-    objects.set(type + id, obj); return obj;
+    objects.set(type + id, obj); zorder.push(id); return obj;
   }
   object('page', { name: 'Test page' }, 'page');
   const guide = object('graphic', { _pageid: 'page', layer: 'gmlayer', rotation: 0, left: 500, top: 200, width: 500, height: 100 }, 'guide');
@@ -30,7 +34,9 @@ function room(options = {}) {
     on: (name, fn) => (handlers[name] ||= []).push(fn),
     getObj: (type, id) => objects.get(type + id),
     createObj: (type, attrs) => { if (faults.create === type) throw new Error('create failed'); return object(type, attrs); },
-    toFront: obj => fronts.push(obj.id), playerIsGM: id => id === 'gm',
+    toFront: obj => { fronts.push(obj.id); if (!options.deferredFront) { zorder.splice(zorder.indexOf(obj.id), 1); zorder.push(obj.id); } },
+    toBelow: (obj, target) => { zorder.splice(zorder.indexOf(obj.id), 1); zorder.splice(zorder.indexOf(target.id), 0, obj.id); },
+    playerIsGM: id => id === 'gm',
     sendChat: (who, content, callback, settings) => messages.push({ who, content, settings }),
     log: value => logs.push(value),
     setTimeout: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, due: now + delay }); return id; },
@@ -39,7 +45,7 @@ function room(options = {}) {
   vm.runInContext(source, context);
   emit('ready');
   const api = {
-    state, objects, timers, messages, logs, fronts, guide, outsider, faults, emit,
+    state, objects, timers, messages, logs, fronts, zorder, guide, outsider, faults, emit,
     s: () => state.Roll20SessionClock,
     cmd(action = '', playerid = 'gm', selected = [{ _type: 'graphic', _id: 'guide' }]) {
       emit('chat:message', { type: 'api', content: '!시계' + (action ? ' ' + action : ''), playerid, selected });
@@ -47,7 +53,7 @@ function room(options = {}) {
     timerCmd(action = '', playerid = 'gm') {
       emit('chat:message', { type: 'api', content: '!타이머' + (action ? ' ' + action : ''), playerid });
     },
-    label: () => [...objects.values()].find(obj => obj.id !== 'outsider' && obj.data.font_family),
+    label: () => [...objects.values()].find(obj => obj.data.font_family && obj.data.color === '#FFFFFF'),
     panel: () => [...objects.values()].find(obj => obj.data.shape === 'rec'),
     advance(ms) {
       const target = now + ms;
@@ -184,6 +190,30 @@ test('appearance settings persist through OFF and invalid stored values recover 
   assert.equal(r.s().displayStyle, 'background'); assert.equal(r.s().backgroundOpacity, 100); idle(r);
   delete r.s().displayStyle; delete r.s().backgroundOpacity; r.emit('ready');
   assert.equal(r.s().displayStyle, 'background'); assert.equal(r.s().backgroundOpacity, 100);
+});
+test('shadow starts behind white text even before absolute front requests settle', () => {
+  const r = room({ deferredFront: true }); r.display(); r.cmd('표시|그림자');
+  const shadow = r.objects.get('text' + r.s().objects.find(ref => ref.role === 'shadow').id);
+  const assertBehind = () => assert(r.zorder.indexOf(shadow.id) < r.zorder.indexOf(r.label().id));
+  assert([...r.objects.keys()].indexOf('text' + shadow.id) < [...r.objects.keys()].indexOf('text' + r.label().id), 'create the shadow before the white face');
+  assertBehind(); r.advance(1000); assertBehind();
+  r.cmd('시간|10:15'); assertBehind(); r.timerCmd('설정 3초'); r.timerCmd('시작'); r.advance(1000); assertBehind();
+  r.cmd('OFF'); idle(r);
+});
+test('shadow text updates retain native font settings and restore relative order', () => {
+  const r = room({ nativeTextReset: true }); r.display(); r.cmd('표시|그림자'); r.advance(1000);
+  const shadow = r.objects.get('text' + r.s().objects.find(ref => ref.role === 'shadow').id);
+  const assertSynced = () => {
+    assert.equal(shadow.data.font_size, r.label().data.font_size);
+    assert.equal(shadow.data.font_family, r.label().data.font_family);
+    assert.equal(shadow.data.text, r.label().data.text);
+    assert(r.zorder.indexOf(shadow.id) < r.zorder.indexOf(r.label().id));
+  };
+  r.zorder.splice(r.zorder.indexOf(shadow.id), 1); r.zorder.push(shadow.id);
+  r.cmd('시간|13:45'); assertSynced();
+  r.timerCmd('설정 3초'); r.timerCmd('시작'); r.advance(1000); assertSynced();
+  r.timerCmd('일시정지'); assertSynced(); r.timerCmd('초기화'); assertSynced();
+  r.cmd('OFF'); idle(r);
 });
 test('duration formats and limits', () => {
   const r = room();
