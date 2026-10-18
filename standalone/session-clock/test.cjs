@@ -44,6 +44,9 @@ function room(options = {}) {
     cmd(action = '', playerid = 'gm', selected = [{ _type: 'graphic', _id: 'guide' }]) {
       emit('chat:message', { type: 'api', content: '!시계' + (action ? ' ' + action : ''), playerid, selected });
     },
+    timerCmd(action = '', playerid = 'gm') {
+      emit('chat:message', { type: 'api', content: '!타이머' + (action ? ' ' + action : ''), playerid });
+    },
     label: () => [...objects.values()].find(obj => obj.id !== 'outsider' && obj.data.font_family),
     panel: () => [...objects.values()].find(obj => obj.data.shape === 'rec'),
     advance(ms) {
@@ -78,8 +81,10 @@ test('isolated namespace and OFF startup', () => {
 test('GM-only commands and exact API prefix', () => {
   const r = room(); const before = JSON.stringify(r.state);
   r.cmd('영역등록', 'player');
+  r.timerCmd('설정 00:10:00', 'player'); r.timerCmd('시작', 'player'); r.timerCmd('OFF', 'player');
   r.emit('chat:message', { type: 'general', content: '!시계 ON', playerid: 'gm' });
   r.emit('chat:message', { type: 'api', content: '!시계아님 ON', playerid: 'gm' });
+  r.emit('chat:message', { type: 'api', content: '!타이머아님 ON', playerid: 'gm' });
   assert.equal(JSON.stringify(r.state), before); assert.equal(r.messages.length, 0);
 });
 test('area registration validates selected token without changing it', () => {
@@ -121,6 +126,13 @@ test('clock increments use configured minutes and wrap both directions', () => {
   r.cmd('간격|1시간30분'); r.cmd('증가'); assert.equal(r.s().clockMinutes, 65);
   r.cmd('증가|3시간'); assert.equal(r.s().clockMinutes, 245);
   for (const value of ['0', '-1분', '3초', '99:99', '100:00:00']) unchanged(r, '간격|' + value);
+});
+test('space-separated increments override the default only for one command', () => {
+  const r = room(); r.display(); r.cmd('시간|06:00'); r.cmd('간격|30분');
+  r.cmd('증가 15분'); assert.equal(r.s().clockMinutes, 375); assert.equal(r.s().stepMinutes, 30);
+  r.cmd('증가'); assert.equal(r.s().clockMinutes, 405);
+  r.cmd('감소 1시간 5분'); assert.equal(r.s().clockMinutes, 340);
+  r.cmd('감소'); assert.equal(r.s().clockMinutes, 310); assert.equal(r.s().stepMinutes, 30);
 });
 test('time change notices respect OFF and notification option', () => {
   const r = room(); r.cmd('시간|10:00'); assert.match(r.messages.at(-1).content, /^\/w gm /);
@@ -200,13 +212,50 @@ test('invalid commands do not cancel an active timer', () => {
   for (const command of ['모드|bad', '알림|bad', '타이머|0초', '시간|25:00', '증가', 'unknown']) unchanged(r, command);
   assert.equal(r.s().running, true); r.cmd('OFF'); idle(r);
 });
+test('timer command namespace supports setting ON start pause resume reset and OFF', () => {
+  const r = room(); r.cmd('영역등록'); r.timerCmd('설정 00:00:10');
+  assert.equal(r.s().mode, 'timer'); assert.equal(r.s().durationSeconds, 10); assert.equal(r.s().enabled, false);
+  r.timerCmd('on'); assert.equal(r.label().data.text, '00:00:10'); assert.equal(r.s().running, false);
+  r.advance(1000); idle(r); r.timerCmd('시작'); r.advance(2000);
+  r.timerCmd('일시정지'); idle(r); assert.equal(r.s().remainingMs, 8000);
+  r.timerCmd('시작'); r.advance(1000); assert.equal(r.label().data.text, '00:00:07');
+  r.timerCmd('초기화'); idle(r); assert.equal(r.label().data.text, '00:00:10');
+  r.timerCmd('시작'); r.timerCmd('oFf'); idle(r); assert.equal(r.s().objects.length, 0);
+  assert.equal(r.s().remainingMs, 0); assert.equal(r.s().durationSeconds, 10);
+});
+test('ON chooses the named mode without automatically starting or restarting a timer', () => {
+  const r = room(); r.cmd('영역등록'); r.timerCmd('설정|10초'); r.timerCmd('시작'); r.advance(2000);
+  r.cmd('ON'); assert.equal(r.s().mode, 'clock'); assert.equal(r.s().remainingMs, 8000); assert.equal(r.s().running, false);
+  r.advance(1000); idle(r); assert.match(r.label().data.text, /^AM /);
+  r.timerCmd('ON'); assert.equal(r.s().mode, 'timer'); assert.equal(r.label().data.text, '00:00:08'); assert.equal(r.s().running, false);
+  r.timerCmd('시작'); r.advance(1000); r.timerCmd('ON'); assert.equal(r.s().running, true);
+  r.advance(1000); assert.equal(r.label().data.text, '00:00:06'); r.cmd('OFF'); idle(r);
+});
+test('invalid timer commands preserve state and legacy timer aliases still work', () => {
+  const r = room(); r.cmd('영역등록'); r.timerCmd('설정 3초'); r.timerCmd('시작');
+  for (const action of ['설정 0초', '설정 bad', '시간 06:00', '증가 15분', 'unknown']) {
+    const before = JSON.stringify(r.s()); r.timerCmd(action); assert.equal(JSON.stringify(r.s()), before);
+  }
+  r.cmd('일시정지'); idle(r); r.cmd('타이머|00:00:04'); r.cmd('시작'); r.advance(1000);
+  assert.equal(r.label().data.text, '00:00:03'); r.timerCmd('OFF'); idle(r);
+});
 test('settings buttons emit standalone commands and query links', () => {
   const r = room(); r.cmd('설정'); const html = r.messages.at(-1).content;
   const links = [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]);
-  assert.equal(links.length, 14); assert.ok(links.every(href => href.startsWith('!시계 ')));
+  assert.equal(links.length, 14); assert.ok(links.every(href => /^!(시계|타이머) /.test(href)));
   assert.ok(links.some(href => href.includes('&#63;{현재 시간')));
   assert.ok(links.some(href => href === '!시계 영역등록'));
+  assert.ok(links.some(href => href.startsWith('!타이머 설정 &#63;{')));
+  for (const action of ['시작', '일시정지', '초기화', 'ON', 'OFF']) assert.ok(links.includes('!타이머 ' + action));
+  assert.ok(!links.some(href => /^!시계 (타이머|시작|일시정지|초기화)/.test(href)));
   r.emit('chat:message', { type: 'api', content: '!시계|시간|09:05', playerid: 'gm' });
   assert.equal(r.s().clockMinutes, 545);
+  for (const href of links) {
+    const content = href.replace(/&#63;/g, '?').replace(/&amp;/g, '&').replace(/&quot;/g, '"')
+      .replace(/\?\{[^|}]+\|([^}]+)\}/g, '$1');
+    r.emit('chat:message', { type: 'api', content, playerid: 'gm', selected: [{ _type: 'graphic', _id: 'guide' }] });
+  }
+  assert.equal(r.logs.length, 1); assert.ok(!r.messages.some(m => /알 수 없는|입력하세요|먼저 설정|선택하세요/.test(m.content)));
+  assert.equal(r.s().durationSeconds, 600); assert.equal(r.s().remainingMs, 600000); idle(r);
 });
 console.log(`${passed} tests passed`);

@@ -1,31 +1,31 @@
 /*
- * 세션 시계 | Roll20 Session Clock v1.0.0
+ * 세션 시계 | Roll20 Session Clock v1.0.1
  *
- * 지도 위 지정 영역에 게임 속 시간 또는 카운트다운을 표시합니다.
- * 검정 배경과 흰 Rubik Mono One 글자를 사용하며 GM만 조작할 수 있습니다.
+ * 지정한 영역에 게임 속 시간 또는 카운트다운을 표시합니다.
+ * 시계의 시간은 GM이 직접 컨트롤하는 구조입니다.
  *
- * 시작하기
- * 1. GM 레이어에 이미지 토큰을 놓고 표시할 위치와 크기로 조절합니다.
- * 2. 토큰을 선택한 뒤 !시계 영역등록을 입력합니다.
- * 3. !시계 시간|06:00으로 시간을 정하고 !시계 ON으로 표시합니다.
+ * 사용법
+ * 1. GM 레이어에 이미지 토큰을 놓고 표시할 위치와 크기로 조절.
+ * 2. 토큰을 선택한 뒤 !시계 영역등록을 입력.
+ * 3. !시계 시간|06:00으로 시간을 정하고 !시계 ON으로 표시.
  *
- * 설정과 명령어
- * !시계 설정                       설정 버튼과 현재 상태
- * !시계 간격|30분                  기본 증감 간격 설정
- * !시계 증가 / !시계 감소           게임 속 시간 수동 조절
- * !시계 타이머|00:10:00             카운트다운 시작 시간 설정
- * !시계 시작                       카운트다운 시작 또는 재개
- * !시계 일시정지                   남은 시간을 유지하고 정지
- * !시계 초기화                     정지하고 설정한 시작 시간으로 복원
- * !시계 OFF                        표시 제거와 실행 중인 예약 작업 정리
+ * 명령어
+ * !시계 설정                         현재 상태 보기
+ * !시계 간격|30분                    디폴트 증감 수치 설정
+ * !시계 증가 (n분) / !시계 감소 (n분) 게임 속 시간 수동 조절. 괄호 안은 옵션. 생략하면 디폴트 증감 수치 적용
+ * !시계 ON or OFF                    표시 온오프
+ * !타이머 설정 00:10:00               카운트다운 시작 시간 설정
+ * !타이머 시작                       카운트다운 시작 또는 재개
+ * !타이머 일시정지                   남은 시간을 유지하고 정지
+ * !타이머 초기화                     정지하고 설정한 시작 시간으로 복원
+ * !타이머 ON or OFF                  표시 온오프
  *
- * 시간은 24시 기준으로 입력하며 AM/PM은 자동 표시합니다.
- * OFF해도 영역과 시간 설정은 보존하며 API 재시작 후에는 자동 실행하지 않습니다.
+ * 시간은 24시 기준으로 입력, AM/PM은 자동 표시.
  * 지원 환경: 최신 Roll20 VTT의 Mod API (pathv2 사용)
  */
 (function () {
   'use strict';
-  const COMMAND = '!시계';
+  const COMMAND = /^!(시계|타이머)(?:\s|\||$)/;
   const FONT = 'Rubik Mono One';
   const MAX_SECONDS = 99 * 3600 + 59 * 60 + 59;
   let tickTimer = null, fitTimer = null, generation = 0, fitGeneration = 0, cleaning = false;
@@ -233,28 +233,39 @@
       '<br>현재 시간: ' + clockText(s.clockMinutes) + ' / 증감: ' + spanLabel(s.stepMinutes) +
       '<br>타이머: ' + timerText(remainingMs()) + (s.running ? ' 실행 중' : ' 정지') +
       '<br>영역: ' + (s.area ? escape((getObj('page', s.area.pageId) || { get: () => '페이지 없음' }).get('name')) + ' / ' + s.area.width + '×' + s.area.height : '미등록') + '<br>' +
-      button('선택 토큰으로 영역 등록', '!시계 영역등록', '#7654a8') + button('ON', '!시계 ON', '#287a4b') + button('OFF', '!시계 OFF', '#8b3940') +
-      '<hr><b>시계</b><br>' + button('시계 모드', '!시계 모드|시계') +
+      button('선택 토큰으로 영역 등록', '!시계 영역등록', '#7654a8') +
+      '<hr><b>시계</b><br>' + button('ON', '!시계 ON', '#287a4b') + button('OFF', '!시계 OFF', '#8b3940') +
       button('시간 설정', '!시계 시간|?{현재 시간 24시 기준|06:00}') +
       button('증감 시간 설정', '!시계 간격|?{시간|0}시간?{분|30}분') + button('증가', '!시계 증가') + button('감소', '!시계 감소') +
       button('변동 알림 ' + (s.announce ? '켜짐' : '꺼짐'), '!시계 알림|' + (s.announce ? '끄기' : '켜기')) +
-      '<hr><b>타이머</b><br>' + button('타이머 모드', '!시계 모드|타이머') +
-      button('시작 시간 설정', '!시계 타이머|?{시 분 초 예 00:10:00|00:10:00}') + button('시작', '!시계 시작', '#287a4b') +
-      button('일시정지', '!시계 일시정지') + button('초기화', '!시계 초기화') +
+      '<hr><b>타이머</b><br>' + button('ON', '!타이머 ON', '#287a4b') + button('OFF', '!타이머 OFF', '#8b3940') +
+      button('시작 시간 설정', '!타이머 설정 ?{시 분 초 예 00:10:00|00:10:00}') + button('시작', '!타이머 시작', '#287a4b') +
+      button('일시정지', '!타이머 일시정지') + button('초기화', '!타이머 초기화') +
       '<hr>GM 레이어에 영역용 이미지 토큰을 배치한 뒤 선택해 등록하세요. 원본 토큰은 변경하지 않습니다.<br>' +
       '시간은 24시 기준으로 입력하고 AM/PM은 자동 표시합니다. 시계 모드에서는 시간이 저절로 흐르지 않습니다.<br>' +
       'OFF는 표시와 카운트다운을 정리합니다. 영역, 시계 시간과 시작 시간 설정은 유지합니다.</div></div>');
   }
-  function handle(msg) {
-    const parts = msg.content.slice(COMMAND.length).trim().replace(/^\|/, '').split('|');
+  function handle(msg, match) {
+    const timerCommand = match[1] === '타이머';
+    const parts = msg.content.slice(match[0].length).trim().replace(/^\|/, '').split('|');
     const head = (parts.shift() || '설정').trim().split(/\s+/);
-    const action = head.shift().toLowerCase(), value = head.concat(parts).join(' ').trim();
+    let action = head.shift().toLowerCase();
+    const value = head.concat(parts).join(' ').trim();
+    if (timerCommand) {
+      if (!['설정', '상태', '도움말', 'on', '켜기', 'off', '끄기', '시작', '일시정지', '초기화'].includes(action)) reject('알 수 없는 명령입니다. !시계 설정');
+      if (action === '설정' && value) action = '타이머';
+    }
     const s = memory();
     switch (action) {
       case '설정': case '상태': case '도움말': return settings();
       case '영역등록': return registerArea(msg);
-      case 'on': case '켜기': checkedArea(); s.enabled = true; layout(); return notice('시계 ON');
-      case 'off': case '끄기': return notice(off() ? '시계 OFF' : '시계 OFF: 표시 제거 실패, Mod 콘솔 확인 후 OFF 재시도');
+      case 'on': case '켜기': {
+        checkedArea();
+        const mode = timerCommand ? 'timer' : 'clock';
+        if (s.mode !== mode) { pause(); s.mode = mode; }
+        s.enabled = true; layout(); return notice((timerCommand ? '타이머' : '시계') + ' ON');
+      }
+      case 'off': case '끄기': return notice(off() ? (timerCommand ? '타이머' : '시계') + ' OFF' : '표시 OFF: 표시 제거 실패, Mod 콘솔 확인 후 OFF 재시도');
       case '시간': return clockChange(parseClock(value));
       case '간격': s.stepMinutes = parseSpan(value, true) / 60; return notice('증감 시간 ' + spanLabel(s.stepMinutes));
       case '증가': case '감소': {
@@ -293,11 +304,12 @@
     if (!Number.isInteger(s.durationSeconds) || s.durationSeconds < 0 || s.durationSeconds > MAX_SECONDS) s.durationSeconds = 0;
     if (!['clock', 'timer'].includes(s.mode)) s.mode = 'clock';
     if (!off()) notice('시계 OFF: 이전 표시 제거 실패, Mod 콘솔 확인');
-    log('Session Clock 1.0.0 ready (OFF)');
+    log('Session Clock 1.0.1 ready (OFF)');
   }));
   on('chat:message', guarded(function (msg) {
-    if (!msg || msg.type !== 'api' || !new RegExp('^' + COMMAND + '(?:\\s|\\||$)').test(String(msg.content || '')) || !playerIsGM(msg.playerid)) return;
-    handle(msg);
+    if (!msg || msg.type !== 'api' || !playerIsGM(msg.playerid)) return;
+    const match = String(msg.content || '').match(COMMAND);
+    if (match) handle(msg, match);
   }));
   ['text', 'pathv2', 'page'].forEach(type => on('destroy:' + type, guarded(function (obj) {
     const s = memory();
