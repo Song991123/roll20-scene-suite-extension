@@ -993,7 +993,7 @@ function vdSetBackgroundImage(token, url) {
     (
       findObjs({ _type: 'graphic', name: 'vd_standing', _pageid: pageId }) || []
     ).forEach(toFront);
-    vdApplyLayerOrder(pageId);
+    vdRestoreDisplayOrder(pageId);
   };
   placeLikeApng();
   setTimeout(placeLikeApng, 100);

@@ -4,16 +4,16 @@ const vm = require('node:vm');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const source = name => fs.readFileSync(path.join(root, 'public/scripts', name), 'utf8');
-function room({ director = false, narrator = false, modules = [], apng = true, apngIntegration = true } = {}) {
+function room({ director = false, narrator = false, modules = [], apng = true, apngIntegration = true, apiChatDelay = null } = {}) {
   let now = 1000, sequence = 0;
-  const objects = new Map(), timers = new Map(), events = {}, messages = [], changes = [];
+  const objects = new Map(), timers = new Map(), events = {}, messages = [], changes = [], zorder = [];
   const state = {};
   function object(type, id, data) {
     const obj = { id, type, data,
-      get(key, callback) { const value = key === '_type' ? type : key === '_id' ? id : data[key]; if (callback) callback(value); return value; },
+      get(key, callback) { const value = key === '_type' ? type : key === '_id' ? id : key === '_zorder' ? zorder.join(',') : data[key]; if (callback) callback(value); return value; },
       set(key, value) { if (typeof key === 'object') Object.assign(data, key); else data[key] = value; },
-      remove() { objects.delete(id); (events['destroy:' + type] || []).forEach(fn => fn(obj)); } };
-    objects.set(id, obj); return obj;
+      remove() { objects.delete(id); const index = zorder.indexOf(id); if (index >= 0) zorder.splice(index, 1); (events['destroy:' + type] || []).forEach(fn => fn(obj)); } };
+    objects.set(id, obj); if (type === 'graphic' || type === 'text') zorder.push(id); return obj;
   }
   object('page', 'page', { name: 'conversation', width: 20, height: 12 });
   object('deck', 'deck', { name: 'apng' });
@@ -21,14 +21,24 @@ function room({ director = false, narrator = false, modules = [], apng = true, a
   object('graphic', 'area', { name: 'apng_area', _pageid: 'page', layer: 'gmlayer', left: 200, top: 300, width: 400, height: 250 });
   object('player', 'gm', { _displayname: 'GM', _online: true });
   function emit(event, ...args) { (events[event] || []).forEach(fn => fn(...args)); }
+  function move(obj, target, after) {
+    const index = zorder.indexOf(obj.id); if (index >= 0) zorder.splice(index, 1);
+    zorder.splice(target ? zorder.indexOf(target.id) + (after ? 1 : 0) : zorder.length, 0, obj.id);
+  }
   const context = {
     state, log() {}, on(event, fn) { (events[event] ||= []).push(fn); },
-    Date: { now: () => now }, playerIsGM: id => id === 'gm', randomInteger: () => 1,
-    Campaign: () => ({ get: () => '' }), toFront() {}, toBack() {},
+    Date: class extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } },
+    playerIsGM: id => id === 'gm', randomInteger: () => 1,
+    Campaign: () => ({ get: key => key === 'playerpageid' ? 'page' : '' }), toFront(obj) { move(obj); }, toBack() {},
+    toAbove(obj, target) { move(obj, target, true); }, toBelow(obj, target) { move(obj, target, false); },
     findObjs(query) { return [...objects.values()].filter(o => Object.entries(query).every(([key, value]) => o.get(key === 'type' ? '_type' : key) === value)); },
     getObj(type, id) { const obj = objects.get(id); return obj && obj.type === type ? obj : null; },
     createObj(type, data) { return object(type, 'created' + ++sequence, { ...data }); },
-    sendChat(as, content, cb, options) { messages.push({ as, content, options }); if (cb) cb([]); },
+    sendChat(as, content, cb, options) {
+      messages.push({ as, content, options }); if (cb) cb([]);
+      if (apiChatDelay !== null && content.startsWith('!')) context.setTimeout(() =>
+        emit('chat:message', { type: 'api', content, playerid: 'API', who: as }), apiChatDelay);
+    },
     setTimeout(fn, delay) { const id = ++sequence; timers.set(id, { fn, at: now + Number(delay || 0) }); return id; },
     clearTimeout(id) { timers.delete(id); }, setInterval() { throw new Error('Transition must not poll'); }, clearInterval() {},
   };
@@ -59,7 +69,7 @@ function room({ director = false, narrator = false, modules = [], apng = true, a
   function save(name = '슬라이드', extra = '', placement = '전체') { chat('!장면전환 저장|새로|' + name + '|id:front|1.2초|id:back|0.8초|' + placement + '|' + extra); }
   function graphics() { return [...objects.values()].filter(o => o.type === 'graphic' && String(o.data.name).startsWith('sd_apng:')); }
   function managerHtml() { return objects.get(state.KIBSceneAPNG.managerId).get('notes'); }
-  return { context, state, timers, objects, messages, changes, emit, advance, chat, adapter, save, graphics, managerHtml, object };
+  return { context, state, timers, objects, messages, changes, emit, advance, chat, adapter, save, graphics, managerHtml, object, zorder };
 }
 function decode(value) { return value.replace(/&#63;/g, '?').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'); }
 function button(html, label) {
@@ -560,6 +570,51 @@ test('04 plus 06 changes an image at the midpoint without 00, 01 or 03', () => {
   r.save(); r.chat('!장면전환|슬라이드|@이미지 image_room|ON'); r.advance(1199); assert.equal(token.data.imgsrc, 'old');
   r.advance(1); assert(token.data.imgsrc.includes('/room/')); r.advance(800); assert.equal(r.graphics().length, 0);
   assert.equal(r.state.KIBSceneDirector, undefined); assert.equal(r.state.narration, undefined); assert.equal(r.context.KIBScene.adapters.vd, undefined);
+});
+
+test('animated background and narrator APNG cues retain effect order after delayed API chat and image replacement', () => {
+  for (const registered of [false, true]) {
+    for (const apiChatDelay of [5, 50, 180]) {
+      for (const placement of ['영역', '전체']) {
+        const r = room({ narrator: true, modules: ['03_visual_dialogue_compatible.js'], apiChatDelay });
+        r.adapter('audio', { 오디오: '' });
+        r.context.KIBScene.get = (key, fallback) => key === 'timing.typeAllLines' ? false : fallback;
+        r.objects.get('front').set('name', '안개흰색');
+        r.object('deck', 'background-deck', { name: 'background' });
+        r.object('card', 'red-background', { name: '붉게물든저편', _deckid: 'background-deck', avatar: 'https://files.d20.io/images/bg/thumb.webm' });
+        r.object('graphic', 'old-background', { name: 'vd_background', _pageid: 'page', layer: 'map', imgsrc: 'https://files.d20.io/images/old/thumb.png', width: 1400, height: 840, left: 700, top: 420 });
+        ['vd_area', 'vd_name', 'vd_dialogue', 'vd_panel', 'vd_dialogue_box'].forEach(name => r.object('graphic', name, {
+          name, _pageid: 'page', layer: 'objects', gmnotes: '', left: 700, top: 420, width: 1400, height: 200,
+        }));
+        if (registered) {
+          r.object('graphic', 'map-sheet', { name: '맵시트', _pageid: 'page', layer: 'map', width: 1400, height: 840 });
+          r.state.KIBSceneVD.layerOrder.byPage.page = { sheetId: 'map-sheet', panelPosition: 'behind', decoPosition: 'front', textPosition: 'front' };
+        }
+        r.chat('!APNG 재생|안개흰색|반복|' + placement);
+        const assertAboveBackground = () => {
+          const effect = r.graphics()[0], background = [...r.objects.values()].find(obj => obj.data.name === 'vd_background');
+          assert(effect && background);
+          if (effect.get('layer') === background.get('layer')) assert(r.zorder.indexOf(effect.id) > r.zorder.indexOf(background.id), 'APNG must stay above the replaced background');
+          else assert.equal(effect.get('layer'), 'objects');
+        };
+        r.advance(200); assertAboveBackground(); r.chat('!APNG 중지');
+        r.state.narration = [{ as: 'GM', originPlayerId: 'gm', msg: '/desc ``1983년 6월 9일, 오전 12시`` @비주얼 배경 붉게물든저편 @오디오 재생|짧은 타자기 소리 @오디오 재생|༄ 한밤 중의 연기|반복|볼륨=35 @오디오 재생|용목골 밤 소리|반복 @APNG 안개흰색|반복|' + placement }];
+        r.state.is_narrating = 2; r.context.narrate();
+        r.advance(0); assertAboveBackground();
+        r.advance(apiChatDelay); assertAboveBackground();
+        r.advance(100); assertAboveBackground();
+        r.advance(500); assertAboveBackground();
+        for (const image of ['next.webm', 'next.mp4', 'still.png']) {
+          r.chat('!@배경 https://files.d20.io/images/background/' + image);
+          r.advance(100); assertAboveBackground();
+        }
+        assert.equal(r.changes.filter(change => change.name === 'audio').length, 3);
+        assert.equal(r.graphics()[0].get('width'), placement === '영역' ? 400 : 1400);
+        r.chat('!@배경 https://files.d20.io/images/background/last.webm');
+        r.chat('!APNG 중지'); r.advance(1000); assert.equal(r.graphics().length, 0);
+      }
+    }
+  }
 });
 
 const previewIndex = process.argv.indexOf('--preview');
