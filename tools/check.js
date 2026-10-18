@@ -1780,7 +1780,7 @@ assert(
   '10 시트 헬퍼를 설치기에 노출하고 00 기능 설정과 연결해야 합니다.',
 );
 assert(appText.includes("file: '11_session_clock.js'") && appText.includes("clock: '11'") &&
-  appText.includes('!시계 증가 2시간') && sceneDirectorText.includes('!시계 간격|1시간30분'),
+  sceneDirectorText.includes('!시계 증가 2시간') && sceneDirectorText.includes('!시계 간격|1시간30분'),
   '11 시계와 타이머는 설치 목록, 기능 선택과 시/분 단위 도움말을 제공해야 합니다.');
 assert(
   !appText.includes('contractBuilder: true') &&

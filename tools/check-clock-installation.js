@@ -11,6 +11,12 @@ vm.runInContext(fs.readFileSync(path.join(root, 'assets', 'app.js'), 'utf8'), co
 (async () => {
   assert.equal(vm.runInContext('MODULES.length', context), 12);
   assert.match(vm.runInContext("moduleHtml(MODULES.find(m => m.id === '11'))", context), /!시계 설정/);
+  const setup = vm.runInContext("MODULES.find(m => m.id === '11').setup", context);
+  assert.equal(setup.length, 3, '11번 세팅법은 최초 배치, 영역 등록, 설정 화면의 3단계로 안내합니다.');
+  assert.match(setup[0], /GM 레이어.*이미지 토큰/);
+  assert.match(setup[1], /!시계 영역등록/);
+  assert.match(setup[2], /!시계 설정/);
+  assert.doesNotMatch(setup.join(' '), /증가|감소|!타이머|나레이터|재시작|불투명도/, '사용법을 초기 세팅법에 섞지 않습니다.');
   for (const ids of [['00', '11'], ['00', '01'], Array.from({ length: 12 }, (_, i) => String(i).padStart(2, '0'))]) {
     vm.runInContext('selected.clear()', context);
     ids.forEach(id => vm.runInContext(`selected.add('${id}')`, context));
