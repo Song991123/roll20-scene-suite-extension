@@ -255,9 +255,54 @@ test('OFF removes only owned display and clears runtime but preserves configurat
   assert.ok(r.s().area); assert.ok(r.objects.has('textoutsider')); assert.ok(r.objects.has('graphicguide'));
   r.cmd('시작'); assert.equal(r.label().data.text, '00:00:10'); r.cmd('OFF'); idle(r);
 });
-test('API restart clears persisted display and never resumes automatically', () => {
-  const r = room(); r.cmd('영역등록'); r.timer('10초'); r.emit('ready');
-  idle(r); assert.equal(r.s().objects.length, 0); assert.equal(r.s().enabled, false); assert.equal(r.s().durationSeconds, 10);
+test('API restart restores enabled clock appearance without duplicating owned display', () => {
+  for (const style of ['배경', '그림자']) {
+    const r = room(); r.display(); r.cmd('시간|18:45'); r.cmd('표시|' + style); r.cmd('불투명도|45'); r.cmd('그림자불투명도|40');
+    const old = r.s().objects.map(ref => ref.type + ref.id);
+    r.emit('ready'); r.advance(1000); idle(r);
+    assert.equal(r.s().enabled, true); assert.equal(r.s().objects.length, 2); assert.equal(r.label().data.text, 'PM 06:45');
+    assert.equal(r.s().backgroundOpacity, 45); assert.equal(r.s().shadowOpacity, 40);
+    assert(old.every(key => !r.objects.has(key))); assert.ok(r.objects.has('textoutsider'));
+    r.emit('ready'); r.advance(1000); idle(r); assert.equal(r.s().objects.length, 2);
+    r.cmd('OFF'); idle(r);
+  }
+});
+test('API restart resumes countdown from saved deadline and ignores old callbacks', () => {
+  const r = room(); r.cmd('영역등록'); r.timer('10초'); r.advance(2000);
+  const deadline = r.s().deadline, old = [...r.timers.values()].map(t => t.fn);
+  r.lag(3000); r.emit('ready'); old.forEach(fn => fn());
+  assert.equal(r.s().enabled, true); assert.equal(r.s().running, true); assert.equal(r.s().deadline, deadline);
+  assert.equal(r.label().data.text, '00:00:05'); r.advance(1000); assert.equal(r.label().data.text, '00:00:04');
+  r.emit('ready'); r.advance(4000); idle(r); assert.equal(r.label().data.text, '00:00:00');
+  assert.equal(r.messages.filter(m => m.content === '/desc 타이머 종료').length, 1);
+  r.emit('ready'); r.advance(1000); idle(r);
+  assert.equal(r.messages.filter(m => m.content === '/desc 타이머 종료').length, 1);
+});
+test('API restart preserves a paused timer and explicit OFF stays off', () => {
+  const r = room(); r.cmd('영역등록'); r.timer('10초'); r.advance(2000); r.cmd('일시정지');
+  r.emit('ready'); r.advance(1000); idle(r); assert.equal(r.s().enabled, true); assert.equal(r.label().data.text, '00:00:08');
+  r.cmd('OFF'); r.emit('ready'); idle(r); assert.equal(r.s().enabled, false); assert.equal(r.s().objects.length, 0);
+  assert.equal(r.s().remainingMs, 0); assert.equal(r.s().durationSeconds, 10);
+});
+test('restart finishes an expired timer once and invalid restore state fails safely', () => {
+  const r = room(); r.cmd('영역등록'); r.timer('3초'); r.lag(5000); r.emit('ready'); r.advance(1000); idle(r);
+  assert.equal(r.label().data.text, '00:00:00'); assert.equal(r.messages.filter(m => m.content === '/desc 타이머 종료').length, 1);
+  r.timer('10초'); r.s().deadline = NaN; r.emit('ready'); r.advance(1000); idle(r); assert.equal(r.s().enabled, true);
+  r.objects.delete('pagepage'); r.emit('ready'); idle(r); assert.equal(r.s().enabled, false); assert.equal(r.s().objects.length, 0);
+});
+test('shadow opacity is independent from background and persists across modes and restart', () => {
+  const r = room(); r.display(); r.cmd('표시|그림자'); r.timer('10초');
+  const shadow = () => r.objects.get('text' + r.s().objects.find(ref => ref.role === 'shadow').id);
+  const deadline = r.s().deadline;
+  for (const [input, color] of [['0', '#00000000'], ['25', '#00000040'], ['60.5', '#0000009a'], ['100', '#000000']]) {
+    r.cmd('그림자불투명도|' + input); assert.equal(shadow().data.color, color);
+    assert.equal(r.label().data.color, '#FFFFFF'); assert.equal(r.s().backgroundOpacity, 100); assert.equal(r.s().deadline, deadline);
+  }
+  for (const input of ['', '-1', '101', 'NaN', 'Infinity', '10oops']) unchanged(r, '그림자불투명도|' + input);
+  r.cmd('그림자불투명도|42'); r.cmd('불투명도|35'); r.emit('ready'); r.advance(1000);
+  assert.equal(shadow().data.color, '#0000006b'); assert.equal(r.s().deadline, deadline);
+  r.cmd('표시|배경'); assert.equal(r.panel().data.fill, '#00000059'); assert.equal(r.s().shadowOpacity, 42);
+  r.cmd('표시|그림자'); assert.equal(shadow().data.color, '#0000006b'); r.cmd('OFF'); idle(r);
 });
 test('owned object or page deletion cleans up timers and remaining display', () => {
   for (const target of ['text', 'pathv2', 'page']) {
@@ -317,7 +362,8 @@ test('invalid timer commands preserve state and legacy timer aliases still work'
 test('settings buttons emit standalone commands and query links', () => {
   const r = room(); r.cmd('설정'); const html = r.messages.at(-1).content;
   const links = [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]);
-  assert.equal(links.length, 18); assert.ok(links.every(href => /^!(시계|타이머) /.test(href)));
+  assert.equal(links.length, 19); assert.ok(links.every(href => /^!(시계|타이머) /.test(href)));
+  assert.ok(links.some(href => href.startsWith('!시계 그림자불투명도|&#63;{')));
   assert.doesNotMatch(html, /영역:|×|원본 토큰은|자동 표시합니다|OFF는 표시/);
   for (const command of ['!시계 표시|배경', '!시계 표시|그림자', '!시계 알림|공개', '!시계 알림|GM']) assert.ok(links.includes(command));
   assert.ok(links.some(href => href.includes('&#63;{현재 시간')));

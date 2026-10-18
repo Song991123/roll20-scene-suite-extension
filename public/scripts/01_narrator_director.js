@@ -705,14 +705,17 @@ function ntExtractCues(source) {
     if (depth) break;
     const label = decorationMatch[1];
     decoratedText += extractPart(decoratedSource.slice(cursor, decorationMatch.index));
-    decoratedText += '[' + extractPart(label) + decoratedSource.slice(
-      decorationMatch.index + label.length + 1, end,
-    );
+    const cleanLabel = extractPart(label);
+    if (cleanLabel.trim() || cleanLabel === label)
+      decoratedText += '[' + cleanLabel + decoratedSource.slice(
+        decorationMatch.index + label.length + 1, end,
+      );
     cursor = end;
     decoration.lastIndex = end;
   }
   if (cursor) {
     decoratedText += extractPart(decoratedSource.slice(cursor));
+    if (cues.length && /^\/(?:desc|em)\s*$/.test(decoratedText.trim())) decoratedText = '';
     return { text: decoratedText, cues: cues, directType: directType,
       lineDelay: lineDelay, lineDelayError: lineDelayError };
   }

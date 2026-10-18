@@ -1,5 +1,5 @@
 /*
- * 세션 시계 | Roll20 Session Clock v1.0.3
+ * 세션 시계 | Roll20 Session Clock v1.0.4
  *
  * 지정한 영역에 게임 속 시간 또는 카운트다운을 표시합니다.
  * 시계의 시간은 GM이 직접 컨트롤하는 구조입니다.
@@ -16,6 +16,7 @@
  * !시계 ON or OFF                    표시 온오프
  * !시계 알림|공개 또는 GM            증감한 현재 시간 알림
  * !시계 불투명도|70                  검정 배경 불투명도 0~100
+ * !시계 그림자불투명도|60            그림자 불투명도 0~100
  * !시계 표시|배경 또는 그림자        시계와 타이머 표시 방식
  * !타이머 설정 00:10:00               카운트다운 시작 시간 설정
  * !타이머 시작                       카운트다운 시작 또는 재개
@@ -40,7 +41,7 @@
     const s = state.Roll20SessionClock;
     const defaults = { area: null, clockMinutes: 0, stepMinutes: 30, mode: 'clock',
       durationSeconds: 0, remainingMs: 0, deadline: 0, running: false,
-      enabled: false, announce: true, backgroundOpacity: 100, displayStyle: 'background', objects: [] };
+      enabled: false, announce: true, backgroundOpacity: 100, shadowOpacity: 100, displayStyle: 'background', objects: [] };
     Object.keys(defaults).forEach(key => { if (s[key] === undefined) s[key] = defaults[key]; });
     if (!Array.isArray(s.objects)) s.objects = [];
     return s;
@@ -147,10 +148,13 @@
     // shortcut: 최초 크기는 고정폭 8자로 계산하며 Roll20이 경계값을 제공하면 보정합니다.
     return Math.max(8, Math.floor(Math.min(area.width * 0.96 / 8, area.height * 0.92 / 1.2)));
   }
+  function blackColor(opacity) {
+    return opacity === 100 ? '#000000' : '#000000' + Math.round(opacity * 255 / 100).toString(16).padStart(2, '0');
+  }
   function syncShadow(label) {
     const shadow = owned('text', 'shadow');
     if (!shadow) return;
-    shadow.set({ text: label.get('text'), font_family: FONT, font_size: Number(label.get('font_size')),
+    shadow.set({ text: label.get('text'), font_family: FONT, font_size: Number(label.get('font_size')), color: blackColor(memory().shadowOpacity),
       left: Number(label.get('left')) + 2, top: Number(label.get('top')) + 2 });
     if (typeof shadow.toBelow === 'function') shadow.toBelow(label);
     else if (typeof toBelow === 'function') toBelow(shadow, label);
@@ -178,11 +182,11 @@
     if (!clearDisplay()) throw new Error('이전 표시 제거 실패');
     const panel = s.displayStyle === 'background' ? track('pathv2', { pageid: area.pageId, layer: 'objects', shape: 'rec',
       x: area.left, y: area.top, points: JSON.stringify([[0, 0], [area.width, area.height]]),
-      fill: s.backgroundOpacity === 100 ? '#000000' : '#000000' + Math.round(s.backgroundOpacity * 255 / 100).toString(16).padStart(2, '0'),
+      fill: blackColor(s.backgroundOpacity),
       stroke: 'transparent', stroke_width: 0, controlledby: '', fadeOnOverlap: false, renderAsScenery: false }) : null;
     const shadow = s.displayStyle === 'shadow' ? track('text', { _pageid: area.pageId, layer: 'objects',
       left: area.left + 2, top: area.top + 2, text: textValue(), font_family: FONT, font_size: fontSize(area),
-      color: '#000000', controlledby: '', rotation: 0, fadeOnOverlap: false, renderAsScenery: false }, 'shadow') : null;
+      color: blackColor(s.shadowOpacity), controlledby: '', rotation: 0, fadeOnOverlap: false, renderAsScenery: false }, 'shadow') : null;
     const label = track('text', { _pageid: area.pageId, layer: 'objects', left: area.left, top: area.top,
       text: textValue(), font_family: FONT, font_size: fontSize(area), color: '#FFFFFF',
       controlledby: '', rotation: 0, fadeOnOverlap: false, renderAsScenery: false });
@@ -262,6 +266,7 @@
       '<hr><b>표시 설정</b><br>' + button('검정 배경' + (s.displayStyle === 'background' ? ' ✓' : ''), '!시계 표시|배경') +
       button('그림자' + (s.displayStyle === 'shadow' ? ' ✓' : ''), '!시계 표시|그림자') +
       button('배경 불투명도 ' + s.backgroundOpacity + '%', '!시계 불투명도|?{배경 불투명도 0~100|' + s.backgroundOpacity + '}') +
+      button('그림자 불투명도 ' + s.shadowOpacity + '%', '!시계 그림자불투명도|?{그림자 불투명도 0~100|' + s.shadowOpacity + '}') +
       '<hr><b>시계</b><br>' + button('ON', '!시계 ON', '#287a4b') + button('OFF', '!시계 OFF', '#8b3940') +
       button('시간 설정', '!시계 시간|?{현재 시간 24시 기준|06:00}') +
       button('증감 시간 설정', '!시계 간격|?{시간|0}시간?{분|30}분') + button('증가', '!시계 증가') + button('감소', '!시계 감소') +
@@ -322,9 +327,9 @@
         if (!['공개', 'gm', '켜기', '끄기'].includes(value.toLowerCase())) reject('알림은 공개 또는 GM으로 지정하세요.');
         s.announce = ['공개', '켜기'].includes(value.toLowerCase());
         return notice('증감 알림 ' + (s.announce ? '전체 공개' : 'GM 귓말'));
-      case '불투명도': {
+      case '불투명도': case '그림자불투명도': {
         if (!/^\d+(?:\.\d+)?$/.test(value) || Number(value) > 100) reject('불투명도는 0부터 100까지 입력하세요.');
-        s.backgroundOpacity = Number(value);
+        s[action === '불투명도' ? 'backgroundOpacity' : 'shadowOpacity'] = Number(value);
         if (s.enabled) layout();
         return settings();
       }
@@ -344,10 +349,20 @@
     if (!Number.isInteger(s.durationSeconds) || s.durationSeconds < 0 || s.durationSeconds > MAX_SECONDS) s.durationSeconds = 0;
     if (!['clock', 'timer'].includes(s.mode)) s.mode = 'clock';
     if (!Number.isFinite(s.backgroundOpacity) || s.backgroundOpacity < 0 || s.backgroundOpacity > 100) s.backgroundOpacity = 100;
+    if (!Number.isFinite(s.shadowOpacity) || s.shadowOpacity < 0 || s.shadowOpacity > 100) s.shadowOpacity = 100;
     if (!['background', 'shadow'].includes(s.displayStyle)) s.displayStyle = 'background';
-    if (!off()) notice('시계 OFF: 이전 표시 제거 실패, Mod 콘솔 확인');
-    log('Session Clock 1.0.3 ready (OFF)');
-  }));
+    if (!Number.isFinite(s.remainingMs) || s.remainingMs < 0 || s.remainingMs > MAX_SECONDS * 1000) s.remainingMs = 0;
+    cancelTimers();
+    s.enabled = s.enabled === true;
+    s.running = s.enabled && s.mode === 'timer' && s.running === true && Number.isFinite(s.deadline) &&
+      s.deadline > 0 && s.deadline <= Date.now() + MAX_SECONDS * 1000;
+    if (!s.running) s.deadline = 0;
+    if (s.enabled) {
+      layout();
+      if (s.running) tick(generation);
+    } else if (!off()) notice('시계 OFF: 이전 표시 제거 실패, Mod 콘솔 확인');
+    log('Session Clock 1.0.4 ready (' + (s.enabled ? 'ON' : 'OFF') + ')');
+  }, true));
   on('chat:message', guarded(function (msg) {
     if (!msg || msg.type !== 'api' || !playerIsGM(msg.playerid)) return;
     const match = String(msg.content || '').match(COMMAND);

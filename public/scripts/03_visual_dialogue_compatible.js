@@ -1438,7 +1438,10 @@ on('ready', function () {
       if (!validation.ok) return validation;
       var command = vdResolveCueCommand(args, context);
       if (command.indexOf('!@') !== 0) command = '!@' + command;
-      sendChat('SceneDirector', command, null, { noarchive: true });
+      // 배경 생성보다 다음 큐가 앞서지 않도록 채팅 왕복 없이 같은 처리기를 실행한다.
+      if (/^!@(?:배경|background)\s/.test(command))
+        vdHandleChatMessage({ type: 'api', playerid: 'API', who: 'SceneDirector', content: command });
+      else sendChat('SceneDirector', command, null, { noarchive: true });
       return { ok: true };
     };
     var adapter = {
@@ -1528,7 +1531,8 @@ on('add:text', function (obj) {
 });
 
 // ===== 채팅 처리 =====
-on('chat:message', function (msg) {
+on('chat:message', vdHandleChatMessage);
+function vdHandleChatMessage(msg) {
   try {
     if (vdHandleHiddenExpressionChat(msg)) return;
     vdHandleInlineExpression(msg);
@@ -1901,7 +1905,7 @@ on('chat:message', function (msg) {
       err,
     );
   }
-});
+}
 
 // ===== 화면 출력 =====
 function vdValidateCue(args, context) {
